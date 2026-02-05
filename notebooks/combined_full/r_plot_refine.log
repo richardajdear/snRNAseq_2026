@@ -1,0 +1,16 @@
+
+Attaching package: ‘dplyr’
+
+The following objects are masked from ‘package:stats’:
+
+    filter, lag
+
+The following objects are masked from ‘package:base’:
+
+    intersect, setdiff, setequal, union
+
+Loading CSV...
+Data loaded. Producing plot...
+Donor plot saved to /home/rajd2/rds/hpc-work/snRNAseq_2026/notebooks/combined_full/donor_age_distribution.png 
+Generating cell histogram plot...
+Cell histogram plot saved to /home/rajd2/rds/hpc-work/snRNAseq_2026/notebooks/combined_full/cell_age_histogram.png 
