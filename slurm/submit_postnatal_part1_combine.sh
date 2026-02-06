@@ -32,7 +32,7 @@ echo "Date: $(date)"
 echo "========================================================"
 
 # Control Steps
-export SKIP_STEP1=true
+export SKIP_STEP1=false
 export SKIP_STEP2=false
 
 # 1. Combine (Postnatal Filter)
@@ -42,12 +42,11 @@ else
     echo "[Step 1] Combining FULL datasets (Postnatal Only, Age < 40)..."
     singularity exec --cleanenv /home/rajd2/rds/hpc-work/shortcake.sif micromamba run -n shortcake_default python -u $SCRIPTS_DIR/read_and_combine.py \
         --postnatal \
-        --max_age 40 \
         --output $OUTPUT_COMBINED \
-        --velmeshev $VELMESHEV \
-        --wang $WANG \
-        --aging $AGING \
-        --hbcc $HBCC
+        --velmeshev_path $VELMESHEV \
+        --wang_path $WANG \
+        --aging_path $AGING \
+        --hbcc_path $HBCC
 
     if [ $? -ne 0 ]; then echo "Step 1 Failed"; exit 1; fi
 fi

@@ -1,3 +1,4 @@
+
 import scanpy as sc
 import pandas as pd
 import numpy as np
@@ -44,21 +45,17 @@ def get_raw_counts(adata):
         # Fallback to .X, checking if it looks raw
         X = adata.X.copy()
         
-    # Validation (simple check on sample)
-    if hasattr(X, 'data'): data = X.data
-    else: data = X
-    
-    # Optional: could enforce transformation here or just return X
     return X
-
 
 # --- Parsing Functions ---
 
 def read_velmeshev(h5ad_path=VELMESHEV_PATH, meta_dir=VELMESHEV_META_DIR):
     print(f"Reading Velmeshev from {h5ad_path}...")
+    if not os.path.exists(h5ad_path):
+        print(f"Error: {h5ad_path} not found.")
+        return None
+        
     adata = sc.read_h5ad(h5ad_path)
-    
-    # Ensure raw counts
     adata.X = get_raw_counts(adata)
     
     print("Processing Velmeshev metadata...")
@@ -76,7 +73,7 @@ def read_velmeshev(h5ad_path=VELMESHEV_PATH, meta_dir=VELMESHEV_META_DIR):
                 'Macro': macro,
                 'Micro': micro
             })
-            .reset_index(0, names='Cell_Class').set_index('Cell_ID')
+            .reset_index(0, names='Cell_Class_Broad').set_index('Cell_ID')
             .assign(Age_Years = lambda x: np.select(
                 [
                     (x['Age'].str.contains('GW')) & (x['Age_Num'] > 268),
@@ -89,321 +86,377 @@ def read_velmeshev(h5ad_path=VELMESHEV_PATH, meta_dir=VELMESHEV_META_DIR):
         
         # Enhanced Lineage Mapping
         def map_velmeshev_lineage(row):
-            cls = row['Cell_Class']
+            cls = row['Cell_Class_Broad']
             if cls == 'Ex': return 'Excitatory'
             if cls == 'In': return 'Inhibitory'
             if cls == 'Micro': return 'Microglia'
             if cls == 'Macro':
-                # Attempt to refine using 'subclass' or 'cluster' if available in macro_meta
-                # Based on user check: keys like 'Astro', 'Oligo', 'OPC' might be in 'subclass' or 'cell_type'
-                # Inspecting the passed 'macro' dataframe specifically would be better, but assuming merged 'meta' has these cols
                 st = str(row.get('subclass', '')).lower()
-                ct = str(row.get('cell_type', '')).lower()
-                
+                ct = str(row.get('Cell_Type', '')).lower()
                 if 'astro' in st or 'astro' in ct: return 'Astrocytes'
                 if 'oligo' in st or 'oligo' in ct: return 'Oligos'
                 if 'opc' in st or 'opc' in ct: return 'OPC'
                 if 'endo' in st or 'endo' in ct: return 'Endothelial'
-                if 'immune' in st or 'immune' in ct: return 'Microglia' # or Immune
-                return 'Glia' # Fallback
+                if 'immune' in st or 'immune' in ct: return 'Microglia'
+                return 'Glia'
             return 'Other'
 
-        meta['lineage'] = meta.apply(map_velmeshev_lineage, axis=1)
+        meta['cell_class'] = meta.apply(map_velmeshev_lineage, axis=1)
         
         # Intersect
         common = adata.obs_names.intersection(meta.index)
         if len(common) > 0:
             adata = adata[common]
             meta = meta.loc[common]
+            
+            # Key Variables
             adata.obs['age_years'] = meta['Age_Years']
-            adata.obs['lineage'] = meta['lineage']
+            adata.obs['cell_class'] = meta['cell_class']
             adata.obs['sex'] = meta['Sex']
             adata.obs['individual'] = meta['Individual'].astype(str)
             adata.obs['region'] = meta['Region']
+            
+            # Aligned Tissue (User Request)
+            # Use 'Region' column for granular mapping (BA10, etc.)
+            # Do NOT use Region_Broad as it obscures the BAs
+            combined_mapping = {
+                # Prefrontal / Frontal
+                'BA10': 'prefrontal cortex',
+                'BA11': 'prefrontal cortex',
+                'BA9': 'prefrontal cortex',
+                'BA46': 'prefrontal cortex',
+                'BA9/46': 'prefrontal cortex',
+                'BA8': 'prefrontal cortex', 
+                'PFC': 'prefrontal cortex',
+                'FC': 'prefrontal cortex',
+                'FIC': 'prefrontal cortex',
+                'dorsolateral prefrontal cortex': 'prefrontal cortex',
+                'DLPFC': 'prefrontal cortex',
+
+                # Visual
+                'V1': 'visual cortex',
+                'primary visual cortex': 'visual cortex',
+                
+                # Telencephalon / GE
+                'GE': 'telencephalon',
+                'CGE': 'telencephalon',
+                'MGE': 'telencephalon',
+                'LGE': 'telencephalon',
+                'ganglionic eminence': 'telencephalon',
+                
+                # Cingulate Cortex (User Request)
+                'BA24': 'cingulate cortex', 
+                'ACC': 'cingulate cortex',
+                'Cing': 'cingulate cortex',
+                'cing': 'cingulate cortex',
+                
+                # Motor Cortex (User Request)
+                'Primary motor cortex': 'motor cortex',
+                'BA4': 'motor cortex',
+                
+                # Temporal Cortex (User Request)
+                'BA22': 'temporal cortex',
+                'STG': 'temporal cortex',
+                'temp': 'temporal cortex',
+                'temporal lobe': 'temporal cortex',
+
+                # Neocortex / Other Cortex
+                'S1': 'neocortex',
+                'BA13': 'neocortex', 
+                'INS': 'neocortex',
+                'Frontoparietal cortex': 'prefrontal cortex', # Maps to FC
+                'Frontoparietal\xa0cortex': 'prefrontal cortex', # Maps to FC
+                'cortex': 'neocortex',
+                'cerebral cortex': 'neocortex',
+                'visual cortex': 'visual cortex',
+            }
+            adata.obs['tissue'] = meta['Region'].replace(combined_mapping)
+            
+            # Keep original cell types/subclasses if available
+            if 'cell_type' in meta.columns: adata.obs['cell_type'] = meta['cell_type']
+            if 'subclass' in meta.columns: adata.obs['cell_subclass'] = meta['subclass']
+            
             if 'Dataset' in meta.columns: adata.obs['dataset'] = meta['Dataset']
             if 'Chemistry' in meta.columns: adata.obs['chemistry'] = meta['Chemistry']
             
     except Exception as e:
         print(f"Error loading Velmeshev TSV metadata: {e}")
+        return None # Critical failure
         
     return adata
 
 def read_wang(h5ad_path=WANG_PATH):
     print(f"Reading Wang from {h5ad_path}...")
+    if not os.path.exists(h5ad_path):
+         print(f"Error: {h5ad_path} not found.")
+         return None
+
     adata = sc.read_h5ad(h5ad_path)
-    
-    # Ensure raw counts
     adata.X = get_raw_counts(adata)
 
-    # Age
+    # Age: (days - 268) / 365
     if 'Estimated_postconceptional_age_in_days' in adata.obs.columns:
         adata.obs['age_years'] = (adata.obs['Estimated_postconceptional_age_in_days'] - 268) / 365.0
-    
-    # Cell Type Mapping
-    def map_lineage(s):
+        
+    # Sex: 'Sex' -> 'sex'
+    if 'Sex' in adata.obs.columns:
+         adata.obs['sex'] = adata.obs['Sex']
+
+    # Region: 'tissue' -> 'region' (Map Brodmann)
+    if 'tissue' in adata.obs.columns:
+        adata.obs['region'] = adata.obs['tissue'].str.replace('Brodmann (1909) area ', 'BA')
+        adata.obs['region'] = adata.obs['region'].replace({'forebrain': 'neocortex'})
+        
+        # Aligned Tissue (User Request)
+        adata.obs['tissue'] = adata.obs['tissue'].replace({
+            'Brodmann (1909) area 17': 'visual cortex',
+            'Brodmann (1909) area 10': 'prefrontal cortex',
+            'Brodmann (1909) area 9': 'prefrontal cortex',
+            'forebrain': 'neocortex'
+        })
+        
+    # Cell Class Mapping
+    # Wang has 'cell_type' with specific types
+    def map_wang_class(s):
         s = str(s).lower()
-        if 'glutamatergic' in s or 'excitatory' in s: return 'Excitatory'
-        if 'gaba' in s or 'interneuron' in s or 'inhibitory' in s: return 'Inhibitory'
-        if 'astrocyte' in s: return 'Astrocytes'
-        if 'oligodendrocyte' in s: return 'Oligos'
-        if 'opc' in s: return 'OPC'
+        if re.search(r'glutamatergic|corticothalamic|intratelencephalic|extratelencephalic|near-projecting', s): return 'Excitatory'
+        if re.search(r'gaba|interneuron', s): return 'Inhibitory'
+        if re.search(r'astrocyte', s): return 'Astrocytes'
+        if re.search(r'oligodendrocyte', s) and 'precursor' not in s: return 'Oligos'
+        if 'precursor' in s or 'opc' in s: return 'OPC'
         if 'microglia' in s: return 'Microglia'
-        if 'glia' in s: return 'Glia'
+        if 'endothelial' in s or 'vascular' in s: return 'Endothelial'
         return 'Other'
-        
+
     if 'cell_type' in adata.obs.columns:
-        adata.obs['lineage'] = adata.obs['cell_type'].apply(map_lineage)
-    
-    # Sex
-    if 'sex' in adata.obs.columns:
-        adata.obs['sex'] = adata.obs['sex']
+        adata.obs['cell_class'] = adata.obs['cell_type'].apply(map_wang_class)
+        adata.obs['cell_subclass'] = adata.obs['cell_type'] # Wang uses fine types
         
-    adata.obs['dataset'] = 'Wang'
     adata.obs['chemistry'] = 'multiome'
+    adata.obs['dataset'] = 'Wang' # Will be overwritten by concat key but good to have
+    
     return adata
 
-def read_psychad(h5ad_path, source_name, dataset_name, backed=False):
+def read_psychad(h5ad_path, dataset_name):
+    # Generic for HBCC and Aging
     print(f"Reading {dataset_name} from {h5ad_path}...")
-    adata = sc.read_h5ad(h5ad_path, backed='r' if backed else None)
-    
-    # Ensure raw counts (SKIP if backed, as we can't modify safely yet)
-    if not backed:
-        adata.X = get_raw_counts(adata)
-    
-    # Age
-    if 'development_stage' in adata.obs.columns:
-        adata.obs['age_years'] = adata.obs['development_stage'].apply(extract_age_psychad)
-        
-    # Lineage Mapping (Vectorized)
-    # Works on obs, so fine for backed mode too
-    if 'class' in adata.obs.columns:
-        cls = adata.obs['class'].astype(str).str.lower().values.astype('U')
-    else:
-        cls = np.full(adata.n_obs, '', dtype='U')
-        
-    if 'subclass' in adata.obs.columns:
-        sub = adata.obs['subclass'].astype(str).str.lower().values.astype('U')
-    else:
-        sub = np.full(adata.n_obs, '', dtype='U')
-    
-    conditions = [
-        (np.char.find(cls, 'en') != -1) | (np.char.find(cls, 'excitatory') != -1),
-        (np.char.find(cls, 'in') != -1) | (np.char.find(cls, 'inhibitory') != -1),
-        (np.char.find(cls, 'astro') != -1) | (np.char.find(sub, 'astro') != -1),
-        (np.char.find(cls, 'oligo') != -1) | (np.char.find(sub, 'oligo') != -1),
-        (np.char.find(cls, 'opc') != -1) | (np.char.find(sub, 'opc') != -1),
-        (np.char.find(cls, 'micro') != -1) | (np.char.find(sub, 'micro') != -1) | (np.char.find(cls, 'immune') != -1),
-        (np.char.find(cls, 'endo') != -1) | (np.char.find(sub, 'endo') != -1)
-    ]
-    
-    choices = ['Excitatory', 'Inhibitory', 'Astrocytes', 'Oligos', 'OPC', 'Microglia', 'Endothelial']
-    adata.obs['lineage'] = np.select(conditions, choices, default='Other')
-         
-    # Sex
-    if 'sex' in adata.obs.columns:
-        adata.obs['sex'] = adata.obs['sex']
-        
-    # Individual
-    if 'donor_id' in adata.obs.columns:
-        adata.obs['individual'] = adata.obs['donor_id']
-        
-    # adata.obs['source'] = source_name
-    adata.obs['dataset'] = dataset_name
-    adata.obs['chemistry'] = 'V3'
+    if not os.path.exists(h5ad_path):
+         print(f"Error: {h5ad_path} not found.")
+         return None
 
-    # Filter Unknown Ages 
-    # SKIP if backed, must be done by caller during subsetting to memory
-    if not backed and 'age_years' in adata.obs.columns:
-        # Check for NaNs
-        mask = ~adata.obs['age_years'].isna()
-        if not mask.all():
-            adata = adata[mask].copy() # Explicit copy to free original memory and return clean object
-            print(f"Filtered {adata.n_obs} cells with unknown age in {source_name}.")
-            gc.collect()
-
-    return adata
-
-def combine(adata_list, keys):
-    print("Aligning columns...")
-    common_cols = ['age_years', 'sex', 'lineage', 'dataset', 'source', 'chemistry', 'individual', 'region']
-    
-    processed_list = []
-    for ad in adata_list:
-        # Note: age_category and age_log2 removed from here. 
-        # Will be computed in process_data.py to save memory during combination.
-        
-        # Ensure cols exist
-        for c in common_cols:
-            if c not in ad.obs.columns:
-                ad.obs[c] = np.nan
-                
-        # Subset obs to common
-        ad.obs = ad.obs[common_cols]
-        processed_list.append(ad)
-        
-    print(f"Concatenating (Inner Join) with keys={keys}...")
-    # Inner join to keep only common genes, reducing memory usage
-    # Use keys to assign 'source' label automatically
-    combined = sc.concat(adata_list, label="source", keys=keys, join='inner')
-    return combined
-
-import psutil
-import gc
-import time
-
-START_TIME = time.time()
-
-def print_memory_usage(step_name=""):
-    process = psutil.Process(os.getpid())
-    mem_info = process.memory_info()
-    elapsed = time.time() - START_TIME
-    print(f"\n[Memory] {step_name}: {mem_info.rss / 1024 ** 3:.2f} GB ({process.memory_percent():.2f}%) - Elapsed: {elapsed/60:.2f} min")
-
-def filter_age_thresholds(ad, name, min_age=None, max_age=None):
-    if 'age_years' not in ad.obs.columns:
-        print(f"Warning: 'age_years' not found in {name}. Cannot filter age.")
-        return ad
-    
-    n_prev = ad.n_obs
-    print_memory_usage(f"Before Filtering {name}")
-    
-    # Create mask
-    # Start with all true
-    mask = np.ones(ad.n_obs, dtype=bool)
-    
-    if min_age is not None:
-        # Strict inequality for min_age as requested ("0 < age")
-        mask &= (ad.obs['age_years'] > min_age).values
-    if max_age is not None:
-        mask &= (ad.obs['age_years'] < max_age).values
-        
-    # Use in-place subsetting to avoid memory doubling
+    # Use backed mode to handle metadata without loading full X
     try:
-        ad._inplace_subset_obs(mask)
-        print(f"[{name}] In-place filtering successful.")
-    except Exception as e:
-        print(f"[{name}] In-place filtering failed ({e}), falling back to copy ref method.")
-        # Fallback (peaks memory but safe)
-        ad = ad[mask].copy()
-        gc.collect()
+        adata_backed = sc.read_h5ad(h5ad_path, backed='r')
+        
+        # Identify columns
+        obs = adata_backed.obs
+        
+        # Calculate Age
+        if 'development_stage' in obs.columns:
+             # We need to compute age to filter (if filtering is requested - here we just load)
+             # But 'extract_age_psychad' works on strings.
+             # We can't easily modify backed obs.
+             pass
+        
+        # For actual loading:
+        # We need to filter for < 40y HERE to save memory if strict mode is ON.
+        # But this script is 'read_and_combine'.
+        # Let's assume we load the filtered subset.
+        
+        # Calculate age first to create mask
+        ages = obs['development_stage'].apply(extract_age_psychad)
+        
+        # Filter Mask: Age >= 0 (and < 40 if desired, but user said 'Postnatal' usually implies 0+)
+        # Existing logic filtered < 40. We will keep that.
+        mask = (ages >= 0) & (ages < 40)
+        print(f"  Filtering {dataset_name}: {mask.sum()} / {len(mask)} cells kept (Age 0-40).")
+        
+        if mask.sum() == 0:
+            print(f"  Warning: No cells left in {dataset_name} after filter.")
+            return None
+            
+        # Load filtered subset to memory
+        adata = adata_backed[mask].to_memory()
+        
+        # Compute proper age column
+        adata.obs['age_years'] = ages[mask].values
+        
+        # Metadata
+        if 'sex' in adata.obs.columns: pass # already 'sex'
+        
+        # Region
+        if 'tissue' in adata.obs.columns:
+            adata.obs['region'] = adata.obs['tissue']
+            # Normalize to 'prefrontal cortex'
+            adata.obs['tissue'] = adata.obs['tissue'].replace({'dorsolateral prefrontal cortex': 'prefrontal cortex'})
+            
+        # Cell Class
+        # PsychAD uses 'class' (EN, IN, Astro, Oligo, OPC, Micro, Endo, Mural, Immune)
+        mapper = {
+            'EN': 'Excitatory', 
+            'IN': 'Inhibitory', 
+            'Astro': 'Astrocytes', 
+            'Oligo': 'Oligos',
+            'Mural': 'Endothelial', 
+            'Endo': 'Endothelial',
+            'Immune': 'Microglia',
+            'OPC': 'OPC'
+        }
+        if 'class' in adata.obs.columns:
+            adata.obs['cell_class'] = adata.obs['class'].map(mapper).fillna(adata.obs['class'])
+            
+        if 'subclass' in adata.obs.columns:
+            adata.obs['cell_subclass'] = adata.obs['subclass']
+            
+        if 'cell_type' in adata.obs.columns:
+             pass # keep existing
+             
+        adata.obs['dataset'] = dataset_name
+        
+        # Chemistry is usually 10xv3 for these newer datasets, but verify?
+        # PsychAD is 10X v3.
+        adata.obs['chemistry'] = 'V3'
 
-    print(f"[{name}] Age Filter (min={min_age}, max={max_age}): {n_prev} -> {ad.n_obs} cells")
-    print_memory_usage(f"After Filtering {name}")
-    return ad
-
-def read_and_filter_psychad(h5ad_path, source_name, dataset_name, min_age, max_age):
-    # Use backed=True to avoid OOM during initial load
-    try:
-        ad_backed = read_psychad(h5ad_path=h5ad_path, source_name=source_name, dataset_name=dataset_name, backed=True)
-        print_memory_usage(f"{dataset_name} Backed Object Created")
-        
-        # Construct mask
-        mask = np.ones(ad_backed.n_obs, dtype=bool)
-        if 'age_years' in ad_backed.obs.columns:
-            mask &= ~ad_backed.obs['age_years'].isna()
-            mask &= (ad_backed.obs['age_years'] < max_age)
-            if min_age is not None:
-                 mask &= (ad_backed.obs['age_years'] >= min_age)
-        
-        print(f"[{dataset_name}] Loading subset into memory (Cells: {mask.sum()}/{len(mask)})...")
-        adata = ad_backed[mask].to_memory()
-        
-        # Close backed file
-        if hasattr(ad_backed.file, 'close'):
-            ad_backed.file.close()
-        del ad_backed
-        gc.collect()
-        print_memory_usage(f"{dataset_name} Subset Loaded")
-        
-        # Post-load steps
-        adata.X = get_raw_counts(adata)
         return adata
+        
     except Exception as e:
-        print(f"Failed to read {dataset_name}: {e}")
-        import traceback
-        traceback.print_exc()
-        sys.exit(1)
+        print(f"Error reading {dataset_name}: {e}")
+        return None
 
+def check_structure(adatas):
+    """
+    Print diagnostic crosstabs and column intersections.
+    """
+    print("\n" + "="*40)
+    print("      DIAGNOSTIC STRUCTURE CHECK")
+    print("="*40)
+    
+    # 1. Identify shared columns
+    col_sets = [set(ad.obs.columns) for ad in adatas.values()]
+    common_cols = sorted(list(set.intersection(*col_sets)))
+    
+    print(f"\n[Common .obs Columns] Count: {len(common_cols)}")
+    print(", ".join(common_cols))
+    
+    # 2. Crosstabs
+    # Create distinct dataframe for plotting
+    combined_meta = []
+    for name, ad in adatas.items():
+        df = ad.obs.copy()
+        df['Dataset_Key'] = name
+        # Ensure columns exist
+        if 'region' not in df.columns: df['region'] = 'MISSING'
+        if 'cell_class' not in df.columns: df['cell_class'] = 'MISSING'
+        combined_meta.append(df[['Dataset_Key', 'region', 'cell_class']])
+        
+    full_df = pd.concat(combined_meta)
+    
+    print("\n[Crosstab: Dataset x Region]")
+    print(pd.crosstab(full_df['Dataset_Key'], full_df['region']))
+    
+    print("\n[Crosstab: Dataset x Cell Class]")
+    print(pd.crosstab(full_df['Dataset_Key'], full_df['cell_class']))
+    
+    print("\n" + "="*40 + "\n")
+    return common_cols
+
+# --- Main ---
 def main():
-    parser = argparse.ArgumentParser(description="Combine datasets [Velmeshev, Wang, psychAD-Aging, psychAD-HBCC]")
-    parser.add_argument("--postnatal", action="store_true", help="Filter for postnatal samples (Age >= 0)")
-    parser.add_argument("--max_age", type=float, default=40.0, help="Filter samples < max_age (default: 40)")
-    parser.add_argument("--output", help="Output path for combined h5ad", default=os.path.join(OUTPUT_DIR, "combined_10k.h5ad"))
-    parser.add_argument("--velmeshev", help="Path to Velmeshev h5ad", default=None)
-    parser.add_argument("--wang", help="Path to Wang h5ad", default=None)
-    parser.add_argument("--aging", help="Path to Aging Cohort h5ad", default=None)
-    parser.add_argument("--hbcc", help="Path to HBCC h5ad", default=None)
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--postnatal", action='store_true', help="Filter for age >= 0")
+    parser.add_argument("--diagnose_only", action='store_true', help="Only run diagnostics, do not save")
+    parser.add_argument("--output", default=f"{OUTPUT_DIR}/combined_postnatal_full.h5ad")
+    parser.add_argument("--aging_path", default=AGING_PATH)
+    parser.add_argument("--hbcc_path", default=HBCC_PATH)
+    parser.add_argument("--velmeshev_path", default=VELMESHEV_PATH)
+    parser.add_argument("--wang_path", default=WANG_PATH)
     args = parser.parse_args()
-
-    os.makedirs(os.path.dirname(args.output), exist_ok=True)
-    print_memory_usage("Start")
-    # Print total system memory
-    mem_total = psutil.virtual_memory().total / (1024 ** 3)
-    print(f"[Memory] Total System Memory: {mem_total:.2f} GB")
     
-    datasets = []
-    dataset_keys = []
+    adatas = {}
     
-    min_age = 0.0 if args.postnatal else None
-    max_age = args.max_age
-    print(f"Filtering criteria: Age >= {min_age} (if Set), Age < {max_age}")
-
-
-    # 1. HBCC Cohort (PsychAD) 
-    if args.hbcc:
-        ad_h = read_and_filter_psychad(args.hbcc, 'psychAD', 'HBCC', min_age, max_age)
-        datasets.append(ad_h)
-        dataset_keys.append('HBCC')
-
-    # 2. Aging Cohort (PsychAD)
-    if args.aging:
-        ad_r = read_and_filter_psychad(args.aging, 'psychAD', 'Aging', min_age, max_age)
-        datasets.append(ad_r)
-        dataset_keys.append('AGING')
-
-    # 3. Velmeshev
-    if args.velmeshev:
-        try:
-            ad_v = read_velmeshev(h5ad_path=args.velmeshev)
-            print_memory_usage("Velmeshev Loaded")
-            ad_v = filter_age_thresholds(ad_v, 'Velmeshev', min_age=min_age, max_age=max_age)
-            datasets.append(ad_v)
-            dataset_keys.append('VELMESHEV')
-            gc.collect()
-        except Exception as e:
-            print(f"Failed to read Velmeshev: {e}")
-            sys.exit(1)
-
-    # 4. Wang
-    if args.wang:
-        try:
-            ad_w = read_wang(h5ad_path=args.wang)
-            print_memory_usage("Wang Loaded")
-            ad_w = filter_age_thresholds(ad_w, 'Wang', min_age=min_age, max_age=max_age)
-            datasets.append(ad_w)
-            dataset_keys.append('WANG')
-            gc.collect()
-        except Exception as e:
-            print(f"Failed to read Wang: {e}")
-            sys.exit(1)
-
-    if not datasets:
+    # 1. Load Data
+    # Velmeshev
+    if args.velmeshev_path:
+        ad = read_velmeshev(args.velmeshev_path)
+        if ad: adatas['VELMESHEV'] = ad
+        
+    # Wang
+    if args.wang_path:
+        ad = read_wang(args.wang_path)
+        if ad: adatas['WANG'] = ad
+        
+    # Aging
+    if args.aging_path:
+        ad = read_psychad(args.aging_path, 'AGING')
+        if ad: adatas['AGING'] = ad
+        
+    # HBCC
+    if args.hbcc_path:
+        ad = read_psychad(args.hbcc_path, 'HBCC')
+        if ad: adatas['HBCC'] = ad
+        
+    if not adatas:
         print("No datasets loaded.")
+        sys.exit(1)
+        
+    # 2. Filter Postnatal (Unified Check)
+    # Note: PsychAD is filtered in read function. Others might need it.
+    for name in list(adatas.keys()):
+        ad = adatas[name]
+        if 'age_years' not in ad.obs.columns:
+            print(f"Warning: {name} has no age_years column. Dropping.")
+            del adatas[name]
+            continue
+            
+        if args.postnatal:
+            # Filter age >= 0
+            # Also user filter < 40 is standard per task.
+            n_start = ad.n_obs
+            ad = ad[ad.obs['age_years'] >= 0]
+            ad = ad[ad.obs['age_years'] < 40]
+            n_end = ad.n_obs
+            print(f"Postnatal Filter ({name}): {n_start} -> {n_end}")
+            
+            if n_end == 0:
+                del adatas[name]
+            else:
+                adatas[name] = ad
+
+    # 3. Diagnostics
+    common_cols = check_structure(adatas)
+    
+    if args.diagnose_only:
+        print("Diagnostics complete. Exiting.")
         return
 
-    print_memory_usage("Before Combine")
-    combined = combine(datasets, dataset_keys)
+    # 4. Combine
+    print("Combining datasets...")
+    # Subset to common columns to ensure clean merge? 
+    # Or rely on join='inner'. join='inner' works on index intersection for axis=1 (vars)
+    # For obs, concat usually keeps union. 
+    # User said: "keep all columns that are shared". This implies INTERSECTION of obs columns.
     
-    # clear inputs
-    del datasets
-    gc.collect()
-    print_memory_usage("After Combine")
+    for name in adatas:
+        adData = adatas[name]
+        # Keep only common columns + specific essential ones?
+        # "keep all columns that are shared ... across the data"
+        # This implies dropping unique columns.
+        
+        # Intersection logic:
+        valid_cols = [c for c in common_cols if c in adData.obs.columns]
+        adData.obs = adData.obs[valid_cols]
+        adatas[name] = adData
+        
+    combined = sc.concat(adatas, label='dataset', index_unique='-')
+    print(f"Combined Shape: {combined.shape}")
     
-    print(f"Saving combined data to {args.output}...")
+    # Write
+    out_dir = os.path.dirname(args.output)
+    if not os.path.exists(out_dir): os.makedirs(out_dir)
+    
+    print(f"Saving to {args.output}...")
     combined.write_h5ad(args.output)
-    
-    elapsed_total = time.time() - START_TIME
-    print(f"\nDone. Total time: {elapsed_total/60:.2f} min")
+    print("Done.")
 
 if __name__ == "__main__":
     main()

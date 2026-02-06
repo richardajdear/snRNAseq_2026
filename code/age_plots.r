@@ -7,7 +7,13 @@ library(ggbeeswarm)
 library(ggpubr)
 library(tidyverse)
 
-plot_age <- function(df, nrow=2, facet_colors=NULL, ylims=NULL) {
+plot_age <- function(df, color_var="source", nrow=2, facet_colors=NULL, ylims=NULL) {
+    # Ensure source order if present
+    if ("source" %in% names(df)) {
+        df <- df %>%
+            mutate(source = factor(source, levels = c("AGING", "HBCC", "VELMESHEV", "WANG")))
+    }
+
     ylim_max <- quantile(df$value, .9999)
     ylim_min <- quantile(df$value, .0001)
 
@@ -15,22 +21,21 @@ plot_age <- function(df, nrow=2, facet_colors=NULL, ylims=NULL) {
     filter(value < ylim_max & value > ylim_min) %>% 
     ggplot(aes(x=Age_log2, y=value)) +
     facet_grid(C~., switch='y', scales='free') + 
-    geom_point(aes(color=Cell_Type), size=.1, alpha=.3) +
-    geom_smooth(aes(group=1), se=F, guide=F, size=.5) + 
+    geom_point(aes(color=.data[[color_var]]), size=.1, alpha=.3) +
+    geom_smooth(aes(group=1), se=F, color="black", size=.5) + 
     scale_x_continuous(
         name = 'Donor Age',
         breaks = log2(1+c(0,1,9,25,60)),
         labels = function(x) round(2^x-1, 1)
     ) +
     scale_y_continuous(name='Expression (CPM)', limits=ylims, labels=function(y) paste0(round(y/1e3, 1), 'K')) +
-    scale_colour_viridis_d(option='viridis') +
     guides(color = guide_legend(byrow=T, override.aes = list(alpha=1, size=2))) +
     coord_cartesian(clip='off') +
     theme_classic() +
     theme(
         text = element_text(size=12, color='black'),
         axis.text.x = element_text(),
-        panel.grid.major = element_line(size=.5), 
+        panel.grid.major = element_line(size=.4), 
         legend.position='right',
         legend.title=element_blank(),
         legend.key.spacing.y = unit(2, 'mm'),
@@ -41,28 +46,34 @@ plot_age <- function(df, nrow=2, facet_colors=NULL, ylims=NULL) {
     )
 
     if (!is.null(facet_colors)) {
-        strip = strip_themed(background_x = elem_list_rect(fill=facet_colors))
-        p <- p + facet_wrap(~C, nrow=nrow, scales='free_y', strip=strip) # facet_wrap2 needs ggh4x
+        p <- p + facet_wrap(~C, nrow=nrow, scales='free_y') 
     } else {
         p <- p + facet_wrap(~C, nrow=nrow, scales='free_y')
     }
     p
 }
 
-plot_boxes <- function(df, facet_colors=NULL, nrow=2, scales='free_y', ylims=NULL, expand=c(.1,0)) {
-    p <- df %>% 
+plot_boxes <- function(df, color_var="source", facet_colors=NULL, nrow=2, scales='free_y', ylims=NULL, expand=c(.1,0)) {
+    # Ensure source order if present and being used
+    if ("source" %in% names(df)) {
+        df <- df %>%
+            mutate(source = factor(source, levels = c("AGING", "HBCC", "VELMESHEV", "WANG")))
+    }
+
+    # Prepare data
+    df_sum <- df %>% 
     arrange(age_range) %>%
     mutate(
-        age_range = str_replace(age_range, '2nd trimester', '2nd tri.'),
-        age_range = str_replace(age_range, '3rd trimester', '3rd tri.'),
-        age_range = factor(age_range, ordered=T, levels=unique(age_range))
+        age_range = factor(age_range, ordered=T, levels=c("Infancy", "Childhood", "Adolescence", "Adulthood"))
     ) %>%
-    group_by(network, Individual, age_range) %>% 
-    summarize(value=mean(value)) %>% 
-    mutate(highlight = ifelse(age_range == 'Adolescence', TRUE, FALSE)) %>%
+    group_by(network, Individual, age_range, !!sym(color_var)) %>% 
+    summarize(value=mean(value), .groups="drop") %>% 
+    mutate(highlight = ifelse(age_range == 'Adolescence', TRUE, FALSE))
+    
+    p <- df_sum %>%
     ggplot(aes(x=age_range, y=value)) + 
-    geom_quasirandom(color='grey30') +
-    geom_boxplot(aes(fill=highlight), alpha=.6, outlier.shape=NA) +
+    geom_quasirandom(aes(color=.data[[color_var]]), alpha=0.8, size=1) +
+    geom_boxplot(aes(fill=highlight), alpha=.4, outlier.shape=NA) +
     xlab('Donor Age') +
     scale_y_continuous(name='Pseudobulked Expression (CPM)', limits=ylims, expand=expand, labels=function(y) paste0(round(y/1e3, 1), 'K')) +
     stat_summary(
@@ -78,9 +89,10 @@ plot_boxes <- function(df, facet_colors=NULL, nrow=2, scales='free_y', ylims=NUL
     theme(
         text = element_text(size=12, color='black'), 
         title = element_text(size=12, color='black'),
-        panel.grid.major = element_line(size=.5),
+        panel.grid.major = element_line(size=.4),
         panel.grid.minor = element_blank(),
-        legend.position = 'none',
+        legend.position = 'right',
+        legend.title = element_blank(),
         strip.background = element_blank(),
         strip.text.x = element_text(size=12),
         strip.text.y.left = element_text(size=12, angle=0),
@@ -89,8 +101,7 @@ plot_boxes <- function(df, facet_colors=NULL, nrow=2, scales='free_y', ylims=NUL
     )
 
     if (!is.null(facet_colors)) {
-        strip = strip_themed(background_x = elem_list_rect(fill=facet_colors))
-        p <- p + facet_wrap(~network, nrow=nrow, scales=scales, strip=strip) # facet_wrap2 needs ggh4x
+        p <- p + facet_wrap(~network, nrow=nrow, scales=scales)
     } else {
         p <- p + facet_wrap(~network, nrow=nrow, scales=scales)
     }

@@ -1,0 +1,93 @@
+/opt/micromamba/envs/shortcake_default/lib/python3.10/site-packages/anndata/utils.py:429: FutureWarning: Importing read_csv from `anndata` is deprecated. Import anndata.io.read_csv instead.
+  warnings.warn(msg, FutureWarning)
+/opt/micromamba/envs/shortcake_default/lib/python3.10/site-packages/anndata/utils.py:429: FutureWarning: Importing read_text from `anndata` is deprecated. Import anndata.io.read_text instead.
+  warnings.warn(msg, FutureWarning)
+/opt/micromamba/envs/shortcake_default/lib/python3.10/site-packages/anndata/utils.py:429: FutureWarning: Importing read_excel from `anndata` is deprecated. Import anndata.io.read_excel instead.
+  warnings.warn(msg, FutureWarning)
+/opt/micromamba/envs/shortcake_default/lib/python3.10/site-packages/anndata/utils.py:429: FutureWarning: Importing read_mtx from `anndata` is deprecated. Import anndata.io.read_mtx instead.
+  warnings.warn(msg, FutureWarning)
+/opt/micromamba/envs/shortcake_default/lib/python3.10/site-packages/anndata/utils.py:429: FutureWarning: Importing read_loom from `anndata` is deprecated. Import anndata.io.read_loom instead.
+  warnings.warn(msg, FutureWarning)
+/opt/micromamba/envs/shortcake_default/lib/python3.10/site-packages/anndata/utils.py:429: FutureWarning: Importing read_hdf from `anndata` is deprecated. Import anndata.io.read_hdf instead.
+  warnings.warn(msg, FutureWarning)
+/opt/micromamba/envs/shortcake_default/lib/python3.10/site-packages/anndata/utils.py:429: FutureWarning: Importing read_umi_tools from `anndata` is deprecated. Import anndata.io.read_umi_tools instead.
+  warnings.warn(msg, FutureWarning)
+=== Checking Dataset Structures ===
+
+Loading Velmeshev from /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/velmeshev/velmeshev10k.h5ad...
+  Shape: (10000, 17663)
+  Obs columns: 25
+  Var columns: 5
+
+Loading Wang from /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/wang/wang_10k.h5ad...
+  Shape: (10000, 36406)
+  Obs columns: 39
+  Var columns: 7
+
+Loading HBCC from /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_PsychAD/RNAseq/HBCC_Cohort_10k.h5ad...
+  Shape: (10000, 34176)
+  Obs columns: 36
+  Var columns: 8
+
+Loading Aging from /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_PsychAD/RNAseq/Aging_Cohort_10k.h5ad...
+  Shape: (10000, 34176)
+  Obs columns: 33
+  Var columns: 8
+
+=== Common .obs Columns ===
+['assay', 'assay_ontology_term_id', 'cell_type', 'cell_type_ontology_term_id', 'development_stage', 'development_stage_ontology_term_id', 'disease', 'disease_ontology_term_id', 'donor_id', 'is_primary_data', 'observation_joinid', 'self_reported_ethnicity', 'self_reported_ethnicity_ontology_term_id', 'sex', 'sex_ontology_term_id', 'suspension_type', 'tissue', 'tissue_ontology_term_id', 'tissue_type']
+
+=== Common .var Columns ===
+['feature_biotype', 'feature_is_filtered', 'feature_length', 'feature_name', 'feature_reference']
+
+=== Unique Columns per Dataset (Top 5) ===
+Velmeshev: ['sample', 'region', 'organism', 'organism_ontology_term_id', 'PMI'] ... (6 total unique)
+Wang: ['Nucleosome_signal', 'ATAC_fragments_in_peaks', 'Type_updated', 'Percentage_reads_in_peaks', 'Sample_ID'] ... (20 total unique)
+HBCC: ['subtype', 'AD_status', 'subclass', 'class', 'genetic_ancestry'] ... (17 total unique)
+Aging: ['subtype', 'subclass', 'class', 'genetic_ancestry', 'Bipolar_Disorder'] ... (14 total unique)
+
+=== Diagnosing Region/Cell Type Alignment ===
+
+--- Crosstab: Dataset x Aligned Region ---
+aligned_region  BA10  BA17  ...  telencephalon  visual cortex
+Dataset                     ...                              
+Aging              0     0  ...              0              0
+HBCC               0     0  ...              0              0
+Velmeshev          0     0  ...              0              0
+Wang            1926  2455  ...            193           1013
+
+[4 rows x 10 columns]
+
+--- Crosstab: Dataset x Aligned Cell Class ---
+aligned_class  Astro    EN  Endo    IN  Immune  Mural  OPC  Oligo  Unknown
+Dataset                                                                   
+Aging           1145  2272   171  1804     550    178  783   3097        0
+HBCC            1194  2492   190  1858     506    208  773   2779        0
+Velmeshev          0     0     0     0       0      0    0      0    10000
+Wang               0     0     0     0       0      0    0      0    10000
+
+--- Raw Region Columns (HBCC/Aging) ---
+
+HBCC Columns containing 'region' or 'tissue':
+['tissue_ontology_term_id', 'tissue_type', 'tissue']
+                                tissue_ontology_term_id  ...                          tissue
+barcodekey                                               ...                                
+Donor_431-2-TCCCACATCAATCTCT-1           UBERON:0009834  ...  dorsolateral prefrontal cortex
+Donor_361-1-GGATGTTTCCTGTACC-0           UBERON:0009834  ...  dorsolateral prefrontal cortex
+Donor_97-2-AAACCCACAAACCATC-1            UBERON:0009834  ...  dorsolateral prefrontal cortex
+Donor_1193-1-GTTACGAAGTTGAAGT-0          UBERON:0009834  ...  dorsolateral prefrontal cortex
+Donor_361-1-CCGTGAGCAGGACTTT-0           UBERON:0009834  ...  dorsolateral prefrontal cortex
+
+[5 rows x 3 columns]
+
+Aging Columns containing 'region' or 'tissue':
+['tissue_ontology_term_id', 'tissue_type', 'tissue']
+                                tissue_ontology_term_id  ...                          tissue
+barcodekey                                               ...                                
+Donor_100-1-CCTCCAATCACCATGA-0           UBERON:0009834  ...  dorsolateral prefrontal cortex
+Donor_1476-1-CAACAACGTCACCGAC-0          UBERON:0009834  ...  dorsolateral prefrontal cortex
+Donor_1013-1-CTGTACCCAGCAGTAG-0          UBERON:0009834  ...  dorsolateral prefrontal cortex
+Donor_1319-2-ATAGACCAGGCCTAGA-1          UBERON:0009834  ...  dorsolateral prefrontal cortex
+Donor_1092-2-CTGTGGGCATGAGGGT-1          UBERON:0009834  ...  dorsolateral prefrontal cortex
+
+[5 rows x 3 columns]

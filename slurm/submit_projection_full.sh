@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=PROJ_FULL
+#SBATCH --job-name=ahbaC3
 #SBATCH --output=/home/rajd2/rds/hpc-work/snRNAseq_2026/logs/projection_full_%j.out
 #SBATCH --error=/home/rajd2/rds/hpc-work/snRNAseq_2026/logs/projection_full_%j.err
 #SBATCH --nodes=1
@@ -7,11 +7,12 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --time=04:00:00
 #SBATCH --mem=128G
-#SBATCH --partition=cclake-himem
+#SBATCH --partition=icelake
 
 # Environments
 INPUT_FILE="/home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/combined/combined_postnatal_full_processed.h5ad"
-OUTPUT_DIR="/home/rajd2/rds/hpc-work/snRNAseq_2026/results_full"
+REF_MAPPING="/home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_PsychAD/RNAseq/HBCC_Cohort_10k.h5ad"
+OUTPUT_DIR="/home/rajd2/rds/hpc-work/snRNAseq_2026/results_full_pfc"
 OUTPUT_CSV="${OUTPUT_DIR}/projection.csv"
 OUTPUT_PLOT="${OUTPUT_DIR}/projection_plot.png"
 
@@ -29,7 +30,11 @@ date
 echo "Step 1: Running Python Projection..."
 singularity exec --cleanenv /home/rajd2/rds/hpc-work/shortcake.sif micromamba run -n shortcake_default python -u $SCRIPT_PY \
     --input $INPUT_FILE \
-    --output $OUTPUT_CSV
+    --output $OUTPUT_CSV \
+    --filter_column region \
+    --filter_value "prefrontal cortex" \
+    --ref_mapping_file $REF_MAPPING
+
 
 if [ $? -ne 0 ]; then
     echo "Python script failed."
@@ -38,16 +43,12 @@ fi
 
 # Step 2: R Plotting
 echo "Step 2: Running R Plotting..."
-# Using system R or singularity R? The R script uses standard libraries. 
-# Attempting to use the same singularity container if it has R, otherwise check environment.
-# Assuming shortcake.sif has R installed as previous scripts implied.
-# plot_projection.R uses basic libraries (ggplot2, dplyr, etc)
-# Let's check if we should use 'Rscript' inside singularity.
 
 singularity exec --cleanenv /home/rajd2/rds/hpc-work/shortcake.sif micromamba run -n shortcake_default Rscript $SCRIPT_R \
     --input $OUTPUT_CSV \
     --output $OUTPUT_PLOT \
-    --title "Developmental expression of AHBA C3 in Postnatal Full Dataset"
+    --title "Developmental expression of AHBA C3 in Postnatal PFC" \
+    --color_var "source"
 
 if [ $? -ne 0 ]; then
     echo "R script failed."

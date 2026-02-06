@@ -1,0 +1,58 @@
+/opt/micromamba/envs/shortcake_default/lib/python3.10/site-packages/anndata/utils.py:429: FutureWarning: Importing read_csv from `anndata` is deprecated. Import anndata.io.read_csv instead.
+  warnings.warn(msg, FutureWarning)
+/opt/micromamba/envs/shortcake_default/lib/python3.10/site-packages/anndata/utils.py:429: FutureWarning: Importing read_text from `anndata` is deprecated. Import anndata.io.read_text instead.
+  warnings.warn(msg, FutureWarning)
+/opt/micromamba/envs/shortcake_default/lib/python3.10/site-packages/anndata/utils.py:429: FutureWarning: Importing read_excel from `anndata` is deprecated. Import anndata.io.read_excel instead.
+  warnings.warn(msg, FutureWarning)
+/opt/micromamba/envs/shortcake_default/lib/python3.10/site-packages/anndata/utils.py:429: FutureWarning: Importing read_mtx from `anndata` is deprecated. Import anndata.io.read_mtx instead.
+  warnings.warn(msg, FutureWarning)
+/opt/micromamba/envs/shortcake_default/lib/python3.10/site-packages/anndata/utils.py:429: FutureWarning: Importing read_loom from `anndata` is deprecated. Import anndata.io.read_loom instead.
+  warnings.warn(msg, FutureWarning)
+/opt/micromamba/envs/shortcake_default/lib/python3.10/site-packages/anndata/utils.py:429: FutureWarning: Importing read_hdf from `anndata` is deprecated. Import anndata.io.read_hdf instead.
+  warnings.warn(msg, FutureWarning)
+/opt/micromamba/envs/shortcake_default/lib/python3.10/site-packages/anndata/utils.py:429: FutureWarning: Importing read_umi_tools from `anndata` is deprecated. Import anndata.io.read_umi_tools instead.
+  warnings.warn(msg, FutureWarning)
+Reading Velmeshev from /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/velmeshev/velmeshev10k.h5ad...
+Processing Velmeshev metadata...
+/rds/user/rajd2/hpc-work/snRNAseq_2026/scripts/read_and_combine.py:113: ImplicitModificationWarning: Trying to modify attribute `.obs` of view, initializing view as actual.
+  adata.obs['age_years'] = meta['Age_Years']
+Reading Wang from /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/wang/wang_10k.h5ad...
+Reading AGING from /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_PsychAD/RNAseq/Aging_Cohort_10k.h5ad...
+  Filtering AGING: 4189 / 10000 cells kept (Age 0-40).
+Reading HBCC from /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_PsychAD/RNAseq/HBCC_Cohort_10k.h5ad...
+  Filtering HBCC: 4573 / 10000 cells kept (Age 0-40).
+Postnatal Filter (VELMESHEV): 9791 -> 4011
+Postnatal Filter (WANG): 10000 -> 4983
+Postnatal Filter (AGING): 4189 -> 4189
+Postnatal Filter (HBCC): 4573 -> 4573
+
+========================================
+      DIAGNOSTIC STRUCTURE CHECK
+========================================
+
+[Common .obs Columns] Count: 24
+age_years, assay, assay_ontology_term_id, cell_class, cell_type, cell_type_ontology_term_id, chemistry, dataset, development_stage, development_stage_ontology_term_id, disease, disease_ontology_term_id, donor_id, is_primary_data, observation_joinid, region, self_reported_ethnicity, self_reported_ethnicity_ontology_term_id, sex, sex_ontology_term_id, suspension_type, tissue, tissue_ontology_term_id, tissue_type
+
+[Crosstab: Dataset x Region]
+region       BA10  BA17  ...  Primary motor cortex  dorsolateral prefrontal cortex
+Dataset_Key              ...                                                      
+AGING           0     0  ...                     0                            4189
+HBCC            0     0  ...                     0                            4573
+VELMESHEV     171     0  ...                    38                               0
+WANG          998  2357  ...                     0                               0
+
+[4 rows x 13 columns]
+
+[Crosstab: Dataset x Cell Class]
+cell_class   Astrocytes  Endothelial  Excitatory  ...  OPC  Oligos  Other
+Dataset_Key                                       ...                    
+AGING               445          199         894  ...  413    1106      0
+HBCC                525          204         994  ...  435    1199      0
+VELMESHEV           560            0        1650  ...  341     550      0
+WANG                358           93        1886  ...  484    1043     64
+
+[4 rows x 9 columns]
+
+========================================
+
+Diagnostics complete. Exiting.

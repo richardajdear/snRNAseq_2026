@@ -1,0 +1,64 @@
+/opt/micromamba/envs/shortcake_default/lib/python3.10/site-packages/anndata/utils.py:429: FutureWarning: Importing read_csv from `anndata` is deprecated. Import anndata.io.read_csv instead.
+  warnings.warn(msg, FutureWarning)
+/opt/micromamba/envs/shortcake_default/lib/python3.10/site-packages/anndata/utils.py:429: FutureWarning: Importing read_text from `anndata` is deprecated. Import anndata.io.read_text instead.
+  warnings.warn(msg, FutureWarning)
+/opt/micromamba/envs/shortcake_default/lib/python3.10/site-packages/anndata/utils.py:429: FutureWarning: Importing read_excel from `anndata` is deprecated. Import anndata.io.read_excel instead.
+  warnings.warn(msg, FutureWarning)
+/opt/micromamba/envs/shortcake_default/lib/python3.10/site-packages/anndata/utils.py:429: FutureWarning: Importing read_mtx from `anndata` is deprecated. Import anndata.io.read_mtx instead.
+  warnings.warn(msg, FutureWarning)
+/opt/micromamba/envs/shortcake_default/lib/python3.10/site-packages/anndata/utils.py:429: FutureWarning: Importing read_loom from `anndata` is deprecated. Import anndata.io.read_loom instead.
+  warnings.warn(msg, FutureWarning)
+/opt/micromamba/envs/shortcake_default/lib/python3.10/site-packages/anndata/utils.py:429: FutureWarning: Importing read_hdf from `anndata` is deprecated. Import anndata.io.read_hdf instead.
+  warnings.warn(msg, FutureWarning)
+/opt/micromamba/envs/shortcake_default/lib/python3.10/site-packages/anndata/utils.py:429: FutureWarning: Importing read_umi_tools from `anndata` is deprecated. Import anndata.io.read_umi_tools instead.
+  warnings.warn(msg, FutureWarning)
+Loading /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/combined/combined_postnatal_full_harmony_10k.h5ad...
+/opt/micromamba/envs/shortcake_default/lib/python3.10/site-packages/anndata/_core/anndata.py:1756: UserWarning: Observation names are not unique. To make them unique, call `.obs_names_make_unique`.
+  utils.warn_names_duplicates("obs")
+Total cells: 10000
+Dataset counts:
+dataset
+HBCC       4190
+Aging      3506
+U01         833
+Herring     739
+Wang        722
+Ramos        10
+Name: count, dtype: int64
+
+--- Testing VELMESHEV ---
+Extracting original metadata...
+Loading metadata from sources: ['VELMESHEV']
+Processing VELMESHEV (1582 cells)...
+  Result shape: (1582, 3)
+  Missing cell_class: 0
+
+--- Testing WANG ---
+Extracting original metadata...
+Loading metadata from sources: ['WANG']
+Processing WANG (722 cells)...
+  Result shape: (722, 3)
+  Missing cell_class: 0
+
+--- Testing HBCC ---
+Extracting original metadata...
+Loading metadata from sources: ['HBCC']
+Processing HBCC (4190 cells)...
+  Result shape: (4190, 3)
+  Missing cell_class: 0
+
+--- Testing AGING ---
+Extracting original metadata...
+Loading metadata from sources: ['AGING']
+Processing AGING (3506 cells)...
+  Result shape: (3506, 3)
+  Missing cell_class: 0
+
+--- Testing ALL ---
+Extracting original metadata...
+Loading metadata from sources: ['HBCC' 'AGING' 'VELMESHEV' 'WANG']
+Processing VELMESHEV (1582 cells)...
+Processing WANG (722 cells)...
+Processing HBCC (4190 cells)...
+Processing AGING (3506 cells)...
+Final shape: (10000, 3)

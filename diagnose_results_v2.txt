@@ -1,0 +1,72 @@
+/opt/micromamba/envs/shortcake_default/lib/python3.10/site-packages/anndata/utils.py:429: FutureWarning: Importing read_csv from `anndata` is deprecated. Import anndata.io.read_csv instead.
+  warnings.warn(msg, FutureWarning)
+/opt/micromamba/envs/shortcake_default/lib/python3.10/site-packages/anndata/utils.py:429: FutureWarning: Importing read_text from `anndata` is deprecated. Import anndata.io.read_text instead.
+  warnings.warn(msg, FutureWarning)
+/opt/micromamba/envs/shortcake_default/lib/python3.10/site-packages/anndata/utils.py:429: FutureWarning: Importing read_excel from `anndata` is deprecated. Import anndata.io.read_excel instead.
+  warnings.warn(msg, FutureWarning)
+/opt/micromamba/envs/shortcake_default/lib/python3.10/site-packages/anndata/utils.py:429: FutureWarning: Importing read_mtx from `anndata` is deprecated. Import anndata.io.read_mtx instead.
+  warnings.warn(msg, FutureWarning)
+/opt/micromamba/envs/shortcake_default/lib/python3.10/site-packages/anndata/utils.py:429: FutureWarning: Importing read_loom from `anndata` is deprecated. Import anndata.io.read_loom instead.
+  warnings.warn(msg, FutureWarning)
+/opt/micromamba/envs/shortcake_default/lib/python3.10/site-packages/anndata/utils.py:429: FutureWarning: Importing read_hdf from `anndata` is deprecated. Import anndata.io.read_hdf instead.
+  warnings.warn(msg, FutureWarning)
+/opt/micromamba/envs/shortcake_default/lib/python3.10/site-packages/anndata/utils.py:429: FutureWarning: Importing read_umi_tools from `anndata` is deprecated. Import anndata.io.read_umi_tools instead.
+  warnings.warn(msg, FutureWarning)
+=== Checking Dataset Structures ===
+
+Loading Velmeshev from /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/velmeshev/velmeshev10k.h5ad...
+  Shape: (10000, 17663)
+  Obs columns: 25
+  Var columns: 5
+
+Loading Wang from /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/wang/wang_10k.h5ad...
+  Shape: (10000, 36406)
+  Obs columns: 39
+  Var columns: 7
+
+Loading HBCC from /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_PsychAD/RNAseq/HBCC_Cohort_10k.h5ad...
+  Shape: (10000, 34176)
+  Obs columns: 36
+  Var columns: 8
+
+Loading Aging from /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_PsychAD/RNAseq/Aging_Cohort_10k.h5ad...
+  Shape: (10000, 34176)
+  Obs columns: 33
+  Var columns: 8
+
+=== Common .obs Columns ===
+['assay', 'assay_ontology_term_id', 'cell_type', 'cell_type_ontology_term_id', 'development_stage', 'development_stage_ontology_term_id', 'disease', 'disease_ontology_term_id', 'donor_id', 'is_primary_data', 'observation_joinid', 'self_reported_ethnicity', 'self_reported_ethnicity_ontology_term_id', 'sex', 'sex_ontology_term_id', 'suspension_type', 'tissue', 'tissue_ontology_term_id', 'tissue_type']
+
+=== Common .var Columns ===
+['feature_biotype', 'feature_is_filtered', 'feature_length', 'feature_name', 'feature_reference']
+
+=== Unique Columns per Dataset (Top 5) ===
+Velmeshev: ['PMI', 'organism_ontology_term_id', 'region', 'dataset', 'organism'] ... (6 total unique)
+Wang: ['nFeature_RNA', 'nCount_RNA', 'Sample_ID', 'Class', 'Estimated_postconceptional_age_in_days'] ... (20 total unique)
+HBCC: ['DLBD_status', 'Bipolar_Disorder', 'n_counts', 'Vascular_status', 'class'] ... (17 total unique)
+Aging: ['DLBD_status', 'Bipolar_Disorder', 'n_counts', 'Vascular_status', 'class'] ... (14 total unique)
+
+=== Diagnosing Region/Cell Type Alignment ===
+
+=== Proposed Common Columns (Count: 22) ===
+['Dataset', 'aligned_class', 'aligned_region', 'assay', 'assay_ontology_term_id', 'cell_type', 'cell_type_ontology_term_id', 'development_stage', 'development_stage_ontology_term_id', 'disease', 'disease_ontology_term_id', 'donor_id', 'is_primary_data', 'observation_joinid', 'self_reported_ethnicity', 'self_reported_ethnicity_ontology_term_id', 'sex', 'sex_ontology_term_id', 'suspension_type', 'tissue', 'tissue_ontology_term_id', 'tissue_type']
+
+--- Crosstab: Dataset x Aligned Region ---
+aligned_region  ACC  BA10  BA13  ...  telencephalon  temp  visual cortex
+Dataset                          ...                                    
+Aging             0     0     0  ...              0     0              0
+HBCC              0     0     0  ...              0     0              0
+Velmeshev        36   184   292  ...              0   346              0
+Wang              0  1926     0  ...            193     0           1013
+
+[4 rows x 30 columns]
+
+--- Crosstab: Dataset x Aligned Cell Class ---
+aligned_class  Astrocytes  Endothelial  Excitatory  ...  OPC  Oligos  Other
+Dataset                                             ...                    
+Aging                1145          349        2272  ...  783    3097      0
+HBCC                 1194          398        2492  ...  773    2779      0
+Velmeshev             950            0           0  ...    0    1027   7797
+Wang                  543            0        4609  ...  582    1045   1375
+
+[4 rows x 8 columns]
