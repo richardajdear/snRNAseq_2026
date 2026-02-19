@@ -1,0 +1,173 @@
+/opt/micromamba/envs/shortcake_default/lib/python3.10/site-packages/anndata/utils.py:429: FutureWarning: Importing read_csv from `anndata` is deprecated. Import anndata.io.read_csv instead.
+  warnings.warn(msg, FutureWarning)
+/opt/micromamba/envs/shortcake_default/lib/python3.10/site-packages/anndata/utils.py:429: FutureWarning: Importing read_text from `anndata` is deprecated. Import anndata.io.read_text instead.
+  warnings.warn(msg, FutureWarning)
+/opt/micromamba/envs/shortcake_default/lib/python3.10/site-packages/anndata/utils.py:429: FutureWarning: Importing read_excel from `anndata` is deprecated. Import anndata.io.read_excel instead.
+  warnings.warn(msg, FutureWarning)
+/opt/micromamba/envs/shortcake_default/lib/python3.10/site-packages/anndata/utils.py:429: FutureWarning: Importing read_mtx from `anndata` is deprecated. Import anndata.io.read_mtx instead.
+  warnings.warn(msg, FutureWarning)
+/opt/micromamba/envs/shortcake_default/lib/python3.10/site-packages/anndata/utils.py:429: FutureWarning: Importing read_loom from `anndata` is deprecated. Import anndata.io.read_loom instead.
+  warnings.warn(msg, FutureWarning)
+/opt/micromamba/envs/shortcake_default/lib/python3.10/site-packages/anndata/utils.py:429: FutureWarning: Importing read_hdf from `anndata` is deprecated. Import anndata.io.read_hdf instead.
+  warnings.warn(msg, FutureWarning)
+/opt/micromamba/envs/shortcake_default/lib/python3.10/site-packages/anndata/utils.py:429: FutureWarning: Importing read_umi_tools from `anndata` is deprecated. Import anndata.io.read_umi_tools instead.
+  warnings.warn(msg, FutureWarning)
+R[write to console]: In addition: 
+R[write to console]: Warning messages:
+
+R[write to console]: 1: 
+R[write to console]: In (function (package, help, pos = 2, lib.loc = NULL, character.only = FALSE,  :
+R[write to console]: 
+ 
+R[write to console]:  library ‘/usr/lib/R/site-library’ contains no packages
+
+R[write to console]: 2: 
+R[write to console]: In (function (package, help, pos = 2, lib.loc = NULL, character.only = FALSE,  :
+R[write to console]: 
+ 
+R[write to console]:  library ‘/usr/lib/R/site-library’ contains no packages
+
+R[write to console]: 3: 
+R[write to console]: In (function (package, help, pos = 2, lib.loc = NULL, character.only = FALSE,  :
+R[write to console]: 
+ 
+R[write to console]:  library ‘/usr/lib/R/site-library’ contains no packages
+
+R[write to console]: 4: 
+R[write to console]: In (function (package, help, pos = 2, lib.loc = NULL, character.only = FALSE,  :
+R[write to console]: 
+ 
+R[write to console]:  library ‘/usr/lib/R/site-library’ contains no packages
+
+Libraries loaded successfully.
+Loading /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/combined/combined_40k_test.h5ad...
+Loaded 17756 observations.
+Data cleaning complete.
+Columns: ['age_years', 'assay', 'assay_ontology_term_id', 'cell_class', 'cell_type', 'cell_type_ontology_term_id', 'chemistry', 'dataset', 'development_stage', 'development_stage_ontology_term_id', 'disease', 'disease_ontology_term_id', 'donor_id', 'is_primary_data', 'observation_joinid', 'region', 'self_reported_ethnicity', 'self_reported_ethnicity_ontology_term_id', 'sex', 'sex_ontology_term_id', 'suspension_type', 'tissue', 'tissue_ontology_term_id', 'tissue_type']
+Index name: None
+'source' column missing!
+                                             age_years  ... tissue_type
+U01_TAAGTGCTCGGAGGTA-1_4369_BA9-VELMESHEV     2.720548  ...      tissue
+U01_CTGATAGCACCAGGTC-1_1798_BA9-VELMESHEV     1.783562  ...      tissue
+Herring_RL2125_TCATCATAGCCTAGGA-1-VELMESHEV   1.150685  ...      tissue
+Herring_RL2102_ACATCCCCACCAAAGG-1-VELMESHEV  15.994521  ...      tissue
+U01_TCGCGAGAGTGGCACA-1_5538_PFC-VELMESHEV    18.994521  ...      tissue
+
+[5 rows x 24 columns]
+Testing R transfer...
+R transfer complete. Script logic verified.
+R column names:
+['age_years' 'assay' 'assay_ontology_term_id' 'cell_class' 'cell_type'
+ 'cell_type_ontology_term_id' 'chemistry' 'dataset' 'development_stage'
+ 'development_stage_ontology_term_id' 'disease' 'disease_ontology_term_id'
+ 'donor_id' 'is_primary_data' 'observation_joinid' 'region'
+ 'self_reported_ethnicity' 'self_reported_ethnicity_ontology_term_id'
+ 'sex' 'sex_ontology_term_id' 'suspension_type' 'tissue'
+ 'tissue_ontology_term_id' 'tissue_type']
+R head:
+                                            age_years     assay
+U01_TAAGTGCTCGGAGGTA-1_4369_BA9-VELMESHEV    2.720548 10x 3' v2
+U01_CTGATAGCACCAGGTC-1_1798_BA9-VELMESHEV    1.783562 10x 3' v2
+Herring_RL2125_TCATCATAGCCTAGGA-1-VELMESHEV  1.150685 10x 3' v3
+Herring_RL2102_ACATCCCCACCAAAGG-1-VELMESHEV 15.994521 10x 3' v3
+U01_TCGCGAGAGTGGCACA-1_5538_PFC-VELMESHEV   18.994521 10x 3' v2
+U01_TGCGCAGAGTAGCCGA-1_5608_BA9-VELMESHEV    3.526027 10x 3' v2
+                                            assay_ontology_term_id cell_class
+U01_TAAGTGCTCGGAGGTA-1_4369_BA9-VELMESHEV              EFO:0009899 Excitatory
+U01_CTGATAGCACCAGGTC-1_1798_BA9-VELMESHEV              EFO:0009899 Excitatory
+Herring_RL2125_TCATCATAGCCTAGGA-1-VELMESHEV            EFO:0009922        OPC
+Herring_RL2102_ACATCCCCACCAAAGG-1-VELMESHEV            EFO:0009922 Excitatory
+U01_TCGCGAGAGTGGCACA-1_5538_PFC-VELMESHEV              EFO:0009899  Microglia
+U01_TGCGCAGAGTAGCCGA-1_5608_BA9-VELMESHEV              EFO:0009899 Excitatory
+                                                                 cell_type
+U01_TAAGTGCTCGGAGGTA-1_4369_BA9-VELMESHEV                      neural cell
+U01_CTGATAGCACCAGGTC-1_1798_BA9-VELMESHEV                      neural cell
+Herring_RL2125_TCATCATAGCCTAGGA-1-VELMESHEV oligodendrocyte precursor cell
+Herring_RL2102_ACATCCCCACCAAAGG-1-VELMESHEV                    neural cell
+U01_TCGCGAGAGTGGCACA-1_5538_PFC-VELMESHEV                  microglial cell
+U01_TGCGCAGAGTAGCCGA-1_5608_BA9-VELMESHEV                      neural cell
+                                            cell_type_ontology_term_id
+U01_TAAGTGCTCGGAGGTA-1_4369_BA9-VELMESHEV                   CL:0002319
+U01_CTGATAGCACCAGGTC-1_1798_BA9-VELMESHEV                   CL:0002319
+Herring_RL2125_TCATCATAGCCTAGGA-1-VELMESHEV                 CL:0002453
+Herring_RL2102_ACATCCCCACCAAAGG-1-VELMESHEV                 CL:0002319
+U01_TCGCGAGAGTGGCACA-1_5538_PFC-VELMESHEV                   CL:0000129
+U01_TGCGCAGAGTAGCCGA-1_5608_BA9-VELMESHEV                   CL:0002319
+                                            chemistry   dataset
+U01_TAAGTGCTCGGAGGTA-1_4369_BA9-VELMESHEV          V2 VELMESHEV
+U01_CTGATAGCACCAGGTC-1_1798_BA9-VELMESHEV          V2 VELMESHEV
+Herring_RL2125_TCATCATAGCCTAGGA-1-VELMESHEV        V3 VELMESHEV
+Herring_RL2102_ACATCCCCACCAAAGG-1-VELMESHEV        V3 VELMESHEV
+U01_TCGCGAGAGTGGCACA-1_5538_PFC-VELMESHEV          V2 VELMESHEV
+U01_TGCGCAGAGTAGCCGA-1_5608_BA9-VELMESHEV          V2 VELMESHEV
+                                                  development_stage
+U01_TAAGTGCTCGGAGGTA-1_4369_BA9-VELMESHEV    2-year-old human stage
+U01_CTGATAGCACCAGGTC-1_1798_BA9-VELMESHEV    1-year-old human stage
+Herring_RL2125_TCATCATAGCCTAGGA-1-VELMESHEV  1-year-old human stage
+Herring_RL2102_ACATCCCCACCAAAGG-1-VELMESHEV 16-year-old human stage
+U01_TCGCGAGAGTGGCACA-1_5538_PFC-VELMESHEV   19-year-old human stage
+U01_TGCGCAGAGTAGCCGA-1_5608_BA9-VELMESHEV    3-year-old human stage
+                                            development_stage_ontology_term_id
+U01_TAAGTGCTCGGAGGTA-1_4369_BA9-VELMESHEV                       HsapDv:0000096
+U01_CTGATAGCACCAGGTC-1_1798_BA9-VELMESHEV                       HsapDv:0000246
+Herring_RL2125_TCATCATAGCCTAGGA-1-VELMESHEV                     HsapDv:0000246
+Herring_RL2102_ACATCCCCACCAAAGG-1-VELMESHEV                     HsapDv:0000110
+U01_TCGCGAGAGTGGCACA-1_5538_PFC-VELMESHEV                       HsapDv:0000113
+U01_TGCGCAGAGTAGCCGA-1_5608_BA9-VELMESHEV                       HsapDv:0000097
+                                            disease disease_ontology_term_id
+U01_TAAGTGCTCGGAGGTA-1_4369_BA9-VELMESHEV    normal             PATO:0000461
+U01_CTGATAGCACCAGGTC-1_1798_BA9-VELMESHEV    normal             PATO:0000461
+Herring_RL2125_TCATCATAGCCTAGGA-1-VELMESHEV  normal             PATO:0000461
+Herring_RL2102_ACATCCCCACCAAAGG-1-VELMESHEV  normal             PATO:0000461
+U01_TCGCGAGAGTGGCACA-1_5538_PFC-VELMESHEV    normal             PATO:0000461
+U01_TGCGCAGAGTAGCCGA-1_5608_BA9-VELMESHEV    normal             PATO:0000461
+                                            donor_id is_primary_data
+U01_TAAGTGCTCGGAGGTA-1_4369_BA9-VELMESHEV       4369            TRUE
+U01_CTGATAGCACCAGGTC-1_1798_BA9-VELMESHEV       1798            TRUE
+Herring_RL2125_TCATCATAGCCTAGGA-1-VELMESHEV   RL2125            TRUE
+Herring_RL2102_ACATCCCCACCAAAGG-1-VELMESHEV   RL2102            TRUE
+U01_TCGCGAGAGTGGCACA-1_5538_PFC-VELMESHEV       5538            TRUE
+U01_TGCGCAGAGTAGCCGA-1_5608_BA9-VELMESHEV       5608            TRUE
+                                            observation_joinid region
+U01_TAAGTGCTCGGAGGTA-1_4369_BA9-VELMESHEV           F_1R14z86+    BA9
+U01_CTGATAGCACCAGGTC-1_1798_BA9-VELMESHEV           nRp%7ahrhk    BA9
+Herring_RL2125_TCATCATAGCCTAGGA-1-VELMESHEV         #ZXx-7Err@    BA8
+Herring_RL2102_ACATCCCCACCAAAGG-1-VELMESHEV         hCvAqI+Zw3   BA10
+U01_TCGCGAGAGTGGCACA-1_5538_PFC-VELMESHEV           Xh}mrq>Djd    PFC
+U01_TGCGCAGAGTAGCCGA-1_5608_BA9-VELMESHEV           LmuH@gAu)b    BA9
+                                            self_reported_ethnicity
+U01_TAAGTGCTCGGAGGTA-1_4369_BA9-VELMESHEV                   unknown
+U01_CTGATAGCACCAGGTC-1_1798_BA9-VELMESHEV                   unknown
+Herring_RL2125_TCATCATAGCCTAGGA-1-VELMESHEV                 unknown
+Herring_RL2102_ACATCCCCACCAAAGG-1-VELMESHEV                 unknown
+U01_TCGCGAGAGTGGCACA-1_5538_PFC-VELMESHEV                   unknown
+U01_TGCGCAGAGTAGCCGA-1_5608_BA9-VELMESHEV                   unknown
+                                            self_reported_ethnicity_ontology_term_id
+U01_TAAGTGCTCGGAGGTA-1_4369_BA9-VELMESHEV                                    unknown
+U01_CTGATAGCACCAGGTC-1_1798_BA9-VELMESHEV                                    unknown
+Herring_RL2125_TCATCATAGCCTAGGA-1-VELMESHEV                                  unknown
+Herring_RL2102_ACATCCCCACCAAAGG-1-VELMESHEV                                  unknown
+U01_TCGCGAGAGTGGCACA-1_5538_PFC-VELMESHEV                                    unknown
+U01_TGCGCAGAGTAGCCGA-1_5608_BA9-VELMESHEV                                    unknown
+                                               sex sex_ontology_term_id
+U01_TAAGTGCTCGGAGGTA-1_4369_BA9-VELMESHEV   Female         PATO:0000383
+U01_CTGATAGCACCAGGTC-1_1798_BA9-VELMESHEV   Female         PATO:0000383
+Herring_RL2125_TCATCATAGCCTAGGA-1-VELMESHEV Female         PATO:0000383
+Herring_RL2102_ACATCCCCACCAAAGG-1-VELMESHEV Female         PATO:0000383
+U01_TCGCGAGAGTGGCACA-1_5538_PFC-VELMESHEV   Female         PATO:0000383
+U01_TGCGCAGAGTAGCCGA-1_5608_BA9-VELMESHEV     Male         PATO:0000384
+                                            suspension_type            tissue
+U01_TAAGTGCTCGGAGGTA-1_4369_BA9-VELMESHEV           nucleus prefrontal cortex
+U01_CTGATAGCACCAGGTC-1_1798_BA9-VELMESHEV           nucleus prefrontal cortex
+Herring_RL2125_TCATCATAGCCTAGGA-1-VELMESHEV         nucleus prefrontal cortex
+Herring_RL2102_ACATCCCCACCAAAGG-1-VELMESHEV         nucleus prefrontal cortex
+U01_TCGCGAGAGTGGCACA-1_5538_PFC-VELMESHEV           nucleus prefrontal cortex
+U01_TGCGCAGAGTAGCCGA-1_5608_BA9-VELMESHEV           nucleus prefrontal cortex
+                                            tissue_ontology_term_id tissue_type
+U01_TAAGTGCTCGGAGGTA-1_4369_BA9-VELMESHEV            UBERON:0001870      tissue
+U01_CTGATAGCACCAGGTC-1_1798_BA9-VELMESHEV            UBERON:0001870      tissue
+Herring_RL2125_TCATCATAGCCTAGGA-1-VELMESHEV          UBERON:0001870      tissue
+Herring_RL2102_ACATCCCCACCAAAGG-1-VELMESHEV          UBERON:0001870      tissue
+U01_TCGCGAGAGTGGCACA-1_5538_PFC-VELMESHEV            UBERON:0001870      tissue
+U01_TGCGCAGAGTAGCCGA-1_5608_BA9-VELMESHEV            UBERON:0001870      tissue
+

@@ -1,0 +1,108 @@
+---
+title: "Age Distribution Analysis (Downsampled)"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
+library(ggplot2)
+library(dplyr)
+library(readr)
+```
+
+## Load Data
+
+We load the metadata extracted from the combined dataset `VelWangPsychad_10k_PFC_lessOld.h5ad`.
+
+```{r load}
+meta <- read_csv("metadata.csv")
+```
+
+## Age Distribution of Cells
+
+This plot shows the distribution of cells across age, colored by source.
+
+```{r plot_cells}
+ggplot(meta, aes(x=age_years, fill=source)) +
+  geom_histogram(binwidth=2, color="white", position="stack") +
+  theme_minimal() +
+  labs(title="Age Distribution of Cells (Downsampled)", x="Age (Years)", y="Count of Cells")
+```
+
+## Age Distribution of Donors
+
+We aggregate by individual donor to see the donor count distribution.
+
+```{r plot_donors}
+if("donor_id" %in% names(meta)) {
+  donors <- meta %>%
+    group_by(source, donor_id) %>%
+    summarize(age = mean(age_years, na.rm=TRUE), .groups = 'drop')
+  
+  ggplot(donors, aes(x=age, fill=source)) +
+    geom_histogram(binwidth=5, color="white", position="stack") +
+    theme_minimal() +
+    labs(title="Age Distribution of Donors", x="Age (Years)", y="Count of Donors")
+} else {
+  print("Column 'donor_id' not found in metadata.")
+}
+```
+
+## Summary Statistics by Source
+
+```{r summary}
+meta %>%
+  group_by(source) %>%
+  summarize(
+    n_cells = n(),
+    n_donors = n_distinct(donor_id, na.rm=TRUE),
+    mean_age = mean(age_years, na.rm=TRUE),
+    min_age = min(age_years, na.rm=TRUE),
+    max_age = max(age_years, na.rm=TRUE)
+  ) %>%
+  knitr::kable()
+```
+
+## Summary Statistics by Age Category
+
+Categories:
+- Prenatal: < 0
+- Infant: 0-1
+- Childhood: 1-9
+- Adolescent: 9-25
+- Adulthood: 25-40
+- Aging: 40+
+
+```{r category_summary}
+# Define age categories
+meta <- meta %>%
+  mutate(age_category = case_when(
+    age_years < 0 ~ "Prenatal",
+    age_years >= 0 & age_years < 1 ~ "Infant (0-1)",
+    age_years >= 1 & age_years < 9 ~ "Childhood (1-9)",
+    age_years >= 9 & age_years < 25 ~ "Adolescent (9-25)",
+    age_years >= 25 & age_years < 40 ~ "Adulthood (25-40)",
+    age_years >= 40 ~ "Aging (40+)",
+    TRUE ~ "Unknown"
+  ))
+
+# Order the categories
+meta$age_category <- factor(meta$age_category, levels = c(
+  "Prenatal", "Infant (0-1)", "Childhood (1-9)", "Adolescent (9-25)", "Adulthood (25-40)", "Aging (40+)"
+))
+
+# Summarize
+meta %>%
+  group_by(source, age_category) %>%
+  summarize(
+    n_cells = n(),
+    n_donors = n_distinct(donor_id, na.rm=TRUE),
+    .groups = 'drop'
+  ) %>%
+  tidyr::pivot_wider(
+    names_from = source, 
+    values_from = n_donors,
+    values_fill = 0
+  ) %>%
+  knitr::kable()
+```

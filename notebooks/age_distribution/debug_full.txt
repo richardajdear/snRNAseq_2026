@@ -1,0 +1,135 @@
+[NbConvertApp] Converting notebook /home/rajd2/rds/hpc-work/snRNAseq_2026/notebooks/age_distribution/analysis.ipynb to notebook
+Traceback (most recent call last):
+  File "/opt/micromamba/envs/shortcake_default/bin/jupyter-nbconvert", line 10, in <module>
+    sys.exit(main())
+  File "/opt/micromamba/envs/shortcake_default/lib/python3.10/site-packages/jupyter_core/application.py", line 283, in launch_instance
+    super().launch_instance(argv=argv, **kwargs)
+  File "/opt/micromamba/envs/shortcake_default/lib/python3.10/site-packages/traitlets/config/application.py", line 1075, in launch_instance
+    app.start()
+  File "/opt/micromamba/envs/shortcake_default/lib/python3.10/site-packages/nbconvert/nbconvertapp.py", line 420, in start
+    self.convert_notebooks()
+  File "/opt/micromamba/envs/shortcake_default/lib/python3.10/site-packages/nbconvert/nbconvertapp.py", line 597, in convert_notebooks
+    self.convert_single_notebook(notebook_filename)
+  File "/opt/micromamba/envs/shortcake_default/lib/python3.10/site-packages/nbconvert/nbconvertapp.py", line 563, in convert_single_notebook
+    output, resources = self.export_single_notebook(
+  File "/opt/micromamba/envs/shortcake_default/lib/python3.10/site-packages/nbconvert/nbconvertapp.py", line 487, in export_single_notebook
+    output, resources = self.exporter.from_filename(
+  File "/opt/micromamba/envs/shortcake_default/lib/python3.10/site-packages/nbconvert/exporters/exporter.py", line 201, in from_filename
+    return self.from_file(f, resources=resources, **kw)
+  File "/opt/micromamba/envs/shortcake_default/lib/python3.10/site-packages/nbconvert/exporters/exporter.py", line 220, in from_file
+    return self.from_notebook_node(
+  File "/opt/micromamba/envs/shortcake_default/lib/python3.10/site-packages/nbconvert/exporters/notebook.py", line 36, in from_notebook_node
+    nb_copy, resources = super().from_notebook_node(nb, resources, **kw)
+  File "/opt/micromamba/envs/shortcake_default/lib/python3.10/site-packages/nbconvert/exporters/exporter.py", line 154, in from_notebook_node
+    nb_copy, resources = self._preprocess(nb_copy, resources)
+  File "/opt/micromamba/envs/shortcake_default/lib/python3.10/site-packages/nbconvert/exporters/exporter.py", line 353, in _preprocess
+    nbc, resc = preprocessor(nbc, resc)
+  File "/opt/micromamba/envs/shortcake_default/lib/python3.10/site-packages/nbconvert/preprocessors/base.py", line 48, in __call__
+    return self.preprocess(nb, resources)
+  File "/opt/micromamba/envs/shortcake_default/lib/python3.10/site-packages/nbconvert/preprocessors/execute.py", line 103, in preprocess
+    self.preprocess_cell(cell, resources, index)
+  File "/opt/micromamba/envs/shortcake_default/lib/python3.10/site-packages/nbconvert/preprocessors/execute.py", line 124, in preprocess_cell
+    cell = self.execute_cell(cell, index, store_history=True)
+  File "/opt/micromamba/envs/shortcake_default/lib/python3.10/site-packages/jupyter_core/utils/__init__.py", line 165, in wrapped
+    return loop.run_until_complete(inner)
+  File "/opt/micromamba/envs/shortcake_default/lib/python3.10/asyncio/base_events.py", line 649, in run_until_complete
+    return future.result()
+  File "/opt/micromamba/envs/shortcake_default/lib/python3.10/site-packages/nbclient/client.py", line 1062, in async_execute_cell
+    await self._check_raise_for_error(cell, cell_index, exec_reply)
+  File "/opt/micromamba/envs/shortcake_default/lib/python3.10/site-packages/nbclient/client.py", line 918, in _check_raise_for_error
+    raise CellExecutionError.from_cell_and_msg(cell, exec_reply_content)
+nbclient.exceptions.CellExecutionError: An error occurred while executing the following cell:
+------------------
+%%R -w 180 -u mm -r 300
+# Create plot data for donors
+plot_data <- obs_export %>%
+  mutate(age_round = round(age_years)) %>%
+  filter(!is.na(age_round)) %>%
+  group_by(age_round, source) %>%
+  summarise(n_donors = n_distinct(individual), .groups = 'drop')
+
+# Plot
+ggplot(plot_data, aes(x = age_round, y = n_donors, fill = source)) +
+  geom_col() + 
+  scale_x_continuous(breaks = seq(min(plot_data$age_round), max(plot_data$age_round), by = 5)) +
+  labs(
+    title = "Donor Age Distribution by Source",
+    x = "Age (Years)",
+    y = "Number of Unique Donors",
+    fill = "Source"
+  ) +
+  theme_classic() + 
+  theme(legend.position = "bottom")
+------------------
+
+----- stdout -----
+Error in `group_by()`:
+! Must group by variables found in `.data`.
+✖ Column `source` is not found.
+Run `rlang::last_trace()` to see where the error occurred.
+----- stdout -----
+
+Error in group_by(., age_round, source) : 
+✖ Column `source` is not found.
+------------------
+
+[0;31m---------------------------------------------------------------------------[0m
+[0;31mRRuntimeError[0m                             Traceback (most recent call last)
+File [0;32m/opt/micromamba/envs/shortcake_default/lib/python3.10/site-packages/rpy2/ipython/rmagic.py:407[0m, in [0;36mRMagics.eval[0;34m(self, code)[0m
+[1;32m    406[0m     r_expr [38;5;241m=[39m ri[38;5;241m.[39mparse(code)
+[0;32m--> 407[0m     value, visible [38;5;241m=[39m [43mri[49m[38;5;241;43m.[39;49m[43mevalr_expr_with_visible[49m[43m([49m
+[1;32m    408[0m [43m        [49m[43mr_expr[49m
+[1;32m    409[0m [43m    [49m[43m)[49m
+[1;32m    410[0m [38;5;28;01mexcept[39;00m (ri[38;5;241m.[39membedded[38;5;241m.[39mRRuntimeError, [38;5;167;01mValueError[39;00m) [38;5;28;01mas[39;00m exception:
+[1;32m    411[0m     [38;5;66;03m# Otherwise next return seems to have copy of error.[39;00m
+
+File [0;32m/opt/micromamba/envs/shortcake_default/lib/python3.10/site-packages/rpy2/rinterface.py:196[0m, in [0;36mevalr_expr_with_visible[0;34m(expr, envir)[0m
+[1;32m    195[0m [38;5;28;01mif[39;00m error_occured[[38;5;241m0[39m]:
+[0;32m--> 196[0m     [38;5;28;01mraise[39;00m embedded[38;5;241m.[39mRRuntimeError(_rinterface[38;5;241m.[39m_geterrmessage())
+[1;32m    197[0m res [38;5;241m=[39m conversion[38;5;241m.[39m_cdata_to_rinterface(r_res)
+
+[0;31mRRuntimeError[0m: Error in group_by(., age_round, source) : 
+✖ Column `source` is not found.
+
+
+During handling of the above exception, another exception occurred:
+
+[0;31mRInterpreterError[0m                         Traceback (most recent call last)
+Cell [0;32mIn[8], line 1[0m
+[0;32m----> 1[0m [43mget_ipython[49m[43m([49m[43m)[49m[38;5;241;43m.[39;49m[43mrun_cell_magic[49m[43m([49m[38;5;124;43m'[39;49m[38;5;124;43mR[39;49m[38;5;124;43m'[39;49m[43m,[49m[43m [49m[38;5;124;43m'[39;49m[38;5;124;43m-w 180 -u mm -r 300[39;49m[38;5;124;43m'[39;49m[43m,[49m[43m [49m[38;5;124;43m'[39;49m[38;5;124;43m# Create plot data for donors[39;49m[38;5;130;43;01m\n[39;49;00m[38;5;124;43mplot_data <- obs_export [39;49m[38;5;124;43m%[39;49m[38;5;124;43m>[39;49m[38;5;124;43m%[39;49m[38;5;130;43;01m\n[39;49;00m[38;5;124;43m  mutate(age_round = round(age_years)) [39;49m[38;5;124;43m%[39;49m[38;5;124;43m>[39;49m[38;5;124;43m%[39;49m[38;5;130;43;01m\n[39;49;00m[38;5;124;43m  filter(!is.na(age_round)) [39;49m[38;5;124;43m%[39;49m[38;5;124;43m>[39;49m[38;5;124;43m%[39;49m[38;5;130;43;01m\n[39;49;00m[38;5;124;43m  group_by(age_round, source) [39;49m[38;5;124;43m%[39;49m[38;5;124;43m>[39;49m[38;5;124;43m%[39;49m[38;5;130;43;01m\n[39;49;00m[38;5;124;43m  summarise(n_donors = n_distinct(individual), .groups = [39;49m[38;5;130;43;01m\'[39;49;00m[38;5;124;43mdrop[39;49m[38;5;130;43;01m\'[39;49;00m[38;5;124;43m)[39;49m[38;5;130;43;01m\n[39;49;00m[38;5;130;43;01m\n[39;49;00m[38;5;124;43m# Plot[39;49m[38;5;130;43;01m\n[39;49;00m[38;5;124;43mggplot(plot_data, aes(x = age_round, y = n_donors, fill = source)) +[39;49m[38;5;130;43;01m\n[39;49;00m[38;5;124;43m  geom_col() + [39;49m[38;5;130;43;01m\n[39;49;00m[38;5;124;43m  scale_x_continuous(breaks = seq(min(plot_data$age_round), max(plot_data$age_round), by = 5)) +[39;49m[38;5;130;43;01m\n[39;49;00m[38;5;124;43m  labs([39;49m[38;5;130;43;01m\n[39;49;00m[38;5;124;43m    title = [39;49m[38;5;124;43m"[39;49m[38;5;124;43mDonor Age Distribution by Source[39;49m[38;5;124;43m"[39;49m[38;5;124;43m,[39;49m[38;5;130;43;01m\n[39;49;00m[38;5;124;43m    x = [39;49m[38;5;124;43m"[39;49m[38;5;124;43mAge (Years)[39;49m[38;5;124;43m"[39;49m[38;5;124;43m,[39;49m[38;5;130;43;01m\n[39;49;00m[38;5;124;43m    y = [39;49m[38;5;124;43m"[39;49m[38;5;124;43mNumber of Unique Donors[39;49m[38;5;124;43m"[39;49m[38;5;124;43m,[39;49m[38;5;130;43;01m\n[39;49;00m[38;5;124;43m    fill = [39;49m[38;5;124;43m"[39;49m[38;5;124;43mSource[39;49m[38;5;124;43m"[39;49m[38;5;130;43;01m\n[39;49;00m[38;5;124;43m  ) +[39;49m[38;5;130;43;01m\n[39;49;00m[38;5;124;43m  theme_classic() + [39;49m[38;5;130;43;01m\n[39;49;00m[38;5;124;43m  theme(legend.position = [39;49m[38;5;124;43m"[39;49m[38;5;124;43mbottom[39;49m[38;5;124;43m"[39;49m[38;5;124;43m)[39;49m[38;5;130;43;01m\n[39;49;00m[38;5;124;43m'[39;49m[43m)[49m
+
+File [0;32m/opt/micromamba/envs/shortcake_default/lib/python3.10/site-packages/IPython/core/interactiveshell.py:2541[0m, in [0;36mInteractiveShell.run_cell_magic[0;34m(self, magic_name, line, cell)[0m
+[1;32m   2539[0m [38;5;28;01mwith[39;00m [38;5;28mself[39m[38;5;241m.[39mbuiltin_trap:
+[1;32m   2540[0m     args [38;5;241m=[39m (magic_arg_s, cell)
+[0;32m-> 2541[0m     result [38;5;241m=[39m [43mfn[49m[43m([49m[38;5;241;43m*[39;49m[43margs[49m[43m,[49m[43m [49m[38;5;241;43m*[39;49m[38;5;241;43m*[39;49m[43mkwargs[49m[43m)[49m
+[1;32m   2543[0m [38;5;66;03m# The code below prevents the output from being displayed[39;00m
+[1;32m   2544[0m [38;5;66;03m# when using magics with decorator @output_can_be_silenced[39;00m
+[1;32m   2545[0m [38;5;66;03m# when the last Python token in the expression is a ';'.[39;00m
+[1;32m   2546[0m [38;5;28;01mif[39;00m [38;5;28mgetattr[39m(fn, magic[38;5;241m.[39mMAGIC_OUTPUT_CAN_BE_SILENCED, [38;5;28;01mFalse[39;00m):
+
+File [0;32m/opt/micromamba/envs/shortcake_default/lib/python3.10/site-packages/rpy2/ipython/rmagic.py:984[0m, in [0;36mRMagics.R[0;34m(self, line, cell, local_ns)[0m
+[1;32m    982[0m     [38;5;28;01mif[39;00m [38;5;129;01mnot[39;00m e[38;5;241m.[39mstdout[38;5;241m.[39mendswith(e[38;5;241m.[39merr):
+[1;32m    983[0m         [38;5;28mprint[39m(e[38;5;241m.[39merr)
+[0;32m--> 984[0m     [38;5;28;01mraise[39;00m e
+[1;32m    985[0m [38;5;28;01mfinally[39;00m:
+[1;32m    986[0m     [38;5;28;01mif[39;00m [38;5;28mself[39m[38;5;241m.[39mdevice [38;5;129;01min[39;00m DEVICES_STATIC:
+
+File [0;32m/opt/micromamba/envs/shortcake_default/lib/python3.10/site-packages/rpy2/ipython/rmagic.py:949[0m, in [0;36mRMagics.R[0;34m(self, line, cell, local_ns)[0m
+[1;32m    947[0m         return_output [38;5;241m=[39m [38;5;28;01mFalse[39;00m
+[1;32m    948[0m [38;5;28;01melse[39;00m:
+[0;32m--> 949[0m     text_result, result, visible [38;5;241m=[39m [38;5;28;43mself[39;49m[38;5;241;43m.[39;49m[43meval[49m[43m([49m[43mcode[49m[43m)[49m
+[1;32m    950[0m     text_output [38;5;241m+[39m[38;5;241m=[39m text_result
+[1;32m    951[0m     [38;5;28;01mif[39;00m visible:
+
+File [0;32m/opt/micromamba/envs/shortcake_default/lib/python3.10/site-packages/rpy2/ipython/rmagic.py:413[0m, in [0;36mRMagics.eval[0;34m(self, code)[0m
+[1;32m    410[0m [38;5;28;01mexcept[39;00m (ri[38;5;241m.[39membedded[38;5;241m.[39mRRuntimeError, [38;5;167;01mValueError[39;00m) [38;5;28;01mas[39;00m exception:
+[1;32m    411[0m     [38;5;66;03m# Otherwise next return seems to have copy of error.[39;00m
+[1;32m    412[0m     warning_or_other_msg [38;5;241m=[39m [38;5;28mself[39m[38;5;241m.[39mflush()
+[0;32m--> 413[0m     [38;5;28;01mraise[39;00m RInterpreterError(code, [38;5;28mstr[39m(exception),
+[1;32m    414[0m                             warning_or_other_msg)
+[1;32m    415[0m [38;5;28;01mfinally[39;00m:
+[1;32m    416[0m     ro[38;5;241m.[39m_print_deferred_warnings()
+
+[0;31mRInterpreterError[0m: Failed to parse and evaluate line '# Create plot data for donors\nplot_data <- obs_export %>%\n  mutate(age_round = round(age_years)) %>%\n  filter(!is.na(age_round)) %>%\n  group_by(age_round, source) %>%\n  summarise(n_donors = n_distinct(individual), .groups = \'drop\')\n\n# Plot\nggplot(plot_data, aes(x = age_round, y = n_donors, fill = source)) +\n  geom_col() + \n  scale_x_continuous(breaks = seq(min(plot_data$age_round), max(plot_data$age_round), by = 5)) +\n  labs(\n    title = "Donor Age Distribution by Source",\n    x = "Age (Years)",\n    y = "Number of Unique Donors",\n    fill = "Source"\n  ) +\n  theme_classic() + \n  theme(legend.position = "bottom")\n'.
+R error message: 'Error in group_by(., age_round, source) : \n✖ Column `source` is not found.'
+

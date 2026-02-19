@@ -29,20 +29,19 @@ plot_age <- function(df, color_var="source", nrow=2, facet_colors=NULL, ylims=NU
         labels = function(x) round(2^x-1, 1)
     ) +
     scale_y_continuous(name='Expression (CPM)', limits=ylims, labels=function(y) paste0(round(y/1e3, 1), 'K')) +
-    guides(color = guide_legend(byrow=T, override.aes = list(alpha=1, size=2))) +
+    guides(color = guide_legend(override.aes = list(alpha=1, size=1))) +
     coord_cartesian(clip='off') +
     theme_classic() +
     theme(
-        text = element_text(size=12, color='black'),
+        text = element_text(size=14, color='black'),
         axis.text.x = element_text(),
         panel.grid.major = element_line(size=.4), 
         legend.position='right',
         legend.title=element_blank(),
-        legend.key.spacing.y = unit(2, 'mm'),
         strip.background = element_blank(),
-        strip.text.y.left = element_text(size=12, angle=0),
-        strip.text.x = element_text(size=12),
-        axis.title.x = element_text(size=12, vjust=10)
+        strip.text.y.left = element_text(size=14, angle=0),
+        strip.text.x = element_text(size=14),
+        axis.title.x = element_text(size=14, vjust=10)
     )
 
     if (!is.null(facet_colors)) {
@@ -64,7 +63,7 @@ plot_boxes <- function(df, color_var="source", facet_colors=NULL, nrow=2, scales
     df_sum <- df %>% 
     arrange(age_range) %>%
     mutate(
-        age_range = factor(age_range, ordered=T, levels=c("Infancy", "Childhood", "Adolescence", "Adulthood"))
+        age_range = factor(age_range, ordered=T, levels=c("Prenatal", "Infant", "Childhood", "Adolescence", "Adulthood"))
     ) %>%
     group_by(network, Individual, age_range, !!sym(color_var)) %>% 
     summarize(value=mean(value), .groups="drop") %>% 
@@ -83,20 +82,21 @@ plot_boxes <- function(df, color_var="source", facet_colors=NULL, nrow=2, scales
         color='blue', size=.5,
         position = position_dodge(width = 0.85) 
     ) +
-    scale_fill_manual(values=c(NA,'firebrick2')) +
+    scale_fill_manual(values=c(NA,'firebrick2'), guide='none') +
+    guides(color = guide_legend(override.aes = list(alpha=1, size=1))) +
     coord_cartesian(clip='off') +
     theme_classic() +
     theme(
-        text = element_text(size=12, color='black'), 
-        title = element_text(size=12, color='black'),
+        text = element_text(size=14, color='black'), 
+        title = element_text(size=14, color='black'),
         panel.grid.major = element_line(size=.4),
         panel.grid.minor = element_blank(),
         legend.position = 'right',
         legend.title = element_blank(),
         strip.background = element_blank(),
-        strip.text.x = element_text(size=12),
-        strip.text.y.left = element_text(size=12, angle=0),
-        axis.text.x = element_text(angle=30, hjust=1, size=10, color='black'),
+        strip.text.x = element_text(size=14),
+        strip.text.y.left = element_text(size=14, angle=0),
+        axis.text.x = element_text(angle=30, hjust=1, size=12, color='black'),
         axis.title.x = element_blank()
     )
 

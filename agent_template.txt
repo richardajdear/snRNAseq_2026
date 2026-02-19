@@ -1,0 +1,19 @@
+General context:
+We are running analysis on single-nuclei RNAseq data from postmortem human brain samples. The goal is to analyze developmental trends of gene regulatory networks with a particular focus on adolescence. The major challenge is the large sample size (millions of cells) and the need to integrate multiple datasets.
+
+Please follow these instructions for all commands:
+* Necessary packages, like scanpy and rmarkdown, are in the singularity image hpc-work/shortcake.sif in the 'shortcake_default' micromamaba environment.
+* We are working with large single-cell datasets, so use small downsampled files of 1000-10000 cells to test and validate code before executing on larger datasets. In scanpy, load datasets in backed mode (backed='r') to save memory.
+* Where possible, run tests on the login node for speed before submitting jobs to the compute nodes via sbatch. Note that the login node has limited memory. If a command takes more than 5 minutes on the login node, cancel it and submit a job.
+* cd into the snRNAseq_2026 directory before submitting jobs to ensure the logs go to the correct /logs directory.
+* The default partition for submitting jobs is cclake, but sometimes it is busy, in which case use icelake.
+* Create notebooks as .Rmd files that use reticulate to call python functions to perform heavy lifting. Use rmarkdown to create plots using ggplot2 in R. rmarkdown, reticulate etc should all be available in the shortcake_default environment of the shortcake.sif image. When creating notebooks, please knit them and debug errors until knitting succeeds. When writing markdown in .Rmd files, be sure to include newlines before lists so that they render correctly.
+
+Organize the project as follows:
+1. /code is for primary analysis code. Keep it clean, concise, and well documented. Large scripts should be broken down into smaller functions and scripts. If a script contains many functions, they should be moved into a separate file and imported into the main script.
+2. /slurm is for slurm scripts. Keep slurm script names short, do not prepend 'submit'. Save slurm logs to /logs. Slurm scripts should use minimal necessary walltime and memory so that they queue quickly. Do not increase time limits above 2 hours unless I ask you to.
+3. /scripts is for scripts that you write for agent-driven validation and debugging. These scripts are not intended to be run as part of the main analysis pipeline and should be periodically deleted, but if they involve substantial logic, flag them to be kept for future use. Keep diagnostic results of these scripts in a subfolder /scripts/outputs.
+4. /results is for analysis results that I wil review. Keep it organized in subfolders by analysis name.
+5. /reference contains small reference data. All larger datasets that will be uploaded to github should be in a separate data directory.
+6. /notebooks contains R markdown (and occasionally jupyter) notebooks for interactive work and analysis that will be shared. Keep them organized in subfolders by analysis name. Python scripts that are directly linked to the .Rmd can be kept in the same analysis folder, along with intermediate outputs specific to that analysis. Any major python scripts should be moved into /code.
+7. The purpose of the snRNAseq_2026 project folder is to back up code and results to github, and have a local environment that matches the remote environment. Large data files are not stored in this folder due to storage limits in hpc-work/. Do not save other files in the data storage directories.

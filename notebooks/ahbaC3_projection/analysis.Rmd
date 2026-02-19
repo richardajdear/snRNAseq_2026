@@ -1,0 +1,227 @@
+---
+title: "AHBA C3 Projection Analysis"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE,
+                      fig.width = 12, fig.height = 6)
+library(tidyverse)
+library(patchwork)
+library(scales)
+library(ggbeeswarm)
+library(knitr)
+library(reticulate)
+
+# Set python
+Sys.setenv(RETICULATE_PYTHON = "/opt/micromamba/envs/shortcake_default/bin/python3")
+
+# Source plotting functions
+source("../../code/age_plots.r")
+
+# Global text size
+base_size <- 14
+```
+
+## AHBA C3 Developmental Expression Analysis
+
+This notebook processes snRNA-seq data, projects AHBA C3 gene regulatory
+network weights, and visualizes developmental trends.
+
+```{r python_setup}
+# Source the python module
+source_python("../../code/process_and_project.py")
+
+# Define paths
+input_raw <- "/home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/combined/VelWangPsychad_10k_PFC_lessOld.h5ad"
+output_csv <- "projection_results.csv"
+grn_file <- "/home/rajd2/rds/hpc-work/snRNAseq_2026/reference/ahba_dme_hcp_top8kgenes_weights.csv"
+region_filter <- "prefrontal cortex"
+```
+
+### 1. Process and Project
+
+```{r process_project}
+if (!file.exists(output_csv)) {
+  print("Results not found. Running processing and projection...")
+  tryCatch({
+    py$process_and_project(input_raw, output_csv, grn_file, region_filter, log_transform=FALSE)
+    print("Workflow complete.")
+  }, error = function(e) {
+    print(paste("Error in workflow:", e))
+    stop(e)
+  })
+} else {
+  print("Results found. Skipping workflow.")
+}
+```
+
+### 2. Load and Prepare Data
+
+```{r load_data}
+data <- read_csv(output_csv, show_col_types = FALSE)
+
+# Clean column names
+if ("...1" %in% names(data)) {
+  data <- data %>% rename(obs_name = `...1`)
+}
+
+# Handle Prenatal and Infant categories directly
+data <- data %>%
+  mutate(
+    age_category = case_when(
+      age_category == "Prenatal" ~ "Prenatal",
+      age_category == "Infant" ~ "Infant",
+      TRUE ~ age_category
+    )
+  )
+
+# Ensure Age is numeric
+data$age_years <- as.numeric(data$age_years)
+
+# Ensure source column exists (single-source datasets may lack it)
+if (!"source" %in% names(data)) {
+  if ("dataset_source" %in% names(data)) {
+    data$source <- data$dataset_source
+  } else {
+    data$source <- "Unknown"
+  }
+}
+
+# Define age category levels
+age_cat_levels <- c("Prenatal", "Infant", "Childhood", "Adolescence", "Adulthood")
+
+# Compute age category labels dynamically from data
+age_summary <- data %>%
+  filter(age_category %in% age_cat_levels) %>%
+  group_by(age_category) %>%
+  summarize(
+    n_cells = n(),
+    n_donors = n_distinct(donor_id),
+    min_age = floor(min(age_years, na.rm = TRUE)),
+    max_age = ceiling(max(age_years, na.rm = TRUE)),
+    .groups = "drop"
+  ) %>%
+  mutate(age_category = factor(age_category, levels = age_cat_levels)) %>%
+  arrange(age_category)
+
+# Build dynamic labels
+age_cat_labels <- setNames(
+  paste0(age_summary$age_category, "\n(", age_summary$min_age, "-", age_summary$max_age, ")"),
+  age_summary$age_category
+)
+
+# Apply factor levels
+data$age_category <- factor(data$age_category, levels = age_cat_levels)
+
+# Rename columns to match plotting function expectations
+data <- data %>%
+  rename(any_of(c(Age_log2 = "age_log2", age_range = "age_category", Individual = "donor_id")))
+
+# Summary table
+kable(age_summary, caption = "Age Category Summary")
+```
+
+### 3. Age Distribution
+
+```{r age_dist, fig.width=14, fig.height=5}
+plot_dist <- function(df, count_var, y_lab) {
+  p_hist <- ggplot(df, aes(x = Age_log2, fill = source)) +
+    geom_histogram(binwidth = 0.5, color = "white", alpha = 0.8) +
+    scale_fill_brewer(palette = "Set2") +
+    labs(x = "Log2(Age + 1)", y = y_lab, fill = "Source") +
+    theme_minimal(base_size = base_size)
+
+  p_bar <- ggplot(df, aes(x = age_range, fill = source)) +
+    geom_bar(alpha = 0.8) +
+    scale_fill_brewer(palette = "Set2") +
+    labs(x = "Age Category", y = y_lab, fill = "Source") +
+    theme_minimal(base_size = base_size)
+
+  p_hist | p_bar
+}
+
+# Cell-level
+p_cells <- plot_dist(data, "n", "Number of Cells") +
+  plot_annotation(tag_levels = 'a', title = "Cell Distribution by Age") &
+  theme(plot.tag = element_text(face = 'bold', size = 16))
+
+# Donor-level
+donor_data <- data %>% distinct(Individual, .keep_all = TRUE)
+p_donors <- plot_dist(donor_data, "n", "Number of Donors") +
+  plot_annotation(tag_levels = 'a', title = "Donor Distribution by Age") &
+  theme(plot.tag = element_text(face = 'bold', size = 16))
+
+p_cells / p_donors
+```
+
+### 4. Developmental Expression: Excitatory Neurons
+
+```{r combined_analysis, fig.width=14, fig.height=6}
+# Filter for Excitatory neurons
+plot_data <- data %>%
+  filter(str_detect(cell_class, "Excitatory") | str_detect(cell_type, "Excitatory")) %>%
+  pivot_longer(cols = matches("^C\\d"), names_to = "C", values_to = "value") %>%
+  filter(C %in% c("C3+", "C3-")) %>%
+  mutate(C = factor(C, levels = c("C3+", "C3-")),
+         network = C)
+
+# Scatter plot (panel a)
+p_age <- plot_age(plot_data)
+
+# Boxplot (panel b) with dynamic labels
+p_boxes <- plot_boxes(plot_data) +
+  scale_x_discrete(labels = age_cat_labels)
+
+# Combine
+(p_age | p_boxes) +
+  plot_annotation(tag_levels='a', title="Developmental expression of AHBA C3 in Excitatory Neurons") +
+  plot_layout(guides = 'collect') &
+  theme(legend.position = 'right',
+        plot.tag = element_text(face = 'bold', size = 16))
+```
+
+### 5. Developmental Expression: L2/3 Neurons
+
+```{r l2_cell_types}
+# Identify L2-containing cell types by source
+l2_data <- data %>%
+  filter(str_detect(cell_type, "L2"))
+
+if (nrow(l2_data) > 0) {
+  l2_table <- l2_data %>%
+    count(cell_type, source) %>%
+    pivot_wider(names_from = source, values_from = n, values_fill = 0)
+
+  kable(l2_table, caption = "L2/3 Cell Types by Source")
+} else {
+  cat("No cell types containing 'L2' found in the data.\n")
+}
+```
+
+```{r l2_analysis, fig.width=14, fig.height=6}
+# Filter for L2/3 neurons
+l2_plot_data <- data %>%
+  filter(str_detect(cell_type, "L2")) %>%
+  pivot_longer(cols = matches("^C\\d"), names_to = "C", values_to = "value") %>%
+  filter(C %in% c("C3+", "C3-")) %>%
+  mutate(C = factor(C, levels = c("C3+", "C3-")),
+         network = C)
+if (nrow(l2_plot_data) > 0) {
+  # Scatter plot (panel a)
+  p_age_l2 <- plot_age(l2_plot_data)
+
+  # Boxplot (panel b) with dynamic labels
+  p_boxes_l2 <- plot_boxes(l2_plot_data) +
+    scale_x_discrete(labels = age_cat_labels)
+
+  # Combine
+  (p_age_l2 | p_boxes_l2) +
+    plot_annotation(tag_levels='a', title="Developmental expression of AHBA C3 in L2/3 Neurons") +
+    plot_layout(guides = 'collect') &
+    theme(legend.position = 'right',
+          plot.tag = element_text(face = 'bold', size = 16))
+} else {
+  cat("No L2/3 neurons found in the data — cannot generate plot.\n")
+}
+```

@@ -15,7 +15,8 @@ def get_ahba_GRN(
     ahba = pd.read_csv(path_to_ahba_weights, index_col=0)
 
     ahba_melt = (ahba
-                .reset_index(names='Gene')
+                .reset_index()
+                .rename(columns={'index': 'Gene'})
                 .melt(id_vars=['Gene'], var_name='Network', value_name='Importance'))
 
     ahba_GRNpos = (ahba_melt

@@ -1,9 +1,5 @@
 logs/
-outputs/
+scripts/outputs/
 results/
-results_3datasets/
-results_full/
 *.h5ad
 *.csv
-*combined_obs.csv
-*projection.csv
