@@ -14,11 +14,9 @@ import gc
 try:
     import read_data
 except ImportError:
-    # If running from outside code/ directory, add it to path
     sys.path.append(os.path.dirname(os.path.realpath(__file__)))
     import read_data
 
-# Use constants from read_data as defaults
 OUTPUT_DIR = "/home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/combined/"
 
 START_TIME = time.time()
@@ -30,42 +28,156 @@ def log_mem(step_name=""):
     print(f"\n[Memory] {step_name}: {mem_info.rss / 1024 ** 3:.2f} GB ({process.memory_percent():.2f}%) - Elapsed: {elapsed/60:.2f} min")
     sys.stdout.flush()
 
-def check_structure(adatas):
+def check_structure_from_files(file_dict):
     """
-    Print diagnostic crosstabs and column intersections.
+    Print diagnostic crosstabs from backed files (no full matrix load needed).
     """
     print("\n" + "="*40)
     print("      DIAGNOSTIC STRUCTURE CHECK")
     print("="*40)
     
-    # 1. Identify shared columns
-    col_sets = [set(ad.obs.columns) for ad in adatas.values()]
-    common_cols = sorted(list(set.intersection(*col_sets)))
+    col_sets = []
+    combined_meta = []
     
+    for name, path in file_dict.items():
+        ad = sc.read_h5ad(path, backed='r')
+        obs = ad.obs
+        col_sets.append(set(obs.columns))
+        
+        df = pd.DataFrame({'Dataset_Key': name}, index=obs.index)
+        df['region'] = obs['region'] if 'region' in obs.columns else 'MISSING'
+        df['cell_class'] = obs['cell_class'] if 'cell_class' in obs.columns else 'MISSING'
+        combined_meta.append(df)
+        
+        print(f"  {name}: {ad.shape[0]} cells x {ad.shape[1]} genes")
+        del ad
+    
+    common_cols = sorted(list(set.intersection(*col_sets)))
     print(f"\n[Common .obs Columns] Count: {len(common_cols)}")
     print(", ".join(common_cols))
     
-    # 2. Crosstabs — use only obs metadata, not full data
-    combined_meta = []
-    for name, ad in adatas.items():
-        df = ad.obs[['region', 'cell_class']].copy() if 'region' in ad.obs.columns and 'cell_class' in ad.obs.columns else ad.obs.copy()
-        df['Dataset_Key'] = name
-        if 'region' not in df.columns: df['region'] = 'MISSING'
-        if 'cell_class' not in df.columns: df['cell_class'] = 'MISSING'
-        combined_meta.append(df[['Dataset_Key', 'region', 'cell_class']])
-        
     full_df = pd.concat(combined_meta)
-    
     print("\n[Crosstab: Dataset x Region]")
     print(pd.crosstab(full_df['region'], full_df['Dataset_Key']))
-    
     print("\n[Crosstab: Dataset x Cell Class]")
     print(pd.crosstab(full_df['cell_class'], full_df['Dataset_Key']))
-    
     print("\n" + "="*40 + "\n")
+    
     del full_df, combined_meta
     gc.collect()
     return common_cols
+
+def combine_on_disk(file_dict, output_path):
+    """
+    Use anndata.experimental.concat_on_disk to combine datasets without loading into memory.
+    This streams data from input files and writes directly to the output file.
+    """
+    from anndata.experimental import concat_on_disk
+    
+    in_files = list(file_dict.values())
+    
+    out_dir = os.path.dirname(output_path)
+    if out_dir and not os.path.exists(out_dir): 
+        os.makedirs(out_dir)
+    
+    print(f"Combining {len(in_files)} files on disk...")
+    print(f"  Input files: {in_files}")
+    print(f"  Output: {output_path}")
+    
+    log_mem("Before concat_on_disk")
+    
+    concat_on_disk(
+        in_files,
+        output_path,
+        label='source',
+        keys=list(file_dict.keys()),
+        join='inner'
+    )
+    
+    log_mem("After concat_on_disk")
+    
+    # Restore gene metadata using backed access to reference and output
+    print("Restoring gene metadata...")
+    ref_path = in_files[0]
+    ref = sc.read_h5ad(ref_path, backed='r')
+    out = sc.read_h5ad(output_path, backed='r+')
+    
+    common_vars = out.var_names
+    
+    if 'feature_name' in ref.var.columns:
+        out.var['gene_symbol'] = ref.var.loc[common_vars, 'feature_name'].values
+        print(f"  Restored 'gene_symbol' for {len(out.var)} genes.")
+    elif 'gene_name' in ref.var.columns:
+        out.var['gene_symbol'] = ref.var.loc[common_vars, 'gene_name'].values
+        print(f"  Restored 'gene_symbol' for {len(out.var)} genes.")
+        
+    if 'feature_length' in ref.var.columns:
+        out.var['feature_length'] = ref.var.loc[common_vars, 'feature_length'].values
+        print(f"  Restored 'feature_length' for {len(out.var)} genes.")
+    
+    # Write updated var back
+    out.file.close()
+    del ref, out
+    gc.collect()
+    
+    log_mem("After metadata restore")
+    print(f"Combined file saved to: {output_path}")
+
+
+def combine_in_memory(file_dict, output_path, common_cols):
+    """Fallback: load all datasets into memory and combine with sc.concat."""
+    adatas = {}
+    for name, path in file_dict.items():
+        print(f"Loading {name} from {path} (backed)...")
+        ad = sc.read_h5ad(path, backed='r')
+        ad = ad[:].to_memory()
+        adatas[name] = ad
+        log_mem(f"After loading {name}")
+    
+    # Standardize gene symbols and subset obs
+    for name in adatas:
+        adData = adatas[name]
+        if 'feature_name' in adData.var.columns:
+            adData.var['gene_symbol'] = adData.var['feature_name']
+        elif 'gene_name' in adData.var.columns:
+            adData.var['gene_symbol'] = adData.var['gene_name']
+        else:
+            adData.var['gene_symbol'] = adData.var.index
+        
+        valid_cols = [c for c in common_cols if c in adData.obs.columns]
+        adData.obs = adData.obs[valid_cols]
+        adatas[name] = adData
+    
+    log_mem("Before concat")
+    combined = sc.concat(adatas, label='source', index_unique='-')
+    print(f"Combined Shape: {combined.shape}")
+    log_mem("After concat")
+    
+    del adatas
+    gc.collect()
+    log_mem("After freeing datasets")
+    
+    # Restore gene metadata
+    ref_path = list(file_dict.values())[0]
+    ref = sc.read_h5ad(ref_path, backed='r')
+    common_vars = combined.var_names
+    if 'feature_name' in ref.var.columns:
+        combined.var['gene_symbol'] = ref.var.loc[common_vars, 'feature_name'].values
+        print(f"Restored 'gene_symbol' for {len(combined.var)} genes.")
+    if 'feature_length' in ref.var.columns:
+        combined.var['feature_length'] = ref.var.loc[common_vars, 'feature_length'].values
+        print(f"Restored 'feature_length' for {len(combined.var)} genes.")
+    del ref
+    
+    out_dir = os.path.dirname(output_path)
+    if out_dir and not os.path.exists(out_dir): os.makedirs(out_dir)
+    
+    log_mem("Before save")
+    print(f"Saving to {output_path}...")
+    combined.write_h5ad(output_path, compression='gzip')
+    log_mem("After save")
+    print("Done.")
+
 
 def main():
     parser = argparse.ArgumentParser(description="Combine snRNAseq datasets.")
@@ -73,13 +185,11 @@ def main():
     parser.add_argument("--diagnose_only", action='store_true', help="Only run diagnostics, do not save")
     parser.add_argument("--output", default=f"{OUTPUT_DIR}/combined_postnatal_full.h5ad")
     
-    # Allow overriding paths
     parser.add_argument("--aging_path", default=read_data.AGING_PATH)
     parser.add_argument("--hbcc_path", default=read_data.HBCC_PATH)
     parser.add_argument("--velmeshev_path", default=read_data.VELMESHEV_PATH)
     parser.add_argument("--wang_path", default=read_data.WANG_PATH)
     
-    # Loading mode
     parser.add_argument("--direct_load", action='store_true', 
                         help="Load h5ad files directly (skip read_data processing). Use for pre-processed/downsampled inputs.")
     
@@ -87,118 +197,95 @@ def main():
     
     log_mem("Start")
     
-    adatas = {}
+    # Build file dict from paths that exist
+    file_dict = {}
+    for name, path in [('VELMESHEV', args.velmeshev_path), ('WANG', args.wang_path),
+                       ('AGING', args.aging_path), ('HBCC', args.hbcc_path)]:
+        if path and os.path.exists(path):
+            file_dict[name] = path
+        elif path:
+            print(f"Warning: {name} path {path} does not exist.")
     
-    def load_dataset(path, name, reader_func=None, **reader_kwargs):
-        """Load a dataset, optionally using a specific reader function."""
-        if not path or not os.path.exists(path):
-            if path: print(f"Warning: {name} path {path} does not exist.")
-            return
-        
-        if args.direct_load:
-            print(f"Loading {name} directly from {path}...")
-            ad = sc.read_h5ad(path)
-        elif reader_func:
-            ad = reader_func(path, **reader_kwargs)
-        else:
-            ad = sc.read_h5ad(path)
-        
-        if ad is not None and ad.n_obs > 0:
-            adatas[name] = ad
-            print(f"  {name}: {ad.shape}")
-        else:
-            print(f"  Warning: {name} loaded empty or None.")
-        log_mem(f"After loading {name}")
-    
-    # 1. Load Data
-    load_dataset(args.velmeshev_path, 'VELMESHEV', 
-                 reader_func=read_data.read_velmeshev, h5ad_path=args.velmeshev_path)
-    load_dataset(args.wang_path, 'WANG',
-                 reader_func=read_data.read_wang, h5ad_path=args.wang_path)
-    load_dataset(args.aging_path, 'AGING',
-                 reader_func=read_data.read_psychad, h5ad_path=args.aging_path, 
-                 dataset_name='AGING', min_age=None, max_age=None)
-    load_dataset(args.hbcc_path, 'HBCC',
-                 reader_func=read_data.read_psychad, h5ad_path=args.hbcc_path,
-                 dataset_name='HBCC', min_age=None, max_age=None)
-        
-    if not adatas:
-        print("No datasets loaded.")
+    if not file_dict:
+        print("No datasets found.")
         sys.exit(1)
         
-    # 2. Filter Postnatal (deprecated)
     if args.postnatal:
-        print("Warning: --postnatal flag passed but inline filtering is deprecated in combine_data.py.")
-        print("Assuming inputs are already filtered.")
+        print("Warning: --postnatal flag is deprecated. Assuming inputs are already filtered.")
     
-    # 3. Diagnostics
-    common_cols = check_structure(adatas)
+    # Diagnostics (uses backed mode, minimal memory)
+    common_cols = check_structure_from_files(file_dict)
     log_mem("After diagnostics")
     
     if args.diagnose_only:
         print("Diagnostics complete. Exiting.")
         return
 
-    # 4. Combine
-    print("Combining datasets...")
-    
-    for name in adatas:
-        adData = adatas[name]
-        
-        # Standardize Gene Symbol Column
-        if 'feature_name' in adData.var.columns:
-            adData.var['gene_symbol'] = adData.var['feature_name']
-        elif 'gene_name' in adData.var.columns:
-            adData.var['gene_symbol'] = adData.var['gene_name']
-        else:
-            adData.var['gene_symbol'] = adData.var.index
+    # Combine
+    if args.direct_load:
+        # On-disk concatenation: no expression matrices loaded into memory
+        print("Using on-disk concatenation (anndata.experimental.concat_on_disk)...")
+        combine_on_disk(file_dict, args.output)
+    else:
+        # In-memory fallback (for when reader functions need to process metadata)
+        print("Using in-memory concatenation...")
+        # Load via reader functions
+        adatas = {}
+        for name, path in file_dict.items():
+            if name == 'VELMESHEV':
+                ad = read_data.read_velmeshev(h5ad_path=path)
+            elif name == 'WANG':
+                ad = read_data.read_wang(h5ad_path=path)
+            elif name in ('AGING', 'HBCC'):
+                ad = read_data.read_psychad(path, name, min_age=None, max_age=None)
+            else:
+                ad = sc.read_h5ad(path, backed='r')
+                ad = ad[:].to_memory()
             
-        # Subset obs to common columns only
-        valid_cols = [c for c in common_cols if c in adData.obs.columns]
-        adData.obs = adData.obs[valid_cols]
-        adatas[name] = adData
-    
-    log_mem("Before concat")
-    
-    combined = sc.concat(adatas, label='source', index_unique='-')
-    print(f"Combined Shape: {combined.shape}")
-    log_mem("After concat")
-    
-    # Free individual datasets to reclaim memory
-    del adatas
-    gc.collect()
-    log_mem("After freeing individual datasets")
-    
-    # Restore Gene Metadata (Symbols and feature_length)
-    # We need a reference — reload just .var from first dataset
-    ref_path = args.velmeshev_path
-    if ref_path and os.path.exists(ref_path):
-        ref_adata = sc.read_h5ad(ref_path, backed='r')
-        common_vars = combined.var_names
+            if ad is not None and ad.n_obs > 0:
+                adatas[name] = ad
+                print(f"  {name}: {ad.shape}")
+            log_mem(f"After loading {name}")
         
-        # Standardize gene_symbol in reference
-        if 'feature_name' in ref_adata.var.columns:
-            ref_var = ref_adata.var.loc[common_vars]
-            combined.var['gene_symbol'] = ref_var['feature_name'].values
-            print(f"Restored 'gene_symbol' for {len(combined.var)} genes.")
+        # Standardize and combine
+        for name, adData in adatas.items():
+            if 'feature_name' in adData.var.columns:
+                adData.var['gene_symbol'] = adData.var['feature_name']
+            elif 'gene_name' in adData.var.columns:
+                adData.var['gene_symbol'] = adData.var['gene_name']
+            else:
+                adData.var['gene_symbol'] = adData.var.index
+            valid_cols = [c for c in common_cols if c in adData.obs.columns]
+            adData.obs = adData.obs[valid_cols]
         
-        if 'feature_length' in ref_adata.var.columns:
-            combined.var['feature_length'] = ref_var['feature_length'].values
-            print(f"Restored 'feature_length' for {len(combined.var)} genes.")
-        
-        del ref_adata, ref_var
+        log_mem("Before concat")
+        combined = sc.concat(adatas, label='source', index_unique='-')
+        print(f"Combined Shape: {combined.shape}")
+        log_mem("After concat")
+        del adatas
         gc.collect()
-    
-    log_mem("Before save")
-    
-    # Write
-    out_dir = os.path.dirname(args.output)
-    if out_dir and not os.path.exists(out_dir): os.makedirs(out_dir)
-    
-    print(f"Saving to {args.output}...")
-    combined.write_h5ad(args.output, compression='gzip')
-    log_mem("After save")
-    print("Done.")
+        
+        # Restore metadata
+        ref_path = list(file_dict.values())[0]
+        ref = sc.read_h5ad(ref_path, backed='r')
+        common_vars = combined.var_names
+        if 'feature_name' in ref.var.columns:
+            combined.var['gene_symbol'] = ref.var.loc[common_vars, 'feature_name'].values
+            print(f"Restored 'gene_symbol' for {len(combined.var)} genes.")
+        if 'feature_length' in ref.var.columns:
+            combined.var['feature_length'] = ref.var.loc[common_vars, 'feature_length'].values
+            print(f"Restored 'feature_length' for {len(combined.var)} genes.")
+        del ref
+        
+        out_dir = os.path.dirname(args.output)
+        if out_dir and not os.path.exists(out_dir): os.makedirs(out_dir)
+        
+        log_mem("Before save")
+        print(f"Saving to {args.output}...")
+        combined.write_h5ad(args.output, compression='gzip')
+        log_mem("After save")
+        print("Done.")
+
 
 if __name__ == "__main__":
     main()
