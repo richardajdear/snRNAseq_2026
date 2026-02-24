@@ -98,7 +98,7 @@ def process_and_project(input_file, output_csv, grn_file, region='prefrontal cor
     projection_df = pd.DataFrame(adata.obsm['X_ahba'], index=adata.obs_names, columns=cols)
 
     # Metadata
-    cols_to_keep = ['age_years', 'sex', 'donor_id', 'dataset_source', 'cell_class', 'cell_type', 'region', 'source', 'age_category', 'age_log2']
+    cols_to_keep = ['age_years', 'sex', 'donor_id', 'individual', 'dataset_source', 'dataset', 'cell_class', 'cell_type', 'lineage', 'batch', 'chemistry', 'region', 'source', 'age_category', 'age_log2']
     valid_cols = [c for c in cols_to_keep if c in adata.obs.columns]
 
     result_df = pd.concat([adata.obs[valid_cols], projection_df], axis=1)

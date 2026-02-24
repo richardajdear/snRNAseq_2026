@@ -33,8 +33,8 @@ network weights, and visualizes developmental trends.
 source_python("../../code/process_and_project.py")
 
 # Define paths
-input_raw <- "/home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/combined/combined_postnatal_10k_fixed.h5ad"
-output_csv <- "projection_results_postnatal_10k.csv"
+input_raw <- "/home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/combined/velmeshev_100k_processed.h5ad"
+output_csv <- "vel_100k_projection.csv"
 grn_file <- "/home/rajd2/rds/hpc-work/snRNAseq_2026/reference/ahba_dme_hcp_top8kgenes_weights.csv"
 region_filter <- "prefrontal cortex"
 ```
@@ -88,6 +88,24 @@ if (!"source" %in% names(data)) {
   }
 }
 
+# Rename donor column to Individual early for summary stats
+if ("donor_id" %in% colnames(data)) {
+  data <- data %>% rename(Individual = donor_id)
+} else if ("individual" %in% colnames(data)) {
+  data <- data %>% rename(Individual = individual)
+}
+
+if (!("cell_class" %in% colnames(data)) && "lineage" %in% colnames(data)) {
+  data <- data %>% rename(cell_class = lineage)
+}
+if (!("cell_type" %in% colnames(data))) {
+  data$cell_type <- "Unknown"
+}
+
+if (!("source" %in% colnames(data))) {
+  data$source <- "Velmeshev"
+}
+
 # Define age category levels
 age_cat_levels <- c("Prenatal", "Infant", "Childhood", "Adolescence", "Adulthood")
 
@@ -97,7 +115,7 @@ age_summary <- data %>%
   group_by(age_category) %>%
   summarize(
     n_cells = n(),
-    n_donors = n_distinct(donor_id),
+    n_donors = n_distinct(Individual),
     min_age = floor(min(age_years, na.rm = TRUE)),
     max_age = ceiling(max(age_years, na.rm = TRUE)),
     .groups = "drop"
@@ -116,7 +134,7 @@ data$age_category <- factor(data$age_category, levels = age_cat_levels)
 
 # Rename columns to match plotting function expectations
 data <- data %>%
-  rename(any_of(c(Age_log2 = "age_log2", age_range = "age_category", Individual = "donor_id")))
+  rename(any_of(c(Age_log2 = "age_log2", age_range = "age_category")))
 
 # Summary table
 kable(age_summary, caption = "Age Category Summary")
