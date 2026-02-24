@@ -103,20 +103,31 @@ def combine_on_disk(file_dict, output_path):
     out = sc.read_h5ad(output_path, backed='r+')
     
     common_vars = out.var_names
+    new_var = out.var.copy()
     
     if 'feature_name' in ref.var.columns:
-        out.var['gene_symbol'] = ref.var.loc[common_vars, 'feature_name'].values
-        print(f"  Restored 'gene_symbol' for {len(out.var)} genes.")
+        new_var['gene_symbol'] = ref.var.loc[common_vars, 'feature_name'].values
+        print(f"  Restored 'gene_symbol' for {len(new_var)} genes.")
     elif 'gene_name' in ref.var.columns:
-        out.var['gene_symbol'] = ref.var.loc[common_vars, 'gene_name'].values
-        print(f"  Restored 'gene_symbol' for {len(out.var)} genes.")
+        new_var['gene_symbol'] = ref.var.loc[common_vars, 'gene_name'].values
+        print(f"  Restored 'gene_symbol' for {len(new_var)} genes.")
         
     if 'feature_length' in ref.var.columns:
-        out.var['feature_length'] = ref.var.loc[common_vars, 'feature_length'].values
-        print(f"  Restored 'feature_length' for {len(out.var)} genes.")
+        new_var['feature_length'] = ref.var.loc[common_vars, 'feature_length'].values
+        print(f"  Restored 'feature_length' for {len(new_var)} genes.")
     
-    # Write updated var back
-    out.file.close()
+    out.file.close() # Close to allow h5py to open
+    
+    # Write updated var back via h5py and write_elem
+    import h5py
+    from anndata.experimental import write_elem
+    
+    with h5py.File(output_path, 'r+') as f:
+        if 'var' in f:
+            del f['var']
+        write_elem(f, 'var', new_var)
+        
+    print("  Done rewriting /var group.")
     del ref, out
     gc.collect()
     

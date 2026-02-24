@@ -4,13 +4,16 @@
 #SBATCH --error=/home/rajd2/rds/hpc-work/snRNAseq_2026/logs/process_full_%j.err
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --time=01:00:00
+#SBATCH --time=12:00:00
 #SBATCH --mem=180G
 #SBATCH --partition=icelake
+
+set -euo pipefail
 
 # Paths
 CODE_DIR="/home/rajd2/rds/hpc-work/snRNAseq_2026/code"
 BASE_DIR="/home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc"
+SIF="/home/rajd2/rds/hpc-work/shortcake.sif"
 
 # Input Data Paths (Full)
 VELMESHEV="$BASE_DIR/Cam_snRNAseq/velmeshev/velmeshev.h5ad"
@@ -18,11 +21,7 @@ WANG="$BASE_DIR/Cam_snRNAseq/wang/wang.h5ad"
 AGING="$BASE_DIR/Cam_PsychAD/RNAseq/Aging_Cohort.h5ad"
 HBCC="$BASE_DIR/Cam_PsychAD/RNAseq/HBCC_Cohort.h5ad"
 
-# Output Directory (Same as inputs or specific?)
-# User asked for {source_name}_PFC_lessOld.h5ad
-# We will save them in the same directory as source for organization, or 'combined/intermediate'?
-# User said "Call these datasets {source_name}_PFC_lessOld.h5ad."
-# Usually better to keep them near source.
+# Output Itermediate Paths
 VEL_OUT="$BASE_DIR/Cam_snRNAseq/velmeshev/velmeshev_PFC_lessOld.h5ad"
 WANG_OUT="$BASE_DIR/Cam_snRNAseq/wang/wang_PFC_lessOld.h5ad"
 AGING_OUT="$BASE_DIR/Cam_PsychAD/RNAseq/Aging_Cohort_PFC_lessOld.h5ad"
@@ -55,19 +54,22 @@ run_downsample() {
         exit 1
     fi
     
-    singularity exec --cleanenv /home/rajd2/rds/hpc-work/shortcake.sif micromamba run -n shortcake_default \
+    # Remove existing output to force recreation
+    rm -f "$OUTPUT"
+    
+    singularity exec --cleanenv $SIF micromamba run -n shortcake_default \
         python -u $CODE_DIR/downsample.py \
-        --input $INPUT \
-        --output $OUTPUT \
-        --dataset_type $TYPE \
+        --input "$INPUT" \
+        --output "$OUTPUT" \
+        --dataset_type "$TYPE" \
         --pfc_only \
         --age_downsample
         
-    if [ $? -ne 0 ]; then
-        echo "Error processing $TYPE"
+    if [ ! -f "$OUTPUT" ]; then
+        echo "Error: Output file $OUTPUT was NOT created!"
         exit 1
     fi
-    echo "Done $TYPE."
+    echo "Done $TYPE. Size: $(du -h "$OUTPUT" | cut -f1)"
 }
 
 # 1. Velmeshev
@@ -86,22 +88,25 @@ echo "--------------------------------------------------------"
 echo "All downsampling complete. Starting Combination..."
 echo "Out: $COMBINED_OUT"
 
-# 5. Combine
-# Note: DO NOT pass --postnatal here, because we want to keep the 10% old cells we just filtered for.
-# combine_data.py with --postnatal forces < 40.
-singularity exec --cleanenv /home/rajd2/rds/hpc-work/shortcake.sif micromamba run -n shortcake_default \
+# Remove existing combined file to force recreation
+rm -f "$COMBINED_OUT"
+
+# 5. Combine using --direct_load for concat_on_disk
+singularity exec --cleanenv $SIF micromamba run -n shortcake_default \
     python -u $CODE_DIR/combine_data.py \
-    --output $COMBINED_OUT \
+    --direct_load \
+    --output "$COMBINED_OUT" \
     --velmeshev_path "$VEL_OUT" \
     --wang_path "$WANG_OUT" \
     --aging_path "$AGING_OUT" \
     --hbcc_path "$HBCC_OUT"
     
-if [ $? -ne 0 ]; then
-    echo "Error in Combination"
+if [ ! -f "$COMBINED_OUT" ]; then
+    echo "Error: Combined output was NOT created!"
     exit 1
 fi
 
 echo "========================================================"
 echo "Full Processing Complete!"
-echo "Combined file: $COMBINED_OUT"
+echo "Combined file: $COMBINED_OUT ($(du -h "$COMBINED_OUT" | cut -f1))"
+echo "========================================================"

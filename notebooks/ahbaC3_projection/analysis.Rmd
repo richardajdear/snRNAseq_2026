@@ -33,8 +33,8 @@ network weights, and visualizes developmental trends.
 source_python("../../code/process_and_project.py")
 
 # Define paths
-input_raw <- "/home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/combined/VelWangPsychad_10k_PFC_lessOld.h5ad"
-output_csv <- "projection_results.csv"
+input_raw <- "/home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/combined/combined_postnatal_10k_fixed.h5ad"
+output_csv <- "projection_results_postnatal_10k.csv"
 grn_file <- "/home/rajd2/rds/hpc-work/snRNAseq_2026/reference/ahba_dme_hcp_top8kgenes_weights.csv"
 region_filter <- "prefrontal cortex"
 ```
@@ -124,35 +124,42 @@ kable(age_summary, caption = "Age Category Summary")
 
 ### 3. Age Distribution
 
-```{r age_dist, fig.width=14, fig.height=5}
-plot_dist <- function(df, count_var, y_lab) {
+```{r age_dist, fig.width=14, fig.height=8}
+plot_dist <- function(df, y_lab, show_legend = TRUE) {
   p_hist <- ggplot(df, aes(x = Age_log2, fill = source)) +
     geom_histogram(binwidth = 0.5, color = "white", alpha = 0.8) +
     scale_fill_brewer(palette = "Set2") +
-    labs(x = "Log2(Age + 1)", y = y_lab, fill = "Source") +
-    theme_minimal(base_size = base_size)
+    scale_x_continuous(breaks = log2(1 + c(0, 1, 9, 25)), labels = c("0", "1", "9", "25")) +
+    labs(x = "Donor Age (Years)", y = y_lab, fill = "Source") +
+    theme_minimal(base_size = base_size) +
+    theme(legend.position = "none")
 
   p_bar <- ggplot(df, aes(x = age_range, fill = source)) +
     geom_bar(alpha = 0.8) +
     scale_fill_brewer(palette = "Set2") +
     labs(x = "Age Category", y = y_lab, fill = "Source") +
     theme_minimal(base_size = base_size)
+    
+  if (!show_legend) {
+    p_bar <- p_bar + theme(legend.position = "none")
+  }
 
-  p_hist | p_bar
+  return(list(p_hist = p_hist, p_bar = p_bar))
 }
 
 # Cell-level
-p_cells <- plot_dist(data, "n", "Number of Cells") +
-  plot_annotation(tag_levels = 'a', title = "Cell Distribution by Age") &
-  theme(plot.tag = element_text(face = 'bold', size = 16))
+cells_plots <- plot_dist(data, "N cells", show_legend = TRUE)
 
 # Donor-level
 donor_data <- data %>% distinct(Individual, .keep_all = TRUE)
-p_donors <- plot_dist(donor_data, "n", "Number of Donors") +
-  plot_annotation(tag_levels = 'a', title = "Donor Distribution by Age") &
-  theme(plot.tag = element_text(face = 'bold', size = 16))
+donors_plots <- plot_dist(donor_data, "N donors", show_legend = FALSE)
 
-p_cells / p_donors
+(cells_plots$p_hist | cells_plots$p_bar) / (donors_plots$p_hist | donors_plots$p_bar) +
+  plot_annotation(tag_levels = 'a', title = "Age Distribution (Top: Cells, Bottom: Donors)",
+                  theme = theme(plot.title = element_text(size = 22, face = 'bold'))) +
+  plot_layout(guides = 'collect') &
+  theme(plot.tag = element_text(face = 'bold', size = 16),
+        legend.position = 'right')
 ```
 
 ### 4. Developmental Expression: Excitatory Neurons
@@ -170,12 +177,18 @@ plot_data <- data %>%
 p_age <- plot_age(plot_data)
 
 # Boxplot (panel b) with dynamic labels
+comparisons <- list(c('Adolescence', 'Adulthood'), c('Adolescence', 'Childhood'))
 p_boxes <- plot_boxes(plot_data) +
-  scale_x_discrete(labels = age_cat_labels)
+  scale_x_discrete(labels = age_cat_labels) +
+  stat_compare_means(comparisons = comparisons, color='blue', label='p.signif')
 
 # Combine
 (p_age | p_boxes) +
-  plot_annotation(tag_levels='a', title="Developmental expression of AHBA C3 in Excitatory Neurons") +
+  plot_annotation(
+    tag_levels='a', 
+    title="Developmental expression of AHBA C3 in Excitatory Neurons",
+    theme = theme(plot.title = element_text(size = 22, face = 'bold'))
+  ) +
   plot_layout(guides = 'collect') &
   theme(legend.position = 'right',
         plot.tag = element_text(face = 'bold', size = 16))
@@ -212,12 +225,18 @@ if (nrow(l2_plot_data) > 0) {
   p_age_l2 <- plot_age(l2_plot_data)
 
   # Boxplot (panel b) with dynamic labels
+  comparisons <- list(c('Adolescence', 'Adulthood'), c('Adolescence', 'Childhood'))
   p_boxes_l2 <- plot_boxes(l2_plot_data) +
-    scale_x_discrete(labels = age_cat_labels)
+    scale_x_discrete(labels = age_cat_labels) +
+    stat_compare_means(comparisons = comparisons, color='blue', label='p.signif')
 
   # Combine
   (p_age_l2 | p_boxes_l2) +
-    plot_annotation(tag_levels='a', title="Developmental expression of AHBA C3 in L2/3 Neurons") +
+    plot_annotation(
+      tag_levels='a', 
+      title="Developmental expression of AHBA C3 in L2/3 Neurons",
+      theme = theme(plot.title = element_text(size = 22, face = 'bold'))
+    ) +
     plot_layout(guides = 'collect') &
     theme(legend.position = 'right',
           plot.tag = element_text(face = 'bold', size = 16))

@@ -14,11 +14,11 @@ plot_age <- function(df, color_var="source", nrow=2, facet_colors=NULL, ylims=NU
             mutate(source = factor(source, levels = c("AGING", "HBCC", "VELMESHEV", "WANG")))
     }
 
-    ylim_max <- quantile(df$value, .9999)
-    ylim_min <- quantile(df$value, .0001)
+    ylim_max <- quantile(df$value, .999)
+    ylim_min <- quantile(df$value, .001)
 
     p <- df %>%
-    filter(value < ylim_max & value > ylim_min) %>% 
+    filter(value <= ylim_max & value >= ylim_min) %>% 
     ggplot(aes(x=Age_log2, y=value)) +
     facet_grid(C~., switch='y', scales='free') + 
     geom_point(aes(color=.data[[color_var]]), size=.1, alpha=.3) +
