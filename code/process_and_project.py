@@ -31,7 +31,7 @@ except ImportError as e:
     logging.error(f"Error importing modules from {code_dir}: {e}")
 
 
-def process_and_project(input_file, output_csv, grn_file, region='prefrontal cortex', log_transform=True):
+def process_and_project(input_file, output_csv, grn_file, region='prefrontal cortex', log_transform=True, all_genes=False):
     """
     Loads raw data, processes it (filtering, Normalization, HVG, PCA),
     projects GRN, and saves results CSV.
@@ -44,7 +44,7 @@ def process_and_project(input_file, output_csv, grn_file, region='prefrontal cor
         log_transform: bool, whether to apply log1p transformation (default True)
     """
     logging.info(f"Starting process_and_project for {input_file}...")
-    logging.info(f"  region={region}, log_transform={log_transform}")
+    logging.info(f"  region={region}, log_transform={log_transform}, all_genes={all_genes}")
 
     if not os.path.exists(input_file):
         raise FileNotFoundError(f"Input file not found: {input_file}")
@@ -73,12 +73,17 @@ def process_and_project(input_file, output_csv, grn_file, region='prefrontal cor
         adata.var_names = adata.var['gene_name'].values
         adata.var_names_make_unique()
         logging.info(f"Gene name mapping complete. First 5 var_names: {list(adata.var_names[:5])}")
+    elif 'feature_name' in adata.var.columns:
+        logging.info("Mapping var_names to feature_name from .var column...")
+        adata.var_names = adata.var['feature_name'].values
+        adata.var_names_make_unique()
+        logging.info(f"Feature name mapping complete. First 5 var_names: {list(adata.var_names[:5])}")
     else:
-        logging.warning("No gene_symbol or gene_name column found in .var — using existing var_names.")
+        logging.warning("No gene_symbol, gene_name, or feature_name column found in .var — using existing var_names.")
 
     # 4. Standard Processing (Norm, optional Log1p, HVG, PCA) via library
     logging.info("Calling process_data.py::process_adata...")
-    process_adata(adata, n_top_genes=10000, n_pcs=50, log_transform=log_transform)
+    process_adata(adata, n_top_genes=10000, n_pcs=50, log_transform=log_transform, skip_hvg_pca=all_genes)
 
     # 5. Load GRN
     logging.info(f"Loading GRN from {grn_file}...")
@@ -86,7 +91,7 @@ def process_and_project(input_file, output_csv, grn_file, region='prefrontal cor
 
     # 6. Project
     logging.info("Projecting GRN...")
-    project_GRN(adata, ahba_GRN, 'X_ahba', use_highly_variable=True, log_transform=False)
+    project_GRN(adata, ahba_GRN, 'X_ahba', use_highly_variable=not all_genes, log_transform=False)
 
     # 7. Export
     logging.info("Exporting results...")
@@ -122,6 +127,7 @@ def main():
     parser.add_argument("--grn", required=True, help="Path to AHBA GRN weights CSV")
     parser.add_argument("--region", default="prefrontal cortex", help="Region to filter for (default: 'prefrontal cortex', use 'all' to skip)")
     parser.add_argument("--no-log", action="store_true", help="Skip log1p transformation")
+    parser.add_argument("--all-genes", action="store_true", help="Project onto all genes (ignore HVG)")
 
     args = parser.parse_args()
 
@@ -130,7 +136,8 @@ def main():
         output_csv=args.output,
         grn_file=args.grn,
         region=args.region,
-        log_transform=not args.no_log
+        log_transform=not args.no_log,
+        all_genes=args.all_genes
     )
 
 

@@ -14,7 +14,7 @@ def log_mem(label):
     elapsed = time.time() - START_TIME
     print(f"\n[Memory] {label}: {mem_gb:.2f} GB ({mem_gb/total_gb*100:.1f}%) - Elapsed: {elapsed/60:.2f} min")
 
-def process_adata(adata, n_top_genes=10000, n_pcs=50, hvg_subset=None, flavor='seurat_v3', log_transform=True):
+def process_adata(adata, n_top_genes=10000, n_pcs=50, hvg_subset=None, flavor='seurat_v3', log_transform=True, batch_key=None, thesis_bug=False, skip_hvg_pca=False):
     """
     Performs Normalization, (optional) Log1p, HVG selection, and PCA on an AnnData object in-place.
     """
@@ -26,9 +26,9 @@ def process_adata(adata, n_top_genes=10000, n_pcs=50, hvg_subset=None, flavor='s
     def categorize_age(age_years):
         if pd.isna(age_years): return "Unknown"
         if age_years < 0: return "Prenatal"
-        if age_years <= 1: return "Infant"
-        if age_years <= 9: return "Childhood"
-        if age_years <= 25: return "Adolescence"
+        if age_years < 1: return "Infant"
+        if age_years < 9: return "Childhood"
+        if age_years < 25: return "Adolescence"
         return "Adulthood"
 
     if 'age_years' in adata.obs.columns:
@@ -46,12 +46,15 @@ def process_adata(adata, n_top_genes=10000, n_pcs=50, hvg_subset=None, flavor='s
         print("Warning: 'age_years' not found, skipping derived columns.")
 
     # 1. Backup raw counts
-    if 'counts' not in adata.layers:
-        print("Backing up raw counts to layers['counts']...")
-        adata.layers['counts'] = adata.X.copy()
-        log_mem("Raw counts backed up")
+    if not skip_hvg_pca:
+        if 'counts' not in adata.layers:
+            print("Backing up raw counts to layers['counts']...")
+            adata.layers['counts'] = adata.X.copy()
+            log_mem("Raw counts backed up")
+        else:
+            print("layers['counts'] already exists.")
     else:
-        print("layers['counts'] already exists.")
+        print("Skipping raw counts backup (skip_hvg_pca=True).")
 
     # 2. Normalize
     print("Normalizing total to 1e6...")
@@ -71,12 +74,18 @@ def process_adata(adata, n_top_genes=10000, n_pcs=50, hvg_subset=None, flavor='s
         if key in adata.obsm:
             del adata.obsm[key]
 
+    if skip_hvg_pca:
+        print("Skipping HVG and PCA (skip_hvg_pca=True).")
+        return adata
+
     # 4. Highly Variable Genes
     print(f"Selecting {n_top_genes} highly variable genes ({flavor})...")
     try:
         kwargs = {'n_top_genes': n_top_genes, 'flavor': flavor}
-        if flavor == 'seurat_v3':
+        if flavor == 'seurat_v3' and not thesis_bug:
             kwargs['layer'] = 'counts'
+        if batch_key:
+            kwargs['batch_key'] = batch_key
         
         if hvg_subset and hvg_subset < adata.n_obs:
             print(f"HVG: Subsetting to {hvg_subset} cells for calculation...")
@@ -112,7 +121,7 @@ def process_adata(adata, n_top_genes=10000, n_pcs=50, hvg_subset=None, flavor='s
 
     return adata
 
-def process_data(input_file, output_file, n_top_genes=10000, n_pcs=50, hvg_subset=None, flavor='seurat_v3'):
+def process_data(input_file, output_file, n_top_genes=10000, n_pcs=50, hvg_subset=None, flavor='seurat_v3', batch_key=None, thesis_bug=False):
     log_mem("Start")
     print(f"Processing {input_file}...")
     if not os.path.exists(input_file):
@@ -123,7 +132,7 @@ def process_data(input_file, output_file, n_top_genes=10000, n_pcs=50, hvg_subse
     log_mem("Data Loaded")
     print(f"Original shape: {adata.shape}")
     
-    process_adata(adata, n_top_genes, n_pcs, hvg_subset, flavor)
+    process_adata(adata, n_top_genes, n_pcs, hvg_subset, flavor, batch_key=batch_key, thesis_bug=thesis_bug)
     
     # Save
     print(f"Saving processed data to {output_file}...")
@@ -141,6 +150,8 @@ if __name__ == "__main__":
     parser.add_argument("--n_pcs", type=int, default=50, help="Number of PCs")
     parser.add_argument("--hvg_subset", type=int, default=None, help="Number of cells to subset for HVG calculation (save memory)")
     parser.add_argument("--flavor", type=str, default='seurat_v3', help="HVG selection flavor (seurat_v3 or seurat)")
+    parser.add_argument("--batch_key", type=str, default=None, help="Batch key for highly_variable_genes")
+    parser.add_argument("--thesis_bug", action="store_true", help="Replicate thesis bug by using normalized counts instead of raw")
     args = parser.parse_args()
 
-    process_data(args.input, args.output, args.n_top_genes, args.n_pcs, args.hvg_subset, args.flavor)
+    process_data(args.input, args.output, args.n_top_genes, args.n_pcs, args.hvg_subset, args.flavor, args.batch_key, args.thesis_bug)

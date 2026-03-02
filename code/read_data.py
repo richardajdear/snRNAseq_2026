@@ -147,7 +147,9 @@ def read_velmeshev_backed(h5ad_path=VELMESHEV_PATH, meta_dir=VELMESHEV_META_DIR)
         meta_df['sex'] = meta['Sex']
         meta_df['individual'] = meta['Individual'].astype(str)
         meta_df['region'] = meta['Region'].replace(combined_mapping)
-        
+        if 'Region_Broad' in meta.columns:
+            meta_df['Region_Broad'] = meta['Region_Broad']
+
         if 'Cell_Type' in meta.columns:
             meta_df['cell_type'] = meta['Cell_Type']
         elif 'cell_type' in meta.columns:
