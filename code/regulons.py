@@ -69,11 +69,19 @@ def project_GRN(adata, GRN, GRN_name='GRN', use_raw=False, use_residuals=False, 
         X = adata.uns['pearson_residuals_normalization']['pearson_residuals_df']
         # Matched genes are the intersection of the GRN genes and the normalized genes
         matched_genes = np.intersect1d(GRN_pivot.columns, X.columns)
+        X = X.loc[:, lambda x: ~x.columns.duplicated()].loc[:, matched_genes]
+        Y = GRN_pivot.loc[:, matched_genes]
+        projected = (X @ Y.T)
+        
     elif use_raw:
         # Use the raw data
         X = pd.DataFrame(adata.raw.X.todense(), index=adata.obs_names, columns=adata.var_names)
         # Matched genes are the intersection of the GRN genes and the adata var genes
         matched_genes = np.intersect1d(GRN_pivot.columns, adata.var.index)
+        X = X.loc[:, lambda x: ~x.columns.duplicated()].loc[:, matched_genes]
+        Y = GRN_pivot.loc[:, matched_genes]
+        projected = (X @ Y.T)
+        
     else:
         # Use whatever is in adata.X
         
@@ -123,17 +131,24 @@ def project_GRN(adata, GRN, GRN_name='GRN', use_raw=False, use_residuals=False, 
         # Matched genes are the intersection of the GRN genes and the adata available genes
         matched_genes = np.intersect1d(GRN_pivot.columns, available_genes)
         
-        # Load ONLY the matched genes into memory
-        # This is critical for backed=True to avoid loading the entire X matrix
-        print(f"Loading expression data for {len(matched_genes)} matched genes...")
-        X = adata[:, matched_genes].to_df()
-
-    # Ensure unique columns and filter to matched genes
-    X = X.loc[:, lambda x: ~x.columns.duplicated()].loc[:, matched_genes]
-    Y = GRN_pivot.loc[:, matched_genes]
-
-    # Project X onto Y
-    projected = (X @ Y.T)
+        print(f"Aligning GRN weights to {len(matched_genes)} matched genes for projection...")
+        # To avoid scipy fancy indexing bugs and memory blowouts on huge sparse matrices (e.g. 2.1 million cells),
+        # we align the small GRN matrix Y to full adata.X genes and do a sparse-dense dot product directly.
+        Y_aligned = pd.DataFrame(0.0, index=adata.var_names, columns=GRN_pivot.index)
+        Y_aligned = Y_aligned[~Y_aligned.index.duplicated(keep='first')]  # Safety against invalid duplicates
+        Y_aligned.loc[matched_genes, :] = GRN_pivot.loc[:, matched_genes].T
+        
+        # Ensure ordered mapping
+        Y_weights = Y_aligned.loc[adata.var_names].values
+        
+        print("Computing sparse-dense dot product...")
+        import scipy.sparse as sp
+        if sp.issparse(adata.X):
+            projected_vals = adata.X.dot(Y_weights)
+        else:
+            projected_vals = np.dot(adata.X, Y_weights)
+            
+        projected = pd.DataFrame(projected_vals, index=adata.obs_names, columns=GRN_pivot.index)
 
     if normalize:
         # Normalize the projected data to have a total sum of 1e6

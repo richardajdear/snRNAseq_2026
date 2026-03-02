@@ -2,7 +2,7 @@
 #SBATCH --job-name=L23_thesis
 #SBATCH --output=/home/rajd2/rds/hpc-work/snRNAseq_2026/logs/L23_thesis_%j.out
 #SBATCH --error=/home/rajd2/rds/hpc-work/snRNAseq_2026/logs/L23_thesis_%j.err
-#SBATCH --time=02:00:00
+#SBATCH --time=00:20:00
 #SBATCH --mem=32G
 #SBATCH --partition=icelake
 

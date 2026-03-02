@@ -28,10 +28,12 @@ base_size <- 14
 This notebook processes snRNA-seq data, projects AHBA C3 gene regulatory
 network weights, and visualizes developmental trends.
 
-```{r python_setup}
+```{r python_setup, eval=FALSE}
 # Source the python module
 source_python("../../code/process_and_project.py")
+```
 
+```{r define_vars}
 # Define paths
 input_raw <- "/home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/combined/VelWangPsychad_300k_PFC_lessOld.h5ad"
 output_csv <- "vel_300k_noHVG.csv"
@@ -41,7 +43,7 @@ region_filter <- "prefrontal cortex"
 
 ### 1. Process and Project
 
-```{r process_project}
+```{r process_project, eval=FALSE}
 if (!file.exists(output_csv)) {
   print("Results not found. Running processing and projection...")
   tryCatch({
@@ -89,10 +91,12 @@ if (!"source" %in% names(data)) {
 }
 
 # Rename donor column to Individual early for summary stats
-if ("donor_id" %in% colnames(data)) {
-  data <- data %>% rename(Individual = donor_id)
-} else if ("individual" %in% colnames(data)) {
-  data <- data %>% rename(Individual = individual)
+if (!"Individual" %in% colnames(data)) {
+  if ("donor_id" %in% colnames(data)) {
+    data <- data %>% rename(Individual = donor_id)
+  } else if ("individual" %in% colnames(data)) {
+    data <- data %>% rename(Individual = individual)
+  }
 }
 
 if (!("cell_class" %in% colnames(data)) && "lineage" %in% colnames(data)) {
@@ -137,6 +141,7 @@ data$age_category <- factor(data$age_category, levels = age_cat_levels)
 
 # Rename columns to match plotting function expectations
 data <- data %>%
+  select(-any_of(c("Age_log2", "age_range"))) %>%
   rename(any_of(c(Age_log2 = "age_log2", age_range = "age_category")))
 
 # Summary table

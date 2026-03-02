@@ -79,7 +79,7 @@ def read_velmeshev_meta(
                     ],
                     [
                         'Prenatal',
-                        'Infancy',
+                        'Infant',
                         'Childhood',
                         'Adolescence',
                         'Adulthood'
@@ -87,7 +87,7 @@ def read_velmeshev_meta(
                     default = x['Age_Range']
                 ),
                 ordered=True,
-                categories = ['Prenatal', 'Infancy', 'Childhood', 'Adolescence', 'Adulthood']
+                categories = ['Prenatal', 'Infant', 'Childhood', 'Adolescence', 'Adulthood']
             ))
             .assign(Age_log2 = lambda x: np.log2(1 + x['Age_Years'] ) )
             .assign(Age_log10 = lambda x: np.log10(1 + x['Age_Years'] ) )
