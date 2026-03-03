@@ -81,7 +81,7 @@ def extract_age_psychad(age_str):
     except: return np.nan
     return np.nan
 
-def get_original_metadata(query_obs, base_dir, datasets_to_load=None):
+def get_original_metadata(query_obs, rds_dir, datasets_to_load=None):
     """
     Extracts and filters metadata from original datasets for the given obs (DataFrame).
     Requires 'dataset' column in query_obs to identify source.
@@ -123,7 +123,7 @@ def get_original_metadata(query_obs, base_dir, datasets_to_load=None):
         subset = query_base[query_base['source_key'] == 'VELMESHEV']
         print(f"Processing VELMESHEV ({len(subset)} cells)...")
         
-        meta_dir = os.path.join(base_dir, "rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/velmeshev/velmeshev_meta/")
+        meta_dir = os.path.join(rds_dir, "Cam_snRNAseq/velmeshev/velmeshev_meta/")
         
         try:
             ex = pd.read_csv(os.path.join(meta_dir, "ex_meta.tsv"), sep='\t', low_memory=False).rename({'cellId':'Cell_ID', 'Age_(days)':'Age_Num'}, axis=1)
@@ -226,7 +226,7 @@ def get_original_metadata(query_obs, base_dir, datasets_to_load=None):
 
     # --- WANG ---
     if 'WANG' in unique_sources:
-        path = os.path.join(base_dir, "rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/wang/wang.h5ad")
+        path = os.path.join(rds_dir, "Cam_snRNAseq/wang/wang.h5ad")
         subset = query_base[query_base['source_key'] == 'WANG']
         print(f"Processing WANG ({len(subset)} cells)...")
         
@@ -315,10 +315,10 @@ def get_original_metadata(query_obs, base_dir, datasets_to_load=None):
             results.append(subset[['_order']])
 
     # --- PSYCHAD (HBCC & AGING) ---
-    for key, subpath in [('HBCC', 'rds-cam-psych-transc-Pb9UGUlrwWc/Cam_PsychAD/RNAseq/HBCC_Cohort.h5ad'), 
-                         ('AGING', 'rds-cam-psych-transc-Pb9UGUlrwWc/Cam_PsychAD/RNAseq/Aging_Cohort.h5ad')]:
+    for key, subpath in [('HBCC', 'Cam_PsychAD/RNAseq/HBCC_Cohort.h5ad'),
+                         ('AGING', 'Cam_PsychAD/RNAseq/Aging_Cohort.h5ad')]:
         if key in unique_sources:
-            path = os.path.join(base_dir, subpath)
+            path = os.path.join(rds_dir, subpath)
             subset = query_base[query_base['source_key'] == key]
             print(f"Processing {key} ({len(subset)} cells)...")
             

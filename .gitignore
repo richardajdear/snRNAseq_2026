@@ -3,3 +3,4 @@ scripts/outputs/
 results/
 *.h5ad
 *.csv
+rds-cam-psych-transc/
