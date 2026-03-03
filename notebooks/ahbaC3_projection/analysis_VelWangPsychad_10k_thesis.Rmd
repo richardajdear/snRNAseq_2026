@@ -35,8 +35,8 @@ source_python("../../code/process_and_project.py")
 
 ```{r define_vars}
 # Define paths
-input_raw <- "/home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/combined/VelWangPsychad_300k_PFC_lessOld.h5ad"
-output_csv <- "VelWangPsychad_300k_thesis_bug.csv"
+input_raw <- "/home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/combined/VelWangPsychad_10k_PFC_lessOld.h5ad"
+output_csv <- "projection_results_VelWangPsychad_10k_thesis.csv"
 grn_file <- "/home/rajd2/rds/hpc-work/snRNAseq_2026/reference/ahba_dme_hcp_top8kgenes_weights.csv"
 region_filter <- "all"
 ```

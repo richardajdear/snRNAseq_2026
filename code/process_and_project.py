@@ -31,7 +31,7 @@ except ImportError as e:
     logging.error(f"Error importing modules from {code_dir}: {e}")
 
 
-def process_and_project(input_file, output_csv, grn_file, region='prefrontal cortex', log_transform=True, all_genes=False):
+def process_and_project(input_file, output_csv, grn_file, region='prefrontal cortex', log_transform=True, all_genes=False, thesis_bug=False):
     """
     Loads raw data, processes it (filtering, Normalization, HVG, PCA),
     projects GRN, and saves results CSV.
@@ -83,7 +83,7 @@ def process_and_project(input_file, output_csv, grn_file, region='prefrontal cor
 
     # 4. Standard Processing (Norm, optional Log1p, HVG, PCA) via library
     logging.info("Calling process_data.py::process_adata...")
-    process_adata(adata, n_top_genes=10000, n_pcs=50, log_transform=log_transform, skip_hvg_pca=all_genes)
+    process_adata(adata, n_top_genes=10000, n_pcs=50, log_transform=log_transform, skip_hvg_pca=all_genes, thesis_bug=thesis_bug)
 
     # 5. Load GRN
     logging.info(f"Loading GRN from {grn_file}...")
@@ -128,6 +128,7 @@ def main():
     parser.add_argument("--region", default="prefrontal cortex", help="Region to filter for (default: 'prefrontal cortex', use 'all' to skip)")
     parser.add_argument("--no-log", action="store_true", help="Skip log1p transformation")
     parser.add_argument("--all-genes", action="store_true", help="Project onto all genes (ignore HVG)")
+    parser.add_argument("--thesis-bug", action="store_true", help="Replicate thesis bug")
 
     args = parser.parse_args()
 
@@ -137,7 +138,8 @@ def main():
         grn_file=args.grn,
         region=args.region,
         log_transform=not args.no_log,
-        all_genes=args.all_genes
+        all_genes=args.all_genes,
+        thesis_bug=args.thesis_bug
     )
 
 
