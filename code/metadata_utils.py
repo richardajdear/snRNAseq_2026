@@ -81,35 +81,39 @@ def extract_age_psychad(age_str):
     except: return np.nan
     return np.nan
 
-def get_original_metadata(query_obs, rds_dir, datasets_to_load=None):
+def get_original_metadata(query_obs=None, rds_dir='/home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc', datasets_to_load=['VELMESHEV','WANG', 'HBCC', 'AGING']):
     """
     Extracts and filters metadata from original datasets for the given obs (DataFrame).
-    Requires 'dataset' column in query_obs to identify source.
+    Requires 'dataset' column in query_obs to identify source, if query_obs is provided.
+    If query_obs is None, returns metadata for all cells in the specified datasets.
     Standardizes cell_class, cell_subclass, cell_type (simplified), region, age, sex, donor_id.
     """
     print("Extracting original metadata...")
     
-    if 'dataset' not in query_obs.columns:
-        print("Error: 'dataset' column missing from query_obs.")
-        return pd.DataFrame(index=query_obs.index)
+    if query_obs is not None:
+        if 'dataset' not in query_obs.columns:
+            print("Error: 'dataset' column missing from query_obs.")
+            return pd.DataFrame(index=query_obs.index)
 
-    # 1. Prepare Query with Order Tracking
-    query_base = query_obs[['dataset']].copy()
-    query_base['_order'] = np.arange(len(query_base))
-    
-    def map_source(d):
-        d = str(d).upper()
-        if d in ['U01', 'RAMOS', 'HERRING', 'VELMESHEV']: return 'VELMESHEV'
-        if 'WANG' in d: return 'WANG'
-        if 'HBCC' in d: return 'HBCC'
-        if 'AGING' in d: return 'AGING'
-        return 'OTHER'
+        # 1. Prepare Query with Order Tracking
+        query_base = query_obs[['dataset']].copy()
+        query_base['_order'] = np.arange(len(query_base))
         
-    query_base['source_key'] = query_base['dataset'].apply(map_source)
-    unique_sources = query_base['source_key'].unique()
-    
-    if datasets_to_load:
-        unique_sources = [s for s in unique_sources if s in datasets_to_load]
+        def map_source(d):
+            d = str(d).upper()
+            if d in ['U01', 'RAMOS', 'HERRING', 'VELMESHEV']: return 'VELMESHEV'
+            if 'WANG' in d: return 'WANG'
+            if 'HBCC' in d: return 'HBCC'
+            if 'AGING' in d: return 'AGING'
+            return 'OTHER'
+            
+        query_base['source_key'] = query_base['dataset'].apply(map_source)
+        unique_sources = query_base['source_key'].unique()
+        
+        if datasets_to_load:
+            unique_sources = [s for s in unique_sources if s in datasets_to_load]
+    else:
+        unique_sources = datasets_to_load
         
     print(f"Loading metadata from sources: {unique_sources}")
     
@@ -120,8 +124,11 @@ def get_original_metadata(query_obs, rds_dir, datasets_to_load=None):
     
     # --- VELMESHEV ---
     if 'VELMESHEV' in unique_sources:
-        subset = query_base[query_base['source_key'] == 'VELMESHEV']
-        print(f"Processing VELMESHEV ({len(subset)} cells)...")
+        if query_obs is not None:
+            subset = query_base[query_base['source_key'] == 'VELMESHEV']
+            print(f"Processing VELMESHEV ({len(subset)} cells)...")
+        else:
+            print(f"Processing VELMESHEV (all cells)...")
         
         meta_dir = os.path.join(rds_dir, "Cam_snRNAseq/velmeshev/velmeshev_meta/")
         
@@ -209,42 +216,54 @@ def get_original_metadata(query_obs, rds_dir, datasets_to_load=None):
             meta['dataset_source'] = 'Velmeshev'
 
             # Join
-            # Using suffix strip fallback logic just in case
-            merged = subset[['_order']].join(meta, how='left')
-            
-            if merged['cell_class'].isna().mean() > 0.9 and len(subset) > 0:
-                 print("  High failure rate in direct join. Trying suffix strip...")
-                 subset_reset = subset[['_order']].copy()
-                 subset_reset['key'] = subset_reset.index.astype(str).str.rsplit('-', n=1).str[0]
-                 merged = subset_reset.merge(meta, left_on='key', right_index=True, how='left').set_index(subset.index)
-
-            results.append(merged)
+            if query_obs is not None:
+                # Using suffix strip fallback logic just in case
+                merged = subset[['_order']].join(meta, how='left')
+                
+                if merged['cell_class'].isna().mean() > 0.9 and len(subset) > 0:
+                     print("  High failure rate in direct join. Trying suffix strip...")
+                     subset_reset = subset[['_order']].copy()
+                     subset_reset['key'] = subset_reset.index.astype(str).str.rsplit('-', n=1).str[0]
+                     merged = subset_reset.merge(meta, left_on='key', right_index=True, how='left').set_index(subset.index)
+    
+                results.append(merged)
+            else:
+                for c in final_cols:
+                    if c not in meta.columns: meta[c] = np.nan
+                results.append(meta[final_cols])
             
         except Exception as e:
             print(f"Error processing Velmeshev: {e}")
-            results.append(subset[['_order']]) 
+            if query_obs is not None:
+                results.append(subset[['_order']]) 
 
     # --- WANG ---
     if 'WANG' in unique_sources:
         path = os.path.join(rds_dir, "Cam_snRNAseq/wang/wang.h5ad")
-        subset = query_base[query_base['source_key'] == 'WANG']
-        print(f"Processing WANG ({len(subset)} cells)...")
+        if query_obs is not None:
+            subset = query_base[query_base['source_key'] == 'WANG']
+            print(f"Processing WANG ({len(subset)} cells)...")
+        else:
+            print("Processing WANG (all cells)...")
         
         try:
             ad = sc.read_h5ad(path, backed='r')
             meta = ad.obs
             
             # Load subset
-            common = meta.index.intersection(subset.index)
-            meta_loaded = pd.DataFrame()
-            if len(common) > 0: meta_loaded = meta.loc[common].copy()
-            
-            if len(common) < len(subset) * 0.1:
-                 stripped = [i.rsplit('-', 1)[0] for i in subset.index]
-                 common_stripped = meta.index.intersection(stripped)
-                 if len(common_stripped) > 0:
-                      print(f"  Matched {len(common_stripped)} cells via stripped suffix.")
-                      meta_loaded = meta.loc[common_stripped].copy()
+            if query_obs is not None:
+                common = meta.index.intersection(subset.index)
+                meta_loaded = pd.DataFrame()
+                if len(common) > 0: meta_loaded = meta.loc[common].copy()
+                
+                if len(common) < len(subset) * 0.1:
+                     stripped = [i.rsplit('-', 1)[0] for i in subset.index]
+                     common_stripped = meta.index.intersection(stripped)
+                     if len(common_stripped) > 0:
+                          print(f"  Matched {len(common_stripped)} cells via stripped suffix.")
+                          meta_loaded = meta.loc[common_stripped].copy()
+            else:
+                meta_loaded = meta.copy()
 
             if not meta_loaded.empty:
                 # Class mapping
@@ -294,49 +313,63 @@ def get_original_metadata(query_obs, rds_dir, datasets_to_load=None):
                 meta_loaded['dataset_source'] = 'Wang'
 
                 # Join
-                subset_reset = subset[['_order']].copy()
-                subset_reset['key_orig'] = subset_reset.index
-                subset_reset['key_strip'] = subset_reset.index.astype(str).str.rsplit('-', n=1).str[0]
-                
-                m1 = subset_reset.merge(meta_loaded, left_on='key_orig', right_index=True, how='left')
-                m2 = subset_reset.merge(meta_loaded, left_on='key_strip', right_index=True, how='left', suffixes=('', '_strip'))
-                
-                for c in final_cols:
-                    if c not in m1.columns: m1[c] = np.nan
-                    if c+'_strip' in m2.columns:
-                        m1[c] = m1[c].fillna(m2[c+'_strip'])
-                        
-                merged = m1.set_index('key_orig')
-                results.append(merged[['_order'] + final_cols])
+                if query_obs is not None:
+                    subset_reset = subset[['_order']].copy()
+                    subset_reset['key_orig'] = subset_reset.index
+                    subset_reset['key_strip'] = subset_reset.index.astype(str).str.rsplit('-', n=1).str[0]
+                    
+                    m1 = subset_reset.merge(meta_loaded, left_on='key_orig', right_index=True, how='left')
+                    m2 = subset_reset.merge(meta_loaded, left_on='key_strip', right_index=True, how='left', suffixes=('', '_strip'))
+                    
+                    for c in final_cols:
+                        if c not in m1.columns: m1[c] = np.nan
+                        if c+'_strip' in m2.columns:
+                            m1[c] = m1[c].fillna(m2[c+'_strip'])
+                            
+                    merged = m1.set_index('key_orig')
+                    results.append(merged[['_order'] + final_cols])
+                else:
+                    for c in final_cols:
+                        if c not in meta_loaded.columns: meta_loaded[c] = np.nan
+                    results.append(meta_loaded[final_cols])
             else:
-                results.append(subset[['_order']])
+                if query_obs is not None:
+                    results.append(subset[['_order']])
         except Exception as e:
             print(f"Error processing Wang: {e}")
-            results.append(subset[['_order']])
+            if query_obs is not None:
+                results.append(subset[['_order']])
 
     # --- PSYCHAD (HBCC & AGING) ---
     for key, subpath in [('HBCC', 'Cam_PsychAD/RNAseq/HBCC_Cohort.h5ad'),
                          ('AGING', 'Cam_PsychAD/RNAseq/Aging_Cohort.h5ad')]:
         if key in unique_sources:
             path = os.path.join(rds_dir, subpath)
-            subset = query_base[query_base['source_key'] == key]
-            print(f"Processing {key} ({len(subset)} cells)...")
+            if query_obs is not None:
+                subset = query_base[query_base['source_key'] == key]
+                print(f"Processing {key} ({len(subset)} cells)...")
+            else:
+                print(f"Processing {key} (all cells)...")
             
             try:
                 ad = sc.read_h5ad(path, backed='r')
                 meta = ad.obs
                 
                 # Load subset keys
-                common = meta.index.intersection(subset.index)
-                m_exact = pd.DataFrame()
-                if len(common) > 0: m_exact = meta.loc[common].copy()
+                if query_obs is not None:
+                    common = meta.index.intersection(subset.index)
+                    m_exact = pd.DataFrame()
+                    if len(common) > 0: m_exact = meta.loc[common].copy()
+                        
+                    m_strip = pd.DataFrame()
+                    stripped_unique = list(set([i.rsplit('-', 1)[0] for i in subset.index if i not in common]))
+                    common_strip = meta.index.intersection(stripped_unique)
+                    if len(common_strip) > 0: m_strip = meta.loc[common_strip].copy()
                     
-                m_strip = pd.DataFrame()
-                stripped_unique = list(set([i.rsplit('-', 1)[0] for i in subset.index if i not in common]))
-                common_strip = meta.index.intersection(stripped_unique)
-                if len(common_strip) > 0: m_strip = meta.loc[common_strip].copy()
-                
-                print(f"  {key}: Loaded {len(m_exact)} exact matches, {len(m_strip)} stripped matches.")
+                    print(f"  {key}: Loaded {len(m_exact)} exact matches, {len(m_strip)} stripped matches.")
+                    m_dfs = [m_exact, m_strip]
+                else:
+                    m_dfs = [meta.copy()]
                 
                 # Standardize
                 mapper = {
@@ -345,7 +378,7 @@ def get_original_metadata(query_obs, rds_dir, datasets_to_load=None):
                     'Immune': 'Microglia', 'OPC': 'OPC'
                 }
                 
-                for m_df in [m_exact, m_strip]:
+                for m_df in m_dfs:
                     if m_df.empty: continue
                     if 'class' in m_df.columns:
                         m_df['cell_class'] = m_df['class'].map(mapper).fillna(m_df['class'])
@@ -381,32 +414,44 @@ def get_original_metadata(query_obs, rds_dir, datasets_to_load=None):
                     m_df['dataset_source'] = key
                 
                 # Join
-                subset_reset = subset[['_order']].copy()
-                subset_reset['key_orig'] = subset_reset.index
-                subset_reset['key_strip'] = subset_reset.index.astype(str).str.rsplit('-', n=1).str[0]
-                
-                m1 = subset_reset.merge(m_exact, left_on='key_orig', right_index=True, how='left')
-                m2 = subset_reset.merge(m_strip, left_on='key_strip', right_index=True, how='left', suffixes=('', '_strip'))
-                
-                for c in final_cols:
-                    if c not in m1.columns: m1[c] = np.nan
-                    if c+'_strip' in m2.columns:
-                        m1[c] = m1[c].fillna(m2[c+'_strip'])
-                        
-                merged = m1.set_index('key_orig')
-                results.append(merged[['_order'] + final_cols])
+                if query_obs is not None:
+                    m_exact, m_strip = m_dfs
+                    subset_reset = subset[['_order']].copy()
+                    subset_reset['key_orig'] = subset_reset.index
+                    subset_reset['key_strip'] = subset_reset.index.astype(str).str.rsplit('-', n=1).str[0]
+                    
+                    m1 = subset_reset.merge(m_exact, left_on='key_orig', right_index=True, how='left')
+                    m2 = subset_reset.merge(m_strip, left_on='key_strip', right_index=True, how='left', suffixes=('', '_strip'))
+                    
+                    for c in final_cols:
+                        if c not in m1.columns: m1[c] = np.nan
+                        if c+'_strip' in m2.columns:
+                            m1[c] = m1[c].fillna(m2[c+'_strip'])
+                            
+                    merged = m1.set_index('key_orig')
+                    results.append(merged[['_order'] + final_cols])
+                else:
+                    for m_df in m_dfs:
+                        for c in final_cols:
+                            if c not in m_df.columns: m_df[c] = np.nan
+                        results.append(m_df[final_cols])
                 print(f"  {key} processed successfully.")
 
             except Exception as e:
                 print(f"Error processing {key}: {e}")
-                results.append(subset[['_order']])
+                if query_obs is not None:
+                    results.append(subset[['_order']])
     
     # --- Combine ---
     if not results:
-        return pd.DataFrame(index=query_obs.index)
+        if query_obs is not None:
+            return pd.DataFrame(index=query_obs.index)
+        else:
+            return pd.DataFrame()
         
     combined_meta = pd.concat(results)
-    combined_meta = combined_meta.sort_values('_order')
+    if query_obs is not None:
+        combined_meta = combined_meta.sort_values('_order')
     
     valid_cols = [c for c in final_cols if c in combined_meta.columns]
     
