@@ -26,7 +26,7 @@ def process_adata(adata, n_top_genes=10000, n_pcs=50, hvg_subset=None, flavor='s
     def categorize_age(age_years):
         if pd.isna(age_years): return "Unknown"
         if age_years < 0: return "Prenatal"
-        if age_years < 1: return "Infant"
+        if age_years < 1: return "Infancy"
         if age_years < 9: return "Childhood"
         if age_years < 25: return "Adolescence"
         return "Adulthood"

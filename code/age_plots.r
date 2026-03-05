@@ -62,9 +62,9 @@ plot_boxes <- function(df, color_var="source", facet_colors=NULL, nrow=2, scales
     # Prepare data
     df_sum <- df %>% 
     arrange(age_range) %>%
-    mutate(
-        age_range = factor(age_range, ordered=T, levels=c("Prenatal", "Infant", "Childhood", "Adolescence", "Adulthood"))
-    ) %>%
+    # mutate(
+    #     age_range = factor(age_range, ordered=T, levels=c("Prenatal", "Infant", "Childhood", "Adolescence", "Adulthood"))
+    # ) %>%
     group_by(network, Individual, age_range, !!sym(color_var)) %>% 
     summarize(value=mean(value), .groups="drop") %>% 
     mutate(highlight = ifelse(age_range == 'Adolescence', TRUE, FALSE))

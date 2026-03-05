@@ -3,14 +3,18 @@ import pandas as pd
 import anndata as ad
 
 def get_ahba_GRN(
-        path_to_ahba_weights="../data/ahba_dme_hcp_top8kgenes_weights.csv"
+        path_to_ahba_weights="../data/ahba_dme_hcp_top8kgenes_weights.csv",
+        use_weights=False
     ):
     """
     Load the AHBA Gene Regulatory Network (GRN) from a CSV file.
     Parameters:
     - path_to_ahba_weights: Path to the CSV file containing AHBA weights.
+    - use_weights: If True, keep all genes with original weights (zeroing out
+      wrong-sign genes). If False (default), take top/bottom 1000 genes with
+      Importance set to 1.
     Returns:
-    - ahba_GRN: DataFrame containing the AHBA GRN with columns 'Network', 'Gene', and 'Importance'.
+    - ahba_GRN: DataFrame with columns 'Network', 'Gene', and 'Importance'.
     """
     ahba = pd.read_csv(path_to_ahba_weights, index_col=0)
 
@@ -19,25 +23,29 @@ def get_ahba_GRN(
                 .rename(columns={'index': 'Gene'})
                 .melt(id_vars=['Gene'], var_name='Network', value_name='Importance'))
 
-    ahba_GRNpos = (ahba_melt
-                .sort_values('Importance', ascending=False)
-                .loc[lambda x: x.groupby('Network')['Importance'].rank(ascending=False)<1000]
-                .assign(Importance = 1)  # Set Importance to 1 for positive links
-                # .loc[lambda x: x['Importance'] > 0]
-                .assign(Network=lambda x: x['Network'] + '+')
-    )
+    if use_weights:
+        ahba_GRNpos = (ahba_melt
+                    .assign(Importance=lambda x: x['Importance'].clip(lower=0))
+                    .assign(Network=lambda x: x['Network'] + '+'))
 
-    ahba_GRNneg = (ahba_melt
-                .sort_values('Importance', ascending=True)
-                .loc[lambda x: x.groupby('Network')['Importance'].rank(ascending=True)<1000]
-                .assign(Importance = 1)  # Set Importance to 1 for negative links
-                # .loc[lambda x: x['Importance'] < 0]
-                # .assign(Importance=lambda x: -x['Importance'])
-                .assign(Network=lambda x: x['Network'] + '-')
-    )
+        ahba_GRNneg = (ahba_melt
+                    .assign(Importance=lambda x: (-x['Importance']).clip(lower=0))
+                    .assign(Network=lambda x: x['Network'] + '-'))
+    else:
+        ahba_GRNpos = (ahba_melt
+                    .sort_values('Importance', ascending=False)
+                    .loc[lambda x: x.groupby('Network')['Importance'].rank(ascending=False)<1000]
+                    .assign(Importance=1)
+                    .assign(Network=lambda x: x['Network'] + '+'))
+
+        ahba_GRNneg = (ahba_melt
+                    .sort_values('Importance', ascending=True)
+                    .loc[lambda x: x.groupby('Network')['Importance'].rank(ascending=True)<1000]
+                    .assign(Importance=1)
+                    .assign(Network=lambda x: x['Network'] + '-'))
 
     ahba_GRN = pd.concat([ahba_GRNpos, ahba_GRNneg])
-    return(ahba_GRN)
+    return ahba_GRN
 
 
 def project_GRN(adata, GRN, GRN_name='GRN', use_raw=False, use_residuals=False, normalize=False, use_highly_variable=True, log_transform=False):

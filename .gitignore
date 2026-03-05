@@ -4,3 +4,14 @@ results/
 *.h5ad
 *.csv
 rds-cam-psych-transc/
+
+# Quarto build artifacts
+*.quarto_ipynb*
+*_files/
+
+# VS Code language server temp files
+.vdoc.*.py
+
+# Python cache
+__pycache__/
+*.pyc

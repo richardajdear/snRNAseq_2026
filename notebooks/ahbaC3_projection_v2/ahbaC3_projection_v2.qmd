@@ -1,0 +1,201 @@
+---
+title: "AHBA C3 Projection Analysis v2"
+format: html
+jupyter: python3
+---
+
+## Setup
+
+```{python}
+import os
+import sys
+import re
+import warnings
+```
+
+```{python}
+# ── Environment Configuration ────────────────────────────────────────────────
+# Auto-detects local vs HPC. Override by setting ENVIRONMENT manually if needed.
+
+def _find_repo_root(start=None, marker='.git'):
+    """Walk up from start (default: cwd) until a directory containing marker is found."""
+    current = os.path.abspath(start or os.getcwd())
+    while True:
+        if os.path.exists(os.path.join(current, marker)):
+            return current
+        parent = os.path.dirname(current)
+        if parent == current:
+            raise RuntimeError(f"Could not find '{marker}' above {os.getcwd()}")
+        current = parent
+
+_repo_root = _find_repo_root()
+ENVIRONMENT = 'local' if os.path.isdir(os.path.join(_repo_root, 'rds-cam-psych-transc')) else 'hpc'
+
+if ENVIRONMENT == 'local':
+    rds_dir  = os.path.join(_repo_root, 'rds-cam-psych-transc')
+    code_dir = os.path.join(_repo_root, 'code')
+    ref_dir  = os.path.join(_repo_root, 'reference')
+else:  # HPC
+    _hpc_base = '/home/rajd2/rds'
+    rds_dir   = os.path.join(_hpc_base, 'rds-cam-psych-transc-Pb9UGUlrwWc')
+    code_dir  = os.path.join(_hpc_base, 'hpc-work/snRNAseq_2026/code')
+    ref_dir   = os.path.join(_hpc_base, 'hpc-work/snRNAseq_2026/reference')
+
+print(f"Environment : {ENVIRONMENT}")
+print(f"  rds_dir  : {rds_dir}")
+print(f"  code_dir : {code_dir}")
+print(f"  ref_dir  : {ref_dir}")
+```
+
+```{python}
+import scanpy as sc
+import pandas as pd
+import numpy as np
+
+warnings.filterwarnings('ignore')
+
+if ENVIRONMENT == 'local':
+    # Point rpy2 at the conda env's R (not the system R)
+    os.environ['R_HOME'] = '/Users/richard/mambaforge/envs/scanpy/lib/R'
+
+%load_ext rpy2.ipython
+```
+
+```{python}
+%%R
+
+library(ggplot2)
+library(dplyr)
+library(readr)
+library(patchwork)
+library(ggpubr)
+library(stringr)
+```
+
+```{python}
+sys.path.append(code_dir)
+try:
+    from regulons import get_ahba_GRN, project_GRN
+    from metadata_utils import get_original_metadata
+    from gene_mapping import map_grn_symbols_to_ensembl
+    from batch_correction import correct_projection_scores
+except ImportError as e:
+    print(f"Error importing modules: {e}")
+```
+
+```{python}
+adata=sc.read_h5ad(rds_dir + "/Cam_snRNAseq/combined/VelWangPsychad_100k_PFC_lessOld.h5ad")
+```
+
+```{python}
+sc.pp.normalize_total(adata, target_sum=1e6)
+```
+
+## Projection
+
+```{python}
+grn_file = os.path.join(ref_dir, "ahba_dme_hcp_top8kgenes_weights.csv")
+
+print(f"Loading GRN from {grn_file}...")
+ahba_GRN = get_ahba_GRN(path_to_ahba_weights=grn_file)
+
+# Remap GRN gene symbols to Ensembl IDs to match adata.var_names directly
+ahba_GRN = map_grn_symbols_to_ensembl(ahba_GRN, adata)
+
+print("Projecting GRN...")
+project_GRN(adata, ahba_GRN, 'X_ahba', use_highly_variable=False, log_transform=False)
+print(f"Projected shape: {adata.obsm['X_ahba'].shape}")
+```
+
+```{python}
+# Correct for batch (source dataset), preserving age signal
+correct_projection_scores(adata, batch_key='source', covariates=['age_years', 'cell_class'])
+```
+
+## Prepare Data for R Plotting
+
+```{python}
+# Extract projection (raw + corrected)
+for key, label in [('X_ahba', 'raw'), ('X_ahba_corrected', 'corrected')]:
+    proj = pd.DataFrame(adata.obsm[key], index=adata.obs_names, columns=adata.uns['X_ahba_names'])
+    proj['obs_names'] = proj.index
+    proj['correction'] = label
+
+    melted = proj.melt(id_vars=['obs_names', 'correction'], var_name='C', value_name='value')
+    if key == 'X_ahba':
+        all_melted = melted
+    else:
+        all_melted = pd.concat([all_melted, melted], ignore_index=True)
+
+# Merge with metadata
+cols_to_keep = ['individual', 'age_years', 'cell_class', 'cell_subclass', 'cell_type', 'source']
+cols_to_keep = [c for c in cols_to_keep if c in adata.obs.columns]
+
+if 'source' not in adata.obs.columns:
+    adata.obs['source'] = 'VELMESHEV'
+    cols_to_keep.append('source')
+
+meta = adata.obs[cols_to_keep].copy()
+meta['obs_names'] = meta.   index
+
+final_df = pd.merge(all_melted, meta, on='obs_names')
+final_df = final_df[final_df['C'].isin(['C3+', 'C3-'])]
+
+final_df.head()
+```
+
+## Plotting with R (rpy2)
+
+```{python}
+#| fig-width: 8.7
+#| fig-height: 8.7
+%%R -i final_df -i code_dir -w 220 -h 220 -u mm -r 300
+
+source_path <- file.path(code_dir, "age_plots.r")
+message(paste("Sourcing functions from", source_path))
+source(source_path)
+
+message("Processing data in R...")
+
+# Clean/Process Data for R
+df <- final_df %>%
+  rename(Individual = individual) %>%
+  mutate(Age_log2 = log2(age_years+1)) %>%
+  mutate(age_range = case_when(
+    age_years < 0 ~ "Prenatal",
+    age_years < 1 ~ "Infancy",
+    age_years >= 1 & age_years < 9 ~ "Childhood",
+    age_years >= 9 & age_years < 25 ~ "Adolescence",
+    age_years >= 25 ~ "Adulthood"
+  )) %>%
+  mutate(age_range = factor(age_range, ordered=T, levels=c("Prenatal","Infancy", "Childhood", "Adolescence", "Adulthood"))) %>%
+  filter(!is.na(age_range)) %>%
+  mutate(C = factor(C, levels=c('C3+', 'C3-')))
+
+# --- Raw plots ---
+df_raw <- df %>% filter(correction == 'raw')
+
+color_col <- "source"
+p_age_raw <- df_raw %>% plot_age(color_var = color_col) + ggtitle("Raw")
+
+comparisons <- list(
+    c('Adolescence', 'Adulthood'),
+    c('Adolescence', 'Childhood')
+)
+df_box_raw <- df_raw %>% rename(network = C)
+p_boxes_raw <- df_box_raw %>% plot_boxes(color_var='source') + stat_compare_means(comparisons = comparisons, color='blue', label='p.signif')
+
+# --- Corrected plots ---
+df_corr <- df %>% filter(correction == 'corrected')
+
+p_age_corr <- df_corr %>% plot_age(color_var = color_col) + ggtitle("Batch-corrected")
+
+df_box_corr <- df_corr %>% rename(network = C)
+p_boxes_corr <- df_box_corr %>% plot_boxes(color_var='source') + stat_compare_means(comparisons = comparisons, color='blue', label='p.signif')
+
+# Combine: raw on top, corrected on bottom
+p_final <- (p_age_raw | p_boxes_raw) / (p_age_corr | p_boxes_corr) +
+    plot_annotation(tag_levels='a', title="AHBA C3: raw vs batch-corrected scores")
+
+p_final
+```

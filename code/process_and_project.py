@@ -31,7 +31,7 @@ except ImportError as e:
     logging.error(f"Error importing modules from {code_dir}: {e}")
 
 
-def process_and_project(input_file, output_csv, grn_file, region='prefrontal cortex', log_transform=True, all_genes=False, thesis_bug=False):
+def process_and_project(input_file, output_csv, grn_file, use_weights=True, region='prefrontal cortex', log_transform=True, all_genes=False, thesis_bug=False):
     """
     Loads raw data, processes it (filtering, Normalization, HVG, PCA),
     projects GRN, and saves results CSV.
@@ -40,6 +40,7 @@ def process_and_project(input_file, output_csv, grn_file, region='prefrontal cor
         input_file: path to raw .h5ad file
         output_csv: path to save projection results
         grn_file: path to AHBA GRN weights CSV
+        use_weights: bool, whether to use weights from GRN (default True)
         region: region to filter for (default 'prefrontal cortex', set to None/'all' to skip)
         log_transform: bool, whether to apply log1p transformation (default True)
     """
@@ -87,7 +88,7 @@ def process_and_project(input_file, output_csv, grn_file, region='prefrontal cor
 
     # 5. Load GRN
     logging.info(f"Loading GRN from {grn_file}...")
-    ahba_GRN = get_ahba_GRN(path_to_ahba_weights=grn_file)
+    ahba_GRN = get_ahba_GRN(path_to_ahba_weights=grn_file, use_weights=use_weights)
 
     # 6. Project
     logging.info("Projecting GRN...")
