@@ -106,13 +106,13 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 
 <section id="setup" class="level2">
 <h2 class="anchored" data-anchor-id="setup">Setup</h2>
-<div id="0ba29e0d" class="cell" data-execution_count="1">
+<div id="b4cd8c87" class="cell" data-execution_count="1">
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb1"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> os</span>
 <span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> sys</span>
 <span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> re</span>
 <span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> warnings</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 </div>
-<div id="cf2fdb25" class="cell" data-execution_count="2">
+<div id="4b3f4562" class="cell" data-execution_count="2">
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb2"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="co"># ── Environment Configuration ────────────────────────────────────────────────</span></span>
 <span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="co"># Auto-detects local vs HPC. Override by setting ENVIRONMENT manually if needed.</span></span>
 <span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a></span>
@@ -151,7 +151,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
   ref_dir  : /Users/richard/Git/snRNAseq_2026/reference</code></pre>
 </div>
 </div>
-<div id="6aaf8417" class="cell" data-execution_count="3">
+<div id="f5128f38" class="cell" data-execution_count="3">
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb4"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> scanpy <span class="im">as</span> sc</span>
 <span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> pandas <span class="im">as</span> pd</span>
 <span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> numpy <span class="im">as</span> np</span>
@@ -164,7 +164,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span id="cb4-10"><a href="#cb4-10" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb4-11"><a href="#cb4-11" aria-hidden="true" tabindex="-1"></a><span class="op">%</span>load_ext rpy2.ipython</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 </div>
-<div id="5503ce8c" class="cell" data-execution_count="4">
+<div id="8a828a70" class="cell" data-execution_count="4">
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb5"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="op">%%</span>R</span>
 <span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a>library(ggplot2)</span>
@@ -190,7 +190,7 @@ R[write to console]: The following objects are masked from ‘package:base’:
 </code></pre>
 </div>
 </div>
-<div id="bfe944a5" class="cell" data-execution_count="5">
+<div id="2c4f6183" class="cell" data-execution_count="5">
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb7"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a>sys.path.append(code_dir)</span>
 <span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a><span class="cf">try</span>:</span>
 <span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a>    <span class="im">from</span> regulons <span class="im">import</span> get_ahba_GRN, project_GRN</span>
@@ -200,20 +200,20 @@ R[write to console]: The following objects are masked from ‘package:base’:
 <span id="cb7-7"><a href="#cb7-7" aria-hidden="true" tabindex="-1"></a><span class="cf">except</span> <span class="pp">ImportError</span> <span class="im">as</span> e:</span>
 <span id="cb7-8"><a href="#cb7-8" aria-hidden="true" tabindex="-1"></a>    <span class="bu">print</span>(<span class="ss">f"Error importing modules: </span><span class="sc">{</span>e<span class="sc">}</span><span class="ss">"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 </div>
-<div id="12f5e2cc" class="cell" data-execution_count="6">
+<div id="554acfd1" class="cell" data-execution_count="6">
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb8"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a>adata<span class="op">=</span>sc.read_h5ad(rds_dir <span class="op">+</span> <span class="st">"/Cam_snRNAseq/combined/VelWangPsychad_100k_PFC_lessOld.h5ad"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 </div>
-<div id="d8545909" class="cell" data-execution_count="7">
+<div id="72c82c5a" class="cell" data-execution_count="7">
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb9"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a>sc.pp.normalize_total(adata, target_sum<span class="op">=</span><span class="fl">1e6</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 </div>
 </section>
 <section id="projection" class="level2">
 <h2 class="anchored" data-anchor-id="projection">Projection</h2>
-<div id="89a5260d" class="cell" data-execution_count="8">
+<div id="34ee786b" class="cell" data-execution_count="8">
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb10"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a>grn_file <span class="op">=</span> os.path.join(ref_dir, <span class="st">"ahba_dme_hcp_top8kgenes_weights.csv"</span>)</span>
 <span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb10-3"><a href="#cb10-3" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"Loading GRN from </span><span class="sc">{</span>grn_file<span class="sc">}</span><span class="ss">..."</span>)</span>
-<span id="cb10-4"><a href="#cb10-4" aria-hidden="true" tabindex="-1"></a>ahba_GRN <span class="op">=</span> get_ahba_GRN(path_to_ahba_weights<span class="op">=</span>grn_file)</span>
+<span id="cb10-4"><a href="#cb10-4" aria-hidden="true" tabindex="-1"></a>ahba_GRN <span class="op">=</span> get_ahba_GRN(path_to_ahba_weights<span class="op">=</span>grn_file, use_weights<span class="op">=</span><span class="va">True</span>)</span>
 <span id="cb10-5"><a href="#cb10-5" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb10-6"><a href="#cb10-6" aria-hidden="true" tabindex="-1"></a><span class="co"># Remap GRN gene symbols to Ensembl IDs to match adata.var_names directly</span></span>
 <span id="cb10-7"><a href="#cb10-7" aria-hidden="true" tabindex="-1"></a>ahba_GRN <span class="op">=</span> map_grn_symbols_to_ensembl(ahba_GRN, adata)</span>
@@ -227,23 +227,23 @@ Input sequence provided is already in string format. No operation performed</cod
 </div>
 <div class="cell-output cell-output-stdout">
 <pre><code>Loading GRN from /Users/richard/Git/snRNAseq_2026/reference/ahba_dme_hcp_top8kgenes_weights.csv...
-Mapped 4303/5323 symbols via adata.var
-Querying mygene for 1020 unmapped symbols...</code></pre>
+Mapped 6391/7973 symbols via adata.var
+Querying mygene for 1582 unmapped symbols...</code></pre>
 </div>
 <div class="cell-output cell-output-stderr">
-<pre><code>84 input query terms found dup hits:    [('SERTAD4-AS1', 3), ('MIR29B2CHG', 2), ('LRRC37A4P', 3), ('TPTE2P6', 2), ('INTS4P1', 2), ('STAG3L4'
-228 input query terms found no hit: ['LINC00599', 'FAM71E1', 'TCTEX1D1', 'FLJ23867', 'SLC22A18', 'LOC100128239', 'NARS', 'LOC220729', 'S</code></pre>
+<pre><code>134 input query terms found dup hits:   [('ACTG1P4', 2), ('ADAM20P1', 2), ('AKR7A2P1', 3), ('AMZ2P1', 2), ('ANKRD18CP', 2), ('ANKRD19P', 2),
+339 input query terms found no hit: ['AAED1', 'AARS', 'ADPRHL2', 'ADSSL1', 'ALS2CR12', 'APOPT1', 'ARMT1', 'ARNTL', 'ARNTL2', 'AZIN1-AS1'</code></pre>
 </div>
 <div class="cell-output cell-output-stdout">
-<pre><code>After mygene: 4307/5323 mapped, 1016 dropped
+<pre><code>After mygene: 6397/7973 mapped, 1576 dropped
 Projecting GRN...
-Found 4307 matching genes in var_names.
-Aligning GRN weights to 4307 matched genes for projection...
+Found 6397 matching genes in var_names.
+Aligning GRN weights to 6397 matched genes for projection...
 Computing sparse-dense dot product...
 Projected shape: (221567, 6)</code></pre>
 </div>
 </div>
-<div id="5d6a8fac" class="cell" data-execution_count="9">
+<div id="5497de1b" class="cell" data-execution_count="9">
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb15"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb15-1"><a href="#cb15-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Correct for batch (source dataset), preserving age signal</span></span>
 <span id="cb15-2"><a href="#cb15-2" aria-hidden="true" tabindex="-1"></a>correct_projection_scores(adata, batch_key<span class="op">=</span><span class="st">'source'</span>, covariates<span class="op">=</span>[<span class="st">'age_years'</span>, <span class="st">'cell_class'</span>])</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="cell-output cell-output-stdout">
@@ -253,7 +253,7 @@ Projected shape: (221567, 6)</code></pre>
 </section>
 <section id="prepare-data-for-r-plotting" class="level2">
 <h2 class="anchored" data-anchor-id="prepare-data-for-r-plotting">Prepare Data for R Plotting</h2>
-<div id="af394f84" class="cell" data-execution_count="10">
+<div id="5e556f5b" class="cell" data-execution_count="10">
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb17"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb17-1"><a href="#cb17-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Extract projection (raw + corrected)</span></span>
 <span id="cb17-2"><a href="#cb17-2" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> key, label <span class="kw">in</span> [(<span class="st">'X_ahba'</span>, <span class="st">'raw'</span>), (<span class="st">'X_ahba_corrected'</span>, <span class="st">'corrected'</span>)]:</span>
 <span id="cb17-3"><a href="#cb17-3" aria-hidden="true" tabindex="-1"></a>    proj <span class="op">=</span> pd.DataFrame(adata.obsm[key], index<span class="op">=</span>adata.obs_names, columns<span class="op">=</span>adata.uns[<span class="st">'X_ahba_names'</span>])</span>
@@ -306,7 +306,7 @@ Projected shape: (221567, 6)</code></pre>
 <td>Ramos_34C_AACACACCATAATCCG-1</td>
 <td>raw</td>
 <td>C3+</td>
-<td>154867.256470</td>
+<td>104615.111068</td>
 <td>34</td>
 <td>-0.379452</td>
 <td>Excitatory</td>
@@ -318,7 +318,7 @@ Projected shape: (221567, 6)</code></pre>
 <td>Ramos_64G_CAACGGCAGACATAGT-1</td>
 <td>raw</td>
 <td>C3+</td>
-<td>121803.810181</td>
+<td>87896.541561</td>
 <td>64</td>
 <td>-0.312329</td>
 <td>Excitatory</td>
@@ -330,7 +330,7 @@ Projected shape: (221567, 6)</code></pre>
 <td>U01_TAAGTGCTCGGAGGTA-1_4369_BA9</td>
 <td>raw</td>
 <td>C3+</td>
-<td>153275.421227</td>
+<td>103923.392486</td>
 <td>4369</td>
 <td>2.720548</td>
 <td>Excitatory</td>
@@ -342,7 +342,7 @@ Projected shape: (221567, 6)</code></pre>
 <td>Ramos_23C_CTCAAGACAGATAAAC-1</td>
 <td>raw</td>
 <td>C3+</td>
-<td>106678.228149</td>
+<td>79885.936058</td>
 <td>23</td>
 <td>-0.312329</td>
 <td>Inhibitory</td>
@@ -354,7 +354,7 @@ Projected shape: (221567, 6)</code></pre>
 <td>U01_CAAGAAATCCAATGGT-1_GW16-2-2-20_PFC</td>
 <td>raw</td>
 <td>C3+</td>
-<td>87175.188171</td>
+<td>67334.025450</td>
 <td>GW16-2-2-20</td>
 <td>-0.465753</td>
 <td>Excitatory</td>
@@ -370,7 +370,7 @@ Projected shape: (221567, 6)</code></pre>
 </section>
 <section id="plotting-with-r-rpy2" class="level2">
 <h2 class="anchored" data-anchor-id="plotting-with-r-rpy2">Plotting with R (rpy2)</h2>
-<div id="938767da" class="cell" data-fig-height="8.7" data-fig-width="8.7" data-execution_count="11">
+<div id="ee97da2d" class="cell" data-fig-height="8.7" data-fig-width="8.7" data-execution_count="11">
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb18"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb18-1"><a href="#cb18-1" aria-hidden="true" tabindex="-1"></a><span class="op">%%</span>R <span class="op">-</span>i final_df <span class="op">-</span>i code_dir <span class="op">-</span>w <span class="dv">220</span> <span class="op">-</span>h <span class="dv">220</span> <span class="op">-</span>u mm <span class="op">-</span>r <span class="dv">300</span></span>
 <span id="cb18-2"><a href="#cb18-2" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb18-3"><a href="#cb18-3" aria-hidden="true" tabindex="-1"></a>source_path <span class="op">&lt;-</span> <span class="bu">file</span>.path(code_dir, <span class="st">"age_plots.r"</span>)</span>

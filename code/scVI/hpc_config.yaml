@@ -1,8 +1,15 @@
 # scVI Pipeline — HPC Full Dataset Config
 # Output dir is derived from input path:
 #   <RDS>/Cam_snRNAseq/combined/VelWangPsychad_100k_PFC_lessOld/scvi_output/
+#
+# Note: This config runs on 220k cells with 10k HVGs and 400 epochs.
+# Requires ~20-32GB GPU memory. For smaller systems:
+#   - Reduce n_top_genes (e.g., 5000)
+#   - Reduce batch_size (e.g., 64)
+#   - Reduce max_epochs_scvi (e.g., 200)
+# Or run on HPC with GPU support.
 
-input_h5ad: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/combined/VelWangPsychad_100k_PFC_lessOld.h5ad
+input_h5ad: rds-cam-psych-transc/Cam_snRNAseq/combined/VelWangPsychad_100k_PFC_lessOld.h5ad
 output_dir: ""  # Empty = auto-derive from input path (recommended)
 
 # Data keys
@@ -56,4 +63,4 @@ steps:
   - umap
   - plot
   - save
-overwrite_scvi: false
+overwrite_scvi: true

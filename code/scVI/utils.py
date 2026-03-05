@@ -3,13 +3,17 @@
 import logging
 import os
 import time
+import warnings
 from typing import Optional
 
 
 def setup_logger(
     name: str = "scvi_pipeline", log_file: Optional[str] = None
 ) -> logging.Logger:
-    """Configure logger with timestamps and optional file output."""
+    """Configure logger with timestamps and optional file output.
+
+    Also captures Python warnings and logs them.
+    """
     logger = logging.getLogger(name)
     if logger.handlers:
         return logger  # already configured
@@ -30,6 +34,13 @@ def setup_logger(
         fh = logging.FileHandler(log_file, mode="w")  # overwrite per run
         fh.setFormatter(fmt)
         logger.addHandler(fh)
+
+    # Capture Python warnings and log them
+    logging.captureWarnings(True)
+    warnings_logger = logging.getLogger("py.warnings")
+    warnings_logger.setLevel(logging.WARNING)
+    for handler in logger.handlers:
+        warnings_logger.addHandler(handler)
 
     return logger
 

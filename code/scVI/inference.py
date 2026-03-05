@@ -1,14 +1,16 @@
 """Chunked inference for batch-corrected normalized expression with OOM retry."""
 
 import logging
+import psutil
 from typing import Optional
 
 import anndata as ad
 import numpy as np
 import torch
+from tqdm import tqdm
 
 from .config import PipelineConfig
-from .utils import Timer, estimate_chunk_size
+from .utils import Timer, estimate_chunk_size, log_memory
 
 
 def get_normalized_expression(
@@ -30,6 +32,15 @@ def get_normalized_expression(
     """
     n_cells, n_hvg_genes = adata_scvi.shape
     n_all_genes = adata_full.shape[1]
+
+    # Pre-inference memory check
+    log_memory("Before inference", logger)
+    mem = psutil.virtual_memory()
+    if mem.percent > 90:
+        logger.warning(
+            f"Very high memory usage before inference: {mem.percent:.1f}%. "
+            f"OOM may occur during chunked processing."
+        )
 
     # Determine chunk size
     chunk_size = config.chunk_size
@@ -116,6 +127,8 @@ def _chunked_inference(
     start_idx = 0
     chunk_num = 0
 
+    pbar = tqdm(total=n_cells, desc="Inference", unit=" cells")
+
     while start_idx < n_cells:
         end_idx = min(start_idx + current_chunk_size, n_cells)
         chunk_adata = adata[start_idx:end_idx].copy()
@@ -127,10 +140,12 @@ def _chunked_inference(
             result = model.get_normalized_expression(adata=chunk_adata, **kwargs)
             chunks.append(result.values)
             chunk_num += 1
+            cells_processed = end_idx - start_idx
             logger.info(
                 f"  Chunk {chunk_num}: [{start_idx}:{end_idx}) "
-                f"({end_idx - start_idx} cells) OK"
+                f"({cells_processed} cells) OK"
             )
+            pbar.update(cells_processed)
             start_idx = end_idx
             current_chunk_size = chunk_size  # restore after success
 
@@ -154,4 +169,5 @@ def _chunked_inference(
             else:
                 raise
 
+    pbar.close()
     return np.vstack(chunks)

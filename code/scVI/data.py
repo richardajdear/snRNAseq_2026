@@ -73,7 +73,9 @@ def prepare_for_scvi(
         )
 
     # HVG selection
-    if "highly_variable" not in adata.var.columns:
+    # Force re-selection if overwrite_scvi is true, or if "highly_variable" not yet marked
+    force_reselect = config.overwrite_scvi
+    if "highly_variable" not in adata.var.columns or force_reselect:
         with Timer(
             f"Selecting {config.n_top_genes} HVGs ({config.hvg_flavor})", logger
         ):
@@ -83,6 +85,13 @@ def prepare_for_scvi(
             if config.hvg_batch_key:
                 kwargs["batch_key"] = config.hvg_batch_key
             sc.pp.highly_variable_genes(adata, **kwargs)
+    elif "highly_variable" in adata.var.columns:
+        n_hvg_existing = int(adata.var["highly_variable"].sum())
+        if n_hvg_existing != config.n_top_genes:
+            logger.warning(
+                f"Existing HVG selection has {n_hvg_existing} genes, but "
+                f"config.n_top_genes={config.n_top_genes}. To re-select, use --overwrite_scvi true"
+            )
     n_hvg = int(adata.var["highly_variable"].sum())
     logger.info(f"HVGs: {n_hvg} genes selected")
 
