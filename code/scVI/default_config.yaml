@@ -1,0 +1,64 @@
+# scVI Pipeline — Local Testing Config (10k dataset)
+# Output dir is derived from input path:
+#   rds-cam-psych-transc/Cam_snRNAseq/combined/VelWangPsychad_10k_PFC_lessOld/scvi_output/
+
+input_h5ad: rds-cam-psych-transc/Cam_snRNAseq/combined/VelWangPsychad_10k_PFC_lessOld.h5ad
+output_dir: ""  # Empty = auto-derive from input path (recommended)
+
+# Data keys
+batch_key: source
+cell_type_key: cell_class
+counts_layer: counts
+
+# Preprocessing
+n_top_genes: 5000
+hvg_flavor: seurat_v3
+
+# Model architecture
+n_latent: 30
+n_hidden: 128
+n_layers: 2
+
+# Training (reduced for local testing)
+max_epochs_scvi: 50
+max_epochs_scanvi: 20
+train_size: 0.9
+early_stopping: true
+early_stopping_patience: 10
+batch_size: 128
+num_workers: 0  # 0 = main process only (safest for local)
+random_seed: 42
+
+# Inference
+run_scvi_inference: true
+run_scanvi: true
+run_scanvi_inference: true
+n_mc_samples: 5
+chunk_size: 5000
+output_layer_scvi: scvi_normalized
+output_layer_scanvi: scanvi_normalized
+save_npy_backup: true
+
+# UMAP
+umap_n_neighbors: 30
+umap_min_dist: 0.3
+umap_color_vars:
+  - source
+  - cell_class
+  - age_years
+umap_point_size: 1.5
+umap_log2_vars:
+  - age_years
+umap_log2_ticks: [0, 1, 3, 9, 25, 40]
+
+# Pipeline control
+steps:
+  - prep
+  - train_scvi
+  - train_scanvi
+  - infer
+  - umap
+  - plot
+  - save
+overwrite_scvi: false
+overwrite_scanvi: false

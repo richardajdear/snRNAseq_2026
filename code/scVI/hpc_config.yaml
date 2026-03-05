@@ -1,0 +1,59 @@
+# scVI Pipeline — HPC Full Dataset Config
+# Output dir is derived from input path:
+#   <RDS>/Cam_snRNAseq/combined/VelWangPsychad_100k_PFC_lessOld/scvi_output/
+
+input_h5ad: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/combined/VelWangPsychad_100k_PFC_lessOld.h5ad
+output_dir: ""  # Empty = auto-derive from input path (recommended)
+
+# Data keys
+batch_key: source
+cell_type_key: cell_class
+counts_layer: counts
+
+# Preprocessing
+n_top_genes: 10000
+hvg_flavor: seurat_v3
+
+# Model architecture
+n_latent: 30
+n_hidden: 128
+n_layers: 2
+
+# Training (full)
+max_epochs_scvi: 400
+max_epochs_scanvi: 20
+train_size: 0.9
+early_stopping: true
+early_stopping_patience: 30
+batch_size: 128
+num_workers: 4
+random_seed: 42
+
+# Inference
+run_scvi_inference: true
+run_scanvi: false
+run_scanvi_inference: false
+n_mc_samples: 10
+output_layer_scvi: scvi_normalized
+save_npy_backup: true
+
+# UMAP
+umap_n_neighbors: 30
+umap_min_dist: 0.3
+umap_color_vars:
+  - source
+  - cell_class
+umap_point_size: 0.5
+umap_log2_vars:
+  - age_years
+umap_log2_ticks: [0, 1, 3, 9, 25, 40]
+
+# Pipeline control
+steps:
+  - prep
+  - train_scvi
+  - infer
+  - umap
+  - plot
+  - save
+overwrite_scvi: false
