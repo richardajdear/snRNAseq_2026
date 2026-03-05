@@ -41,7 +41,7 @@ else:
 # Change this path to switch between datasets (10k test / 100k / full)
 SCVI_INPUT = os.path.join(
     rds_dir,
-    "Cam_snRNAseq/combined/VelWangPsychad_100k_PFC_lessOld/scvi_output/integrated.h5ad"
+    "Cam_snRNAseq/combined/VelWangPsychad_10k_PFC_lessOld/scvi_output/integrated.h5ad"
 )
 SCVI_LAYER = 'scvi_normalized'   # or 'scanvi_normalized'
 

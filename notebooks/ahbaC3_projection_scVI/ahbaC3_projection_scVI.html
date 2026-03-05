@@ -106,12 +106,12 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 
 <section id="setup" class="level2">
 <h2 class="anchored" data-anchor-id="setup">Setup</h2>
-<div id="ecc004db" class="cell" data-execution_count="1">
+<div id="8970373e" class="cell" data-execution_count="1">
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb1"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> os</span>
 <span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> sys</span>
 <span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> warnings</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 </div>
-<div id="4ad5e63e" class="cell" data-execution_count="2">
+<div id="ec551dc4" class="cell" data-execution_count="2">
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb2"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="co"># ── Environment Configuration ────────────────────────────────────────────────</span></span>
 <span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> _find_repo_root(start<span class="op">=</span><span class="va">None</span>, marker<span class="op">=</span><span class="st">'.git'</span>):</span>
 <span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>    current <span class="op">=</span> os.path.abspath(start <span class="kw">or</span> os.getcwd())</span>
@@ -153,7 +153,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
   layer    : scvi_normalized</code></pre>
 </div>
 </div>
-<div id="141c6cb8" class="cell" data-execution_count="3">
+<div id="4060cb16" class="cell" data-execution_count="3">
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb4"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> scanpy <span class="im">as</span> sc</span>
 <span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> pandas <span class="im">as</span> pd</span>
 <span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> numpy <span class="im">as</span> np</span>
@@ -165,7 +165,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span id="cb4-9"><a href="#cb4-9" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb4-10"><a href="#cb4-10" aria-hidden="true" tabindex="-1"></a><span class="op">%</span>load_ext rpy2.ipython</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
 </div>
-<div id="31fb0f1e" class="cell" data-execution_count="4">
+<div id="691da549" class="cell" data-execution_count="4">
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb5"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="op">%%</span>R</span>
 <span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a>library(ggplot2)</span>
@@ -191,7 +191,7 @@ R[write to console]: The following objects are masked from ‘package:base’:
 </code></pre>
 </div>
 </div>
-<div id="1359e708" class="cell" data-execution_count="5">
+<div id="a83bd5de" class="cell" data-execution_count="5">
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb7"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a>sys.path.append(code_dir)</span>
 <span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a><span class="cf">try</span>:</span>
 <span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a>    <span class="im">from</span> regulons <span class="im">import</span> get_ahba_GRN, project_GRN</span>
@@ -203,7 +203,7 @@ R[write to console]: The following objects are masked from ‘package:base’:
 </section>
 <section id="load-data" class="level2">
 <h2 class="anchored" data-anchor-id="load-data">Load Data</h2>
-<div id="4a89f360" class="cell" data-execution_count="6">
+<div id="eae83354" class="cell" data-execution_count="6">
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb8"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a>adata <span class="op">=</span> sc.read_h5ad(SCVI_INPUT)</span>
 <span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(adata)</span>
 <span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"</span><span class="ch">\n</span><span class="ss">Layers: </span><span class="sc">{</span><span class="bu">list</span>(adata.layers.keys())<span class="sc">}</span><span class="ss">"</span>)</span>
@@ -221,7 +221,7 @@ Layers: ['counts', 'scanvi_normalized', 'scvi_normalized']
 obsm:   ['X_pca_raw', 'X_scANVI', 'X_scVI', 'X_umap', 'X_umap_raw', 'X_umap_scanvi', 'X_umap_scvi']</code></pre>
 </div>
 </div>
-<div id="a73a5bb3" class="cell" data-execution_count="7">
+<div id="6d3850ff" class="cell" data-execution_count="7">
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb10"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Use scVI batch-corrected expression as adata.X</span></span>
 <span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a><span class="co"># scvi_normalized sums to ~1.0 per cell (proportions); scale to CPM for</span></span>
 <span id="cb10-3"><a href="#cb10-3" aria-hidden="true" tabindex="-1"></a><span class="co"># comparability with the unnormalized pipeline</span></span>
@@ -238,7 +238,7 @@ obsm:   ['X_pca_raw', 'X_scANVI', 'X_scVI', 'X_umap', 'X_umap_raw', 'X_umap_scan
 </section>
 <section id="projection" class="level2">
 <h2 class="anchored" data-anchor-id="projection">Projection</h2>
-<div id="d3b22da0" class="cell" data-execution_count="8">
+<div id="8e11523a" class="cell" data-execution_count="8">
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb12"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a>grn_file <span class="op">=</span> os.path.join(ref_dir, <span class="st">"ahba_dme_hcp_top8kgenes_weights.csv"</span>)</span>
 <span id="cb12-2"><a href="#cb12-2" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb12-3"><a href="#cb12-3" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"Loading GRN from </span><span class="sc">{</span>grn_file<span class="sc">}</span><span class="ss">..."</span>)</span>
@@ -272,7 +272,7 @@ Computing sparse-dense dot product...
 Projected shape: (22282, 6)</code></pre>
 </div>
 </div>
-<div id="3e4f67a1" class="cell" data-execution_count="9">
+<div id="968be72c" class="cell" data-execution_count="9">
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb17"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb17-1"><a href="#cb17-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Optional: OLS batch correction on projection scores.</span></span>
 <span id="cb17-2"><a href="#cb17-2" aria-hidden="true" tabindex="-1"></a><span class="co"># scVI already corrects batch at the expression level, so this primarily</span></span>
 <span id="cb17-3"><a href="#cb17-3" aria-hidden="true" tabindex="-1"></a><span class="co"># removes any residual score-level batch shifts not captured by scVI.</span></span>
@@ -284,7 +284,7 @@ Projected shape: (22282, 6)</code></pre>
 </section>
 <section id="prepare-data-for-r-plotting" class="level2">
 <h2 class="anchored" data-anchor-id="prepare-data-for-r-plotting">Prepare Data for R Plotting</h2>
-<div id="4d414c82" class="cell" data-execution_count="10">
+<div id="5d1726c0" class="cell" data-execution_count="10">
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb19"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb19-1"><a href="#cb19-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Extract projection scores (raw scVI-based + score-level corrected)</span></span>
 <span id="cb19-2"><a href="#cb19-2" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> key, label <span class="kw">in</span> [(<span class="st">'X_ahba'</span>, <span class="st">'scvi'</span>), (<span class="st">'X_ahba_corrected'</span>, <span class="st">'scvi+ols'</span>)]:</span>
 <span id="cb19-3"><a href="#cb19-3" aria-hidden="true" tabindex="-1"></a>    proj <span class="op">=</span> pd.DataFrame(adata.obsm[key], index<span class="op">=</span>adata.obs_names, columns<span class="op">=</span>adata.uns[<span class="st">'X_ahba_names'</span>])</span>
@@ -333,7 +333,7 @@ Projected shape: (22282, 6)</code></pre>
 <td>Ramos_34C_AACACACCATAATCCG-1-VELMESHEV</td>
 <td>scvi</td>
 <td>C3+</td>
-<td>136119.822904</td>
+<td>128712.835433</td>
 <td>34</td>
 <td>-0.379452</td>
 <td>Excitatory</td>
@@ -345,7 +345,7 @@ Projected shape: (22282, 6)</code></pre>
 <td>Ramos_64G_CAACGGCAGACATAGT-1-VELMESHEV</td>
 <td>scvi</td>
 <td>C3+</td>
-<td>148522.748951</td>
+<td>120048.159938</td>
 <td>64</td>
 <td>-0.312329</td>
 <td>Excitatory</td>
@@ -357,7 +357,7 @@ Projected shape: (22282, 6)</code></pre>
 <td>U01_TAAGTGCTCGGAGGTA-1_4369_BA9-VELMESHEV</td>
 <td>scvi</td>
 <td>C3+</td>
-<td>149175.065237</td>
+<td>132860.895373</td>
 <td>4369</td>
 <td>2.720548</td>
 <td>Excitatory</td>
@@ -369,7 +369,7 @@ Projected shape: (22282, 6)</code></pre>
 <td>Ramos_23C_CTCAAGACAGATAAAC-1-VELMESHEV</td>
 <td>scvi</td>
 <td>C3+</td>
-<td>120892.622356</td>
+<td>111850.745472</td>
 <td>23</td>
 <td>-0.312329</td>
 <td>Inhibitory</td>
@@ -381,7 +381,7 @@ Projected shape: (22282, 6)</code></pre>
 <td>U01_CAAGAAATCCAATGGT-1_GW16-2-2-20_PFC-VELMESHEV</td>
 <td>scvi</td>
 <td>C3+</td>
-<td>100340.441443</td>
+<td>96176.683876</td>
 <td>GW16-2-2-20</td>
 <td>-0.465753</td>
 <td>Excitatory</td>
@@ -397,7 +397,7 @@ Projected shape: (22282, 6)</code></pre>
 </section>
 <section id="plotting-with-r-rpy2" class="level2">
 <h2 class="anchored" data-anchor-id="plotting-with-r-rpy2">Plotting with R (rpy2)</h2>
-<div id="903e051d" class="cell" data-fig-height="8.7" data-fig-width="8.7" data-execution_count="11">
+<div id="bdd8601c" class="cell" data-fig-height="8.7" data-fig-width="8.7" data-execution_count="11">
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb20"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb20-1"><a href="#cb20-1" aria-hidden="true" tabindex="-1"></a><span class="op">%%</span>R <span class="op">-</span>i final_df <span class="op">-</span>i code_dir <span class="op">-</span>w <span class="dv">220</span> <span class="op">-</span>h <span class="dv">220</span> <span class="op">-</span>u mm <span class="op">-</span>r <span class="dv">300</span></span>
 <span id="cb20-2"><a href="#cb20-2" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb20-3"><a href="#cb20-3" aria-hidden="true" tabindex="-1"></a>source_path <span class="op">&lt;-</span> <span class="bu">file</span>.path(code_dir, <span class="st">"age_plots.r"</span>)</span>
