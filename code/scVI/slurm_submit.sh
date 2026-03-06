@@ -1,13 +1,13 @@
 #!/bin/bash
-#SBATCH --job-name=scvi_pipeline
+#SBATCH --job-name=scvi_100k
 #SBATCH --output=/home/rajd2/rds/hpc-work/snRNAseq_2026/logs/scvi_%j.out
 #SBATCH --error=/home/rajd2/rds/hpc-work/snRNAseq_2026/logs/scvi_%j.err
-#SBATCH --time=12:00:00
-#SBATCH --mem=128G
-#SBATCH --cpus-per-task=8
+#SBATCH --time=00:30:00
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
 #SBATCH --partition=ampere
 #SBATCH --gres=gpu:1
-#SBATCH --account=PSYCHGEN-SL3-GPU
+#SBATCH --account=vertes-sl2-gpu
 
 set -euo pipefail
 
