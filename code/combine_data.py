@@ -10,14 +10,16 @@ import psutil
 import time
 import gc
 
-# Import our new module
+# Import our modules
 try:
     import read_data
+    from environment import get_environment as _get_env
 except ImportError:
     sys.path.append(os.path.dirname(os.path.realpath(__file__)))
     import read_data
+    from environment import get_environment as _get_env
 
-OUTPUT_DIR = "/home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/combined/"
+OUTPUT_DIR = os.path.join(_get_env()['rds_dir'], 'Cam_snRNAseq/combined')
 
 START_TIME = time.time()
 
@@ -120,8 +122,11 @@ def combine_on_disk(file_dict, output_path):
     
     # Write updated var back via h5py and write_elem
     import h5py
-    from anndata.experimental import write_elem
-    
+    try:
+        from anndata.io import write_elem
+    except ImportError:
+        from anndata.experimental import write_elem
+
     with h5py.File(output_path, 'r+') as f:
         if 'var' in f:
             del f['var']
@@ -133,6 +138,40 @@ def combine_on_disk(file_dict, output_path):
     
     log_mem("After metadata restore")
     print(f"Combined file saved to: {output_path}")
+
+
+def patch_subclass(h5ad_path):
+    """Add cell_subclass to an existing combined h5ad using cell_type + source columns."""
+    import h5py
+    try:
+        from anndata.io import write_elem
+    except ImportError:
+        from anndata.experimental import write_elem
+
+    print(f"Patching cell_subclass in {h5ad_path}...")
+    adata = sc.read_h5ad(h5ad_path, backed='r')
+    obs = adata.obs.copy()
+    adata.file.close()
+
+    # Source-appropriate mapper: Velmeshev has native labels; all others have CellxGene labels.
+    source_mapper = {
+        'VELMESHEV': read_data.map_velmeshev_subclass,
+        'WANG':      read_data.map_cellxgene_subclass,
+        'HBCC':      read_data.map_cellxgene_subclass,
+        'AGING':     read_data.map_cellxgene_subclass,
+    }
+    subclass = obs['cell_type'].astype(str).copy()
+    for src, mapper in source_mapper.items():
+        mask = obs['source'] == src
+        subclass[mask] = obs.loc[mask, 'cell_type'].astype(str).map(mapper)
+    obs['cell_subclass'] = subclass
+
+    print(f"  cell_subclass value counts:\n{obs['cell_subclass'].value_counts().to_string()}")
+
+    with h5py.File(h5ad_path, 'r+') as f:
+        del f['obs']
+        write_elem(f, 'obs', obs)
+    print("  Done.")
 
 
 def combine_in_memory(file_dict, output_path, common_cols):
@@ -192,9 +231,11 @@ def combine_in_memory(file_dict, output_path, common_cols):
 
 def main():
     parser = argparse.ArgumentParser(description="Combine snRNAseq datasets.")
+    parser.add_argument("--patch", metavar="H5AD_PATH",
+                        help="Add cell_subclass to an existing combined h5ad file in-place, then exit.")
     parser.add_argument("--postnatal", action='store_true', help="(Deprecated) Filter for age >= 0")
     parser.add_argument("--diagnose_only", action='store_true', help="Only run diagnostics, do not save")
-    parser.add_argument("--output", default=f"{OUTPUT_DIR}/combined_postnatal_full.h5ad")
+    parser.add_argument("--output", default=os.path.join(OUTPUT_DIR, "combined_postnatal_full.h5ad"))
     
     parser.add_argument("--aging_path", default=read_data.AGING_PATH)
     parser.add_argument("--hbcc_path", default=read_data.HBCC_PATH)
@@ -205,7 +246,11 @@ def main():
                         help="Load h5ad files directly (skip read_data processing). Use for pre-processed/downsampled inputs.")
     
     args = parser.parse_args()
-    
+
+    if args.patch:
+        patch_subclass(args.patch)
+        return
+
     log_mem("Start")
     
     # Build file dict from paths that exist
@@ -258,6 +303,11 @@ def main():
                 print(f"  {name}: {ad.shape}")
             log_mem(f"After loading {name}")
         
+        # Recompute common cols from loaded adatas so reader-added columns
+        # (e.g. cell_subclass) are included in the output.
+        common_cols = sorted(set.intersection(*[set(ad.obs.columns) for ad in adatas.values()]))
+        print(f"  Common obs columns from loaded data ({len(common_cols)}): {common_cols}")
+
         # Standardize and combine
         for name, adData in adatas.items():
             if 'feature_name' in adData.var.columns:

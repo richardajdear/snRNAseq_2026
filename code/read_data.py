@@ -8,11 +8,14 @@ import re
 import warnings
 
 # --- Constants ---
-VELMESHEV_PATH = "/home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/velmeshev/velmeshev.h5ad"
-VELMESHEV_META_DIR = "/home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/velmeshev/velmeshev_meta/"
-WANG_PATH = "/home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/wang/wang.h5ad"
-AGING_PATH = "/home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_PsychAD/RNAseq/Aging_Cohort.h5ad"
-HBCC_PATH = "/home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_PsychAD/RNAseq/HBCC_Cohort.h5ad"
+from environment import get_environment as _get_env
+_rds = _get_env()['rds_dir']
+
+VELMESHEV_PATH     = os.path.join(_rds, 'Cam_snRNAseq/velmeshev/velmeshev.h5ad')
+VELMESHEV_META_DIR = os.path.join(_rds, 'Cam_snRNAseq/velmeshev/velmeshev_meta')
+WANG_PATH          = os.path.join(_rds, 'Cam_snRNAseq/wang/wang.h5ad')
+AGING_PATH         = os.path.join(_rds, 'Cam_PsychAD/RNAseq/Aging_Cohort.h5ad')
+HBCC_PATH          = os.path.join(_rds, 'Cam_PsychAD/RNAseq/HBCC_Cohort.h5ad')
 
 # --- Helpers ---
 def extract_age_psychad(age_str):
@@ -43,6 +46,126 @@ def get_raw_counts(adata):
         X = adata.X.copy()
         
     return X
+
+# --- Cell subclass mappings ---
+# Maps source-specific granular cell type labels to a canonical cross-dataset
+# cell_subclass vocabulary. PsychAD naming conventions are used as the standard.
+
+_VELMESHEV_SUBCLASS = {
+    'L2-3': 'EN_L2_3_IT',  'L4': 'EN_L4_IT',       'L5': 'EN_L5_IT',
+    'L5-6-IT': 'EN_L5_6_IT', 'L6': 'EN_L6_IT',     'SP': 'EN_L6B',
+    'PV': 'IN_PVALB',       'PV_MP': 'IN_PVALB',
+    'SST': 'IN_SST',        'SST_RELN': 'IN_SST',
+    'VIP': 'IN_VIP',
+    'RELN': 'IN_LAMP5_RELN',
+    'CALB2': 'IN_ADARB2',   'CCK': 'IN_ADARB2',    'SV2C': 'IN_ADARB2',
+    'NOS': 'IN_LAMP5',
+    'INT': 'Inhibitory',    'Interneurons': 'Inhibitory',
+    'Fibrous_astrocytes': 'Astro', 'Protoplasmic_astrocytes': 'Astro',
+    'Glial_progenitors': 'Glial_progenitors', 'Progenitors': 'Progenitors',
+    'Microglia': 'Micro',   'Oligos': 'Oligo',      'OPC': 'OPC',
+}
+
+def map_velmeshev_subclass(cell_type):
+    return _VELMESHEV_SUBCLASS.get(cell_type, cell_type)
+
+
+_WANG_SUBCLASS = {
+    'EN-L2_3-IT': 'EN_L2_3_IT',    'EN-L4-IT': 'EN_L4_IT',
+    'EN-L5-IT': 'EN_L5_IT',        'EN-L5-ET': 'EN_L5_ET',
+    'EN-L5_6-NP': 'EN_L5_6_NP',   'EN-L6-CT': 'EN_L6_CT',
+    'EN-L6-IT': 'EN_L6_IT',        'EN-L6b': 'EN_L6B',
+    'EN-Newborn': 'EN_Immature',   'EN-IT-Immature': 'EN_Immature',
+    'EN-Non-IT-Immature': 'EN_Immature',
+    'IN-MGE-PV': 'IN_PVALB',       'IN-MGE-SST': 'IN_SST',
+    'IN-CGE-VIP': 'IN_VIP',        'IN-CGE-SNCG': 'IN_ADARB2',
+    'IN-Mix-LAMP5': 'IN_LAMP5',
+    'IN-MGE-Immature': 'IN_Immature', 'IN-CGE-Immature': 'IN_Immature',
+    'IN-dLGE-Immature': 'IN_Immature',
+    'Astrocyte-Fibrous': 'Astro',  'Astrocyte-Protoplasmic': 'Astro',
+    'Astrocyte-Immature': 'Astro_Immature',
+    'Oligodendrocyte': 'Oligo',    'Oligodendrocyte-Immature': 'Oligo',
+    'OPC': 'OPC',                  'Microglia': 'Micro',
+    'Vascular': 'Endo',
+    'IPC-EN': 'IPC_EN',            'IPC-Glia': 'IPC_Glia',
+    'RG-vRG': 'Radial_glia',       'RG-oRG': 'Radial_glia',
+    'RG-tRG': 'Radial_glia',
+    'Cajal-Retzius cell': 'CR_cell', 'Unknown': 'Unknown',
+}
+
+def map_wang_subclass(cell_type):
+    return _WANG_SUBCLASS.get(cell_type, cell_type)
+
+
+# Maps CellxGene ontology cell_type labels (present in pre-combined h5ad files)
+# to the canonical subclass vocabulary.  Used when patching existing combined files
+# where source-specific Type/subclass columns are no longer available.
+_CELLXGENE_SUBCLASS = {
+    # Excitatory
+    'L2/3 intratelencephalic projecting glutamatergic neuron':        'EN_L2_3_IT',
+    'L2/3-6 intratelencephalic projecting glutamatergic neuron':      'EN_L2_3_IT',
+    'L4 intratelencephalic projecting glutamatergic neuron':          'EN_L4_IT',
+    'L5 intratelencephalic projecting glutamatergic neuron':          'EN_L5_IT',
+    'L5 extratelencephalic projecting glutamatergic cortical neuron': 'EN_L5_ET',
+    'L5/6 near-projecting glutamatergic neuron':                      'EN_L5_6_NP',
+    'near-projecting glutamatergic cortical neuron':                  'EN_L5_6_NP',
+    'L6 intratelencephalic projecting glutamatergic neuron':          'EN_L6_IT',
+    'L6 corticothalamic-projecting glutamatergic cortical neuron':    'EN_L6_CT',
+    'corticothalamic-projecting glutamatergic cortical neuron':       'EN_L6_CT',
+    'L6b glutamatergic cortical neuron':                              'EN_L6B',
+    'L6b glutamatergic neuron of the primary motor cortex':           'EN_L6B',
+    'intratelencephalic-projecting glutamatergic cortical neuron':    'Excitatory',
+    'glutamatergic neuron':                                           'Excitatory',
+    # Inhibitory
+    'GABAergic neuron':                                                      'Inhibitory',
+    'VIP GABAergic cortical interneuron':                                    'IN_VIP',
+    'pvalb GABAergic cortical interneuron':                                  'IN_PVALB',
+    'sst GABAergic cortical interneuron':                                    'IN_SST',
+    'lamp5 GABAergic cortical interneuron':                                  'IN_LAMP5',
+    'sncg GABAergic cortical interneuron':                                   'IN_ADARB2',
+    'caudal ganglionic eminence derived cortical interneuron':               'Inhibitory',
+    'medial ganglionic eminence derived GABAergic cortical interneuron':     'Inhibitory',
+    # Glia
+    'astrocyte':                                    'Astro',
+    'immature astrocyte':                           'Astro_Immature',
+    'oligodendrocyte':                              'Oligo',
+    'oligodendrocyte precursor cell':               'OPC',
+    'differentiation-committed oligodendrocyte precursor': 'OPC',
+    'microglial cell':                              'Micro',
+    # Vascular
+    'endothelial cell':           'Endo',
+    'brain vascular cell':        'Endo',
+    'pericyte':                   'PC',
+    'perivascular macrophage':    'PVM',
+    'smooth muscle cell':         'SMC',
+    'vascular leptomeningeal cell': 'VLMC',
+    # Developmental
+    'forebrain radial glial cell': 'Radial_glia',
+    'neural progenitor cell':      'Progenitors',
+    'Cajal-Retzius cell':          'CR_cell',
+    # Immune / adaptive
+    'natural killer cell': 'Adaptive',
+    'T cell':              'Adaptive',
+    'B cell':              'Adaptive',
+    'plasma cell':         'Adaptive',
+    # Unknown
+    'unknown': 'Unknown',
+}
+
+def map_cellxgene_subclass(cell_type):
+    return _CELLXGENE_SUBCLASS.get(cell_type, cell_type)
+
+
+# PsychAD uses EN_L3_5_IT_1/2/3 and EN_L6_IT_1/2; collapse to broad labels.
+_EN_COLLAPSE = {
+    'EN_L3_5_IT_1': 'EN_L3_5_IT', 'EN_L3_5_IT_2': 'EN_L3_5_IT',
+    'EN_L3_5_IT_3': 'EN_L3_5_IT',
+    'EN_L6_IT_1': 'EN_L6_IT',     'EN_L6_IT_2': 'EN_L6_IT',
+}
+
+def collapse_en_subclass(label):
+    return _EN_COLLAPSE.get(label, label)
+
 
 # ============================================================================
 # BACKED-MODE READERS
@@ -154,8 +277,8 @@ def read_velmeshev_backed(h5ad_path=VELMESHEV_PATH, meta_dir=VELMESHEV_META_DIR)
             meta_df['cell_type'] = meta['Cell_Type']
         elif 'cell_type' in meta.columns:
             meta_df['cell_type'] = meta['cell_type']
-        if 'subclass' in meta.columns:
-            meta_df['cell_subclass'] = meta['subclass']
+        if 'cell_type' in adata_backed.obs.columns:
+            meta_df['cell_subclass'] = adata_backed.obs.loc[common, 'cell_type'].map(map_velmeshev_subclass)
         if 'Dataset' in meta.columns:
             meta_df['dataset'] = meta['Dataset']
         if 'Chemistry' in meta.columns:
@@ -216,7 +339,8 @@ def read_wang_backed(h5ad_path=WANG_PATH):
 
     if 'cell_type' in obs.columns:
         meta_df['cell_class'] = obs['cell_type'].apply(map_wang_class)
-        meta_df['cell_subclass'] = obs['cell_type']
+    if 'Type' in obs.columns:
+        meta_df['cell_subclass'] = obs['Type'].map(map_wang_subclass)
     
     meta_df['chemistry'] = 'multiome'
     meta_df['dataset'] = 'Wang'
@@ -268,7 +392,7 @@ def read_psychad_backed(h5ad_path, dataset_name):
         meta_df['cell_class'] = obs['class'].map(mapper).fillna(obs['class'])
     
     if 'subclass' in obs.columns:
-        meta_df['cell_subclass'] = obs['subclass']
+        meta_df['cell_subclass'] = obs['subclass'].map(collapse_en_subclass)
     
     if 'cell_type' in obs.columns:
         meta_df['cell_type'] = obs['cell_type']

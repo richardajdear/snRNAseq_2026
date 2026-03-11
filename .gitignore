@@ -3,7 +3,7 @@ scripts/outputs/
 results/
 *.h5ad
 *.csv
-rds-cam-psych-transc/
+rds-cam-psych-transc-Pb9UGUlrwWc/
 
 # Quarto build artifacts
 *.quarto_ipynb*

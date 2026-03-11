@@ -1,6 +1,6 @@
 ---
 title: "AHBA C3 Projection on scVI Batch-Corrected Data"
-format: html
+format: md
 jupyter: python3
 ---
 
@@ -14,8 +14,9 @@ import warnings
 
 ```{python}
 # ── Environment Configuration ────────────────────────────────────────────────
-def _find_repo_root(start=None, marker='.git'):
-    current = os.path.abspath(start or os.getcwd())
+# Bootstrap: find repo root so we can add code/ to sys.path before importing.
+def _find_repo_root(marker='.git'):
+    current = os.path.abspath(os.getcwd())
     while True:
         if os.path.exists(os.path.join(current, marker)):
             return current
@@ -25,17 +26,14 @@ def _find_repo_root(start=None, marker='.git'):
         current = parent
 
 _repo_root = _find_repo_root()
-ENVIRONMENT = 'local' if os.path.isdir(os.path.join(_repo_root, 'rds-cam-psych-transc')) else 'hpc'
+if os.path.join(_repo_root, 'code') not in sys.path:
+    sys.path.insert(0, os.path.join(_repo_root, 'code'))
 
-if ENVIRONMENT == 'local':
-    rds_dir  = os.path.join(_repo_root, 'rds-cam-psych-transc')
-    code_dir = os.path.join(_repo_root, 'code')
-    ref_dir  = os.path.join(_repo_root, 'reference')
-else:
-    _hpc_base = '/home/rajd2/rds'
-    rds_dir   = os.path.join(_hpc_base, 'rds-cam-psych-transc-Pb9UGUlrwWc')
-    code_dir  = os.path.join(_hpc_base, 'hpc-work/snRNAseq_2026/code')
-    ref_dir   = os.path.join(_hpc_base, 'hpc-work/snRNAseq_2026/reference')
+from environment import get_environment
+_env = get_environment()
+rds_dir  = _env['rds_dir']
+code_dir = _env['code_dir']
+ref_dir  = _env['ref_dir']
 
 # ── Input: scVI-integrated h5ad ──────────────────────────────────────────────
 # Change this path to switch between datasets (10k test / 100k / full)
@@ -45,7 +43,7 @@ SCVI_INPUT = os.path.join(
 )
 SCVI_LAYER = 'scvi_normalized'   # or 'scanvi_normalized'
 
-print(f"Environment : {ENVIRONMENT}")
+print(f"Environment : {_env['name']}")
 print(f"  input    : {SCVI_INPUT}")
 print(f"  layer    : {SCVI_LAYER}")
 ```
@@ -57,7 +55,7 @@ import numpy as np
 
 warnings.filterwarnings('ignore')
 
-if ENVIRONMENT == 'local':
+if _env['name'] == 'local':
     os.environ['R_HOME'] = '/Users/richard/mambaforge/envs/scanpy/lib/R'
 
 %load_ext rpy2.ipython
@@ -143,7 +141,7 @@ for key, label in [('X_ahba', 'scvi'), ('X_ahba_corrected', 'scvi+ols')]:
         all_melted = pd.concat([all_melted, melted], ignore_index=True)
 
 # Merge with metadata
-cols_to_keep = ['donor_id', 'age_years', 'cell_class', 'cell_type', 'source']
+cols_to_keep = ['donor_id', 'age_years', 'cell_class', 'cell_subclass', 'cell_type', 'source']
 cols_to_keep = [c for c in cols_to_keep if c in adata.obs.columns]
 
 meta = adata.obs[cols_to_keep].copy()
@@ -169,6 +167,7 @@ source(source_path)
 message("Processing data in R...")
 
 df <- final_df %>%
+  filter(cell_class == 'Excitatory') %>%
   rename(Individual = donor_id) %>%
   mutate(Age_log2 = log2(age_years+1)) %>%
   mutate(age_range = case_when(
@@ -208,4 +207,20 @@ p_final <- (p_age_scvi | p_boxes_scvi) / (p_age_ols | p_boxes_ols) +
     plot_annotation(tag_levels='a', title="AHBA C3: scVI expression vs scVI+OLS score correction")
 
 p_final
+```
+
+```{python}
+#| fig-width: 8.7
+#| fig-height: 4.5
+%%R -w 220 -h 115 -u mm -r 300
+
+# Same data, colour by cell subclass instead of source
+p_age_scvi_sub <- df_scvi %>% plot_age(color_var = 'cell_subclass') + ggtitle("scVI batch-corrected") + 
+    guides(color=guide_legend(ncol=1, override.aes = list(size = 3, alpha=.8)))
+p_age_ols_sub  <- df_ols  %>% plot_age(color_var = 'cell_subclass') + ggtitle("scVI + OLS score correction") + 
+    guides(color=guide_legend(ncol=1, override.aes = list(size = 3, alpha=.8)))
+
+(p_age_scvi_sub | p_age_ols_sub) +
+    plot_layout(guides='collect') + 
+    plot_annotation(title="AHBA C3: coloured by cell subclass")
 ```

@@ -50,10 +50,17 @@ def map_grn_symbols_to_ensembl(grn, adata):
 
     # 1) Build mapping from adata.var (symbol -> ensembl ID)
     #    For duplicates, keep the first occurrence.
-    var = adata.var[['gene_symbol']].copy()
+    for col in ('gene_symbol', 'feature_name'):
+        if col in adata.var.columns:
+            symbol_col = col
+            break
+    else:
+        raise ValueError("adata.var must have a 'gene_symbol' or 'feature_name' column")
+
+    var = adata.var[[symbol_col]].copy()
     var['ensembl_id'] = var.index
-    var_dedup = var.drop_duplicates(subset='gene_symbol', keep='first')
-    local_map = dict(zip(var_dedup['gene_symbol'], var_dedup['ensembl_id']))
+    var_dedup = var.drop_duplicates(subset=symbol_col, keep='first')
+    local_map = dict(zip(var_dedup[symbol_col], var_dedup['ensembl_id']))
 
     mapped = {s: local_map[s] for s in symbols if s in local_map}
     unmapped = [s for s in symbols if s not in mapped]

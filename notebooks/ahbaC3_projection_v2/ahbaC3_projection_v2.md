@@ -1,12 +1,9 @@
----
-title: "AHBA C3 Projection Analysis v2"
-format: md
-jupyter: python3
----
+# AHBA C3 Projection Analysis v2
+
 
 ## Setup
 
-```{python}
+``` python
 import os
 import sys
 import re
@@ -18,7 +15,7 @@ if _ip:
     _ip.run_line_magic('autoreload', '2')
 ```
 
-```{python}
+``` python
 # ── Environment Configuration ────────────────────────────────────────────────
 # Bootstrap: find repo root so we can add code/ to sys.path before importing.
 def _find_repo_root(marker='.git'):
@@ -47,7 +44,12 @@ print(f"  code_dir : {code_dir}")
 print(f"  ref_dir  : {ref_dir}")
 ```
 
-```{python}
+    Environment : local
+      rds_dir  : /Users/richard/Git/snRNAseq_2026/rds-cam-psych-transc-Pb9UGUlrwWc
+      code_dir : /Users/richard/Git/snRNAseq_2026/code
+      ref_dir  : /Users/richard/Git/snRNAseq_2026/reference
+
+``` python
 import scanpy as sc
 import pandas as pd
 import numpy as np
@@ -61,7 +63,7 @@ if _env['name'] == 'local':
 %load_ext rpy2.ipython
 ```
 
-```{python}
+``` python
 %%R
 
 library(ggplot2)
@@ -72,7 +74,20 @@ library(ggpubr)
 library(stringr)
 ```
 
-```{python}
+    R[write to console]: 
+    Attaching package: ‘dplyr’
+
+
+    R[write to console]: The following objects are masked from ‘package:stats’:
+
+        filter, lag
+
+
+    R[write to console]: The following objects are masked from ‘package:base’:
+
+        intersect, setdiff, setequal, union
+
+``` python
 sys.path.append(code_dir)
 try:
     from regulons import get_ahba_GRN, project_GRN
@@ -83,18 +98,18 @@ except ImportError as e:
     print(f"Error importing modules: {e}")
 ```
 
-```{python}
+``` python
 # adata=sc.read_h5ad(rds_dir + "/Cam_snRNAseq/combined/VelWangPsychad_100k_PFC_lessOld.h5ad")
 adata=sc.read_h5ad(rds_dir + "/Cam_snRNAseq/velmeshev/velmeshev_100k_PFC_lessOld.h5ad")
 ```
 
-```{python}
+``` python
 sc.pp.normalize_total(adata, target_sum=1e6)
 ```
 
 ## Projection
 
-```{python}
+``` python
 grn_file = os.path.join(ref_dir, "ahba_dme_hcp_top8kgenes_weights.csv")
 
 print(f"Loading GRN from {grn_file}...")
@@ -108,7 +123,24 @@ project_GRN(adata, ahba_GRN, 'X_ahba', use_highly_variable=False, log_transform=
 print(f"Projected shape: {adata.obsm['X_ahba'].shape}")
 ```
 
-```{python}
+    Input sequence provided is already in string format. No operation performed
+    Input sequence provided is already in string format. No operation performed
+
+    Loading GRN from /Users/richard/Git/snRNAseq_2026/reference/ahba_dme_hcp_top8kgenes_weights.csv...
+    Mapped 6641/7973 symbols via adata.var
+    Querying mygene for 1332 unmapped symbols...
+
+    134 input query terms found dup hits:   [('ACTG1P4', 2), ('ADAM20P1', 2), ('AKR7A2P1', 3), ('AMZ2P1', 2), ('ANKRD18CP', 2), ('ANKRD19P', 2),
+    337 input query terms found no hit: ['AAED1', 'AARS', 'ADPRHL2', 'ADSSL1', 'ALS2CR12', 'APOPT1', 'ARMT1', 'ARNTL', 'ARNTL2', 'AZIN1-AS1'
+
+    After mygene: 6650/7973 mapped, 1323 dropped
+    Projecting GRN...
+    Found 6650 matching genes in var_names.
+    Aligning GRN weights to 6650 matched genes for projection...
+    Computing sparse-dense dot product...
+    Projected shape: (64250, 6)
+
+``` python
 # Fill 'source' if missing (e.g. velmeshev-only data)
 if 'source' not in adata.obs.columns:
     adata.obs['source'] = 'velmeshev'
@@ -117,9 +149,11 @@ if 'source' not in adata.obs.columns:
 correct_projection_scores(adata, batch_key='source', covariates=['age_years', 'cell_class'])
 ```
 
+    Stored corrected scores in adata.obsm['X_ahba_corrected'] (batch_key='source', covariates=['age_years', 'cell_class'])
+
 ## Prepare Data for R Plotting
 
-```{python}
+``` python
 # Extract projection (raw + corrected)
 for key, label in [('X_ahba', 'raw'), ('X_ahba_corrected', 'corrected')]:
     proj = pd.DataFrame(adata.obsm[key], index=adata.obs_names, columns=adata.uns['X_ahba_names'])
@@ -145,11 +179,111 @@ final_df = final_df[final_df['C'].isin(['C3+', 'C3-'])]
 final_df.head()
 ```
 
+<div>
+<style scoped>
+    .dataframe tbody tr th:only-of-type {
+        vertical-align: middle;
+    }
+
+    .dataframe tbody tr th {
+        vertical-align: top;
+    }
+
+    .dataframe thead th {
+        text-align: right;
+    }
+</style>
+
+<table class="dataframe" data-quarto-postprocess="true" data-border="1">
+<thead>
+<tr style="text-align: right;">
+<th data-quarto-table-cell-role="th"></th>
+<th data-quarto-table-cell-role="th">obs_names</th>
+<th data-quarto-table-cell-role="th">correction</th>
+<th data-quarto-table-cell-role="th">C</th>
+<th data-quarto-table-cell-role="th">value</th>
+<th data-quarto-table-cell-role="th">individual</th>
+<th data-quarto-table-cell-role="th">age_years</th>
+<th data-quarto-table-cell-role="th">cell_class</th>
+<th data-quarto-table-cell-role="th">cell_subclass</th>
+<th data-quarto-table-cell-role="th">cell_type</th>
+<th data-quarto-table-cell-role="th">source</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td data-quarto-table-cell-role="th">257000</td>
+<td>Ramos_34C_AACACACCATAATCCG-1</td>
+<td>raw</td>
+<td>C3+</td>
+<td>104119.886084</td>
+<td>34</td>
+<td>-0.379452</td>
+<td>Excitatory</td>
+<td>Inhibitory</td>
+<td>Interneurons</td>
+<td>velmeshev</td>
+</tr>
+<tr>
+<td data-quarto-table-cell-role="th">257001</td>
+<td>Ramos_64G_CAACGGCAGACATAGT-1</td>
+<td>raw</td>
+<td>C3+</td>
+<td>87456.653320</td>
+<td>64</td>
+<td>-0.312329</td>
+<td>Excitatory</td>
+<td>Inhibitory</td>
+<td>Interneurons</td>
+<td>velmeshev</td>
+</tr>
+<tr>
+<td data-quarto-table-cell-role="th">257002</td>
+<td>U01_TAAGTGCTCGGAGGTA-1_4369_BA9</td>
+<td>raw</td>
+<td>C3+</td>
+<td>103390.332177</td>
+<td>4369</td>
+<td>2.720548</td>
+<td>Excitatory</td>
+<td>EN_L5_IT</td>
+<td>L5</td>
+<td>velmeshev</td>
+</tr>
+<tr>
+<td data-quarto-table-cell-role="th">257003</td>
+<td>Ramos_23C_CTCAAGACAGATAAAC-1</td>
+<td>raw</td>
+<td>C3+</td>
+<td>79516.136862</td>
+<td>23</td>
+<td>-0.312329</td>
+<td>Inhibitory</td>
+<td>Inhibitory</td>
+<td>INT</td>
+<td>velmeshev</td>
+</tr>
+<tr>
+<td data-quarto-table-cell-role="th">257004</td>
+<td>U01_CAAGAAATCCAATGGT-1_GW16-2-2-20_PFC</td>
+<td>raw</td>
+<td>C3+</td>
+<td>67368.422990</td>
+<td>GW16-2-2-20</td>
+<td>-0.465753</td>
+<td>Excitatory</td>
+<td>Progenitors</td>
+<td>Progenitors</td>
+<td>velmeshev</td>
+</tr>
+</tbody>
+</table>
+
+</div>
+
 ## Plotting with R (rpy2)
 
-```{python}
-#| fig-width: 8.7
-#| fig-height: 8.7
+``` python
 %%R -i final_df -i code_dir -w 220 -h 220 -u mm -r 300
 
 source_path <- file.path(code_dir, "age_plots.r")
@@ -202,9 +336,35 @@ p_final <- (p_age_raw | p_boxes_raw) / (p_age_corr | p_boxes_corr) +
 p_final
 ```
 
-```{python}
-#| fig-width: 8.7
-#| fig-height: 4.5
+    R[write to console]: Sourcing functions from /Users/richard/Git/snRNAseq_2026/code/age_plots.r
+
+    R[write to console]: 
+    Attaching package: ‘scales’
+
+
+    R[write to console]: The following object is masked from ‘package:readr’:
+
+        col_factor
+
+    ── Attaching core tidyverse packages ──────────────────────── tidyverse 2.0.0 ──
+    ✔ forcats   1.0.0     ✔ tibble    3.3.0
+    ✔ lubridate 1.9.4     ✔ tidyr     1.3.1
+    ✔ purrr     1.1.0     
+    ── Conflicts ────────────────────────────────────────── tidyverse_conflicts() ──
+    ✖ scales::col_factor() masks readr::col_factor()
+    ✖ purrr::discard()     masks scales::discard()
+    ✖ dplyr::filter()      masks stats::filter()
+    ✖ dplyr::lag()         masks stats::lag()
+    ℹ Use the conflicted package (<http://conflicted.r-lib.org/>) to force all conflicts to become errors
+
+    R[write to console]: Processing data in R...
+
+    `geom_smooth()` using method = 'gam' and formula = 'y ~ s(x, bs = "cs")'
+    `geom_smooth()` using method = 'gam' and formula = 'y ~ s(x, bs = "cs")'
+
+![](ahbaC3_projection_v2_files/figure-markdown_strict/cell-12-output-5.png)
+
+``` python
 %%R -w 220 -h 115 -u mm -r 300
 
 # Same data, colour by cell subclass instead of source
@@ -217,3 +377,8 @@ p_age_corr_sub <- df_corr %>% plot_age(color_var = 'cell_subclass') + ggtitle("B
     plot_layout(guides='collect') +
     plot_annotation(title="AHBA C3: coloured by cell subclass")
 ```
+
+    `geom_smooth()` using method = 'gam' and formula = 'y ~ s(x, bs = "cs")'
+    `geom_smooth()` using method = 'gam' and formula = 'y ~ s(x, bs = "cs")'
+
+![](ahbaC3_projection_v2_files/figure-markdown_strict/cell-13-output-2.png)
