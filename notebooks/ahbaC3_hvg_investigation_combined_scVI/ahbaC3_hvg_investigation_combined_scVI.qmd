@@ -1,5 +1,5 @@
 ---
-title: "AHBA C3 HVG Investigation (Velmeshev)"
+title: "AHBA C3 HVG Investigation (Combined)"
 format: md
 jupyter: python3
 ---
@@ -84,11 +84,9 @@ from hvg_investigation import (build_conditions, run_hvg_conditions,
 ## 2. Data & HVG Projections
 
 ```{python}
-DATA_FILE = rds_dir + "/Cam_snRNAseq/velmeshev/velmeshev_100k_PFC_lessOld.h5ad"
+DATA_FILE = rds_dir + "/Cam_snRNAseq/combined/VelWangPsychad_10k_PFC_lessOld/scvi_output/integrated.h5ad"
 N_VALUES = [1000, 2000, 4000, 6000, 8000, 10000]
-CACHE_DIR = os.path.join(os.path.dirname(os.path.abspath('.')), '_cache')
-# Use notebook directory for cache
-CACHE_DIR = os.path.join(_repo_root, 'notebooks', 'ahbaC3_hvg_investigation', '_cache')
+CACHE_DIR = os.path.join(_repo_root, 'notebooks', 'ahbaC3_hvg_investigation_combined_scVI', '_cache')
 
 cached = load_cache(CACHE_DIR)
 ```
@@ -103,7 +101,7 @@ else:
     adata.layers['counts'] = adata.X.copy()
     sc.pp.normalize_total(adata, target_sum=1e6)
     if 'source' not in adata.obs.columns:
-        adata.obs['source'] = 'VELMESHEV'
+        adata.obs['source'] = 'combined'
     print(f"Shape: {adata.shape}")
 
     adata_log = adata.copy()

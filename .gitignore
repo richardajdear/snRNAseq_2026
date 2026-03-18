@@ -12,6 +12,10 @@ rds-cam-psych-transc-Pb9UGUlrwWc/
 # VS Code language server temp files
 .vdoc.*.py
 
+# Cache files
+_cache/
+*.parquet
+
 # Python cache
 __pycache__/
 *.pyc
