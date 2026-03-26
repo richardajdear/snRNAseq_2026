@@ -458,6 +458,14 @@ plot_effect_summary <- function(df_boxes, group1 = 'Childhood', group2 = 'Adoles
                        pmax(n_g1 + n_g2 - 2, 1)),
       cohens_d = ifelse(pooled_sd > 0,
                         (mean_g1 - mean_g2) / pooled_sd, NA_real_),
+      power = mapply(function(n1, n2, d) {
+        if (is.na(d) || n1 < 2 || n2 < 2) return(NA_real_)
+        tryCatch(
+          pwr.t2n.test(n1 = n1, n2 = n2, d = abs(d),
+                       sig.level = 0.05)$power,
+          error = function(e) NA_real_
+        )
+      }, n_g1, n_g2, cohens_d),
       flavor = case_when(
         condition == 'all_genes' ~ 'none',
         grepl('seurat_v3', condition) ~ 'seurat_v3',
@@ -509,14 +517,26 @@ plot_effect_summary <- function(df_boxes, group1 = 'Childhood', group2 = 'Adoles
     scale_x_continuous(breaks = x_breaks) +
     scale_color_brewer(palette = 'Set2') +
     labs(x = 'n_top_genes', y = expression(-log[10](p))) +
+    common_theme
+
+  p4 <- hvg_df %>%
+    ggplot(aes(x = n_genes, y = power, color = flavor, group = flavor)) +
+    geom_hline(yintercept = 0.8, linetype = 'dashed', color = 'red') +
+    geom_hline(yintercept = ref$power, linetype = 'dotted', color = 'grey30') +
+    geom_point(size = 2.5) +
+    geom_line(linewidth = 0.5) +
+    scale_x_continuous(breaks = x_breaks) +
+    scale_y_continuous(limits = c(0, 1)) +
+    scale_color_brewer(palette = 'Set2') +
+    labs(x = 'n_top_genes', y = 'Power') +
     theme_classic() +
     theme(axis.text.x = element_text(size = 8))
 
-  (p1 | p2 | p3) +
+  (p1 | p2 | p3 | p4) +
     plot_layout(guides = 'collect') +
     plot_annotation(
       title = sprintf('C3+ %s vs %s: effect by HVG condition', group1, group2),
-      subtitle = 'Dotted grey line = all_genes baseline. Pseudobulked by individual.',
+      subtitle = 'Dotted grey line = all_genes baseline. Red dashes: p=0.05 / power=0.8.',
       tag_levels = 'a'
     )
 }

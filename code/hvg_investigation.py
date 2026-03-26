@@ -138,6 +138,9 @@ def prepare_for_r(scores_df, adata, n_values):
     """Merge scores with metadata, filter to excitatory, set condition ordering."""
     cols_to_keep = ['individual', 'age_years', 'cell_class', 'cell_subclass',
                     'cell_type', 'source']
+    # Map donor_id → individual if individual is absent
+    if 'individual' not in adata.obs.columns and 'donor_id' in adata.obs.columns:
+        adata.obs['individual'] = adata.obs['donor_id']
     cols_to_keep = [c for c in cols_to_keep if c in adata.obs.columns]
 
     meta = adata.obs[cols_to_keep].copy()
