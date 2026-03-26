@@ -44,6 +44,7 @@ n_mc_samples: 10
 output_layer_scvi: scvi_normalized
 output_layer_scanvi: scanvi_normalized
 save_npy_backup: true
+transform_batch: 'VELMESHEV'
 
 # UMAP
 umap_n_neighbors: 30
@@ -65,5 +66,5 @@ steps:
   - umap
   - plot
   - save
-overwrite_scvi: false
+overwrite_scvi: true
 overwrite_scanvi: true
