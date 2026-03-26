@@ -1,4 +1,4 @@
-# AHBA C3 Age Sensitivity (Combined, scVI)
+# AHBA C3 HVG Investigation (PsychAD)
 
 
 ## 1. Setup
@@ -128,9 +128,10 @@ from hvg_investigation import (build_conditions, run_hvg_conditions,
 ## 2. Data & HVG Projections
 
 ``` python
-DATA_FILE = rds_dir + "/Cam_snRNAseq/combined/VelWangPsychad_100k_PFC_lessOld/scvi_output/integrated.h5ad"
+AGING_FILE = rds_dir + "/Cam_PsychAD/RNAseq/Aging_Cohort_100k_PFC_lessOld.h5ad"
+HBCC_FILE  = rds_dir + "/Cam_PsychAD/RNAseq/HBCC_Cohort_100k_PFC_lessOld.h5ad"
 N_VALUES = [1000, 2000, 4000, 6000, 8000, 10000]
-CACHE_DIR = os.path.join(_repo_root, 'notebooks', 'ahbaC3_sensitivity_combined_scVI', '_cache')
+CACHE_DIR = os.path.join(_repo_root, 'notebooks', 'ahbaC3_hvg_investigation_psychAD', '_cache')
 
 cached = load_cache(CACHE_DIR)
 ```
@@ -140,25 +141,25 @@ if cached is not None:
     scores_df, stats_df, final_df, hvg_df = cached
     print(f"scores: {len(scores_df)} rows, stats: {len(stats_df)} rows, final: {len(final_df)} rows, hvg_df: {len(hvg_df)} rows")
 else:
-    # ── Load and normalize ──
-    adata = sc.read_h5ad(DATA_FILE)
+    # ── Load and combine Aging + HBCC cohorts ──
+    aging = sc.read_h5ad(AGING_FILE)
+    hbcc  = sc.read_h5ad(HBCC_FILE)
+    aging.obs['source'] = 'Aging'
+    hbcc.obs['source']  = 'HBCC'
+    print(f"Aging shape: {aging.shape}, HBCC shape: {hbcc.shape}")
 
-    # Drop scanVI layer and all embeddings to save memory
-    for layer in ['scanvi_normalized']:
-        if layer in adata.layers:
-            del adata.layers[layer]
-    for key in list(adata.obsm.keys()):
-        del adata.obsm[key]
-    import gc; gc.collect()
+    # Concatenate; index_unique='-' disambiguates the 27 shared cell barcodes
+    # sc.concat drops var columns, so save them first and restore afterwards
+    var_df = aging.var.copy()
+    adata = sc.concat([aging, hbcc], keys=['Aging', 'HBCC'], index_unique='-',
+                      join='outer', fill_value=0)
+    adata.var = var_df.loc[adata.var_names]
+    del aging, hbcc
+    print(f"Combined shape: {adata.shape}")
 
-    # Use scVI normalized layer as batch-corrected counts
-    adata.layers['counts'] = adata.layers['scvi_normalized']
-
+    # ── Normalize ──
+    adata.layers['counts'] = adata.X.copy()
     sc.pp.normalize_total(adata, target_sum=1e6)
-
-    if 'source' not in adata.obs.columns:
-        adata.obs['source'] = 'combined'
-    print(f"Shape: {adata.shape}")
 
     adata_log = adata.copy()
     sc.pp.log1p(adata_log)
@@ -180,7 +181,7 @@ else:
     # ── Prepare for R ──
     final_df = prepare_for_r(scores_df, adata, N_VALUES)
     del adata
-    gc.collect()
+    import gc; gc.collect()
 
     # ── Save cache ──
     save_cache(CACHE_DIR, scores_df, stats_df, final_df, hvg_df)
@@ -188,155 +189,155 @@ else:
 print(f"scores: {len(scores_df)}, stats: {len(stats_df)}, final_df (excitatory): {len(final_df)}, hvg_df: {len(hvg_df)}")
 ```
 
-    Shape: (221567, 15540)
-    WARNING: adata.X seems to be already log-transformed.
+    Aging shape: (52713, 34176), HBCC shape: (56696, 34176)
+    Combined shape: (109409, 34176)
 
     Input sequence provided is already in string format. No operation performed
     Input sequence provided is already in string format. No operation performed
 
-    Mapped 6391/7973 symbols via adata.var
-    Querying mygene for 1582 unmapped symbols...
+    Mapped 7214/7973 symbols via adata.var
+    Querying mygene for 759 unmapped symbols...
 
-    134 input query terms found dup hits:   [('ACTG1P4', 2), ('ADAM20P1', 2), ('AKR7A2P1', 3), ('AMZ2P1', 2), ('ANKRD18CP', 2), ('ANKRD19P', 2),
-    342 input query terms found no hit: ['AAED1', 'AARS', 'ADPRHL2', 'ADSSL1', 'ALS2CR12', 'APOPT1', 'ARMT1', 'ARNTL', 'ARNTL2', 'AZIN1-AS1'
+    41 input query terms found dup hits:    [('ACTG1P4', 2), ('ADAM20P1', 2), ('ANKRD19P', 2), ('ARHGAP27P2', 2), ('BMS1P2', 2), ('BMS1P20', 2),
+    353 input query terms found no hit: ['AAED1', 'AARS', 'ADAL', 'ADPRHL2', 'ADSSL1', 'ALS2CR12', 'APOPT1', 'ARNTL', 'ARNTL2', 'AZIN1-AS1',
 
-    After mygene: 6397/7973 mapped, 1576 dropped
-    GRN genes in adata: 6397 / 6397
+    After mygene: 7228/7973 mapped, 745 dropped
+    GRN genes in adata: 7228 / 7228
 
     ============================================================
     Condition: all_genes
-    Found 6397 matching genes in var_names.
-    Aligning GRN weights to 6397 matched genes for projection...
+    Found 7228 matching genes in var_names.
+    Aligning GRN weights to 7228 matched genes for projection...
     Computing sparse-dense dot product...
-      HVGs: 15540, GRN genes used: 6397/6397 (100.0%)
+      HVGs: 34176, GRN genes used: 7228/7228 (100.0%)
 
     ============================================================
     Condition: seurat_v3_1000
-    Found 6397 matching genes in var_names.
-    Aligning GRN weights to 503 matched genes for projection...
+    Found 7228 matching genes in var_names.
+    Aligning GRN weights to 367 matched genes for projection...
     Computing sparse-dense dot product...
-      HVGs: 1000, GRN genes used: 503/6397 (7.9%)
+      HVGs: 1000, GRN genes used: 367/7228 (5.1%)
 
     ============================================================
     Condition: seurat_1000
-    Found 6397 matching genes in var_names.
-    Aligning GRN weights to 491 matched genes for projection...
+    Found 7228 matching genes in var_names.
+    Aligning GRN weights to 362 matched genes for projection...
     Computing sparse-dense dot product...
-      HVGs: 1000, GRN genes used: 491/6397 (7.7%)
+      HVGs: 1000, GRN genes used: 362/7228 (5.0%)
 
     ============================================================
     Condition: pearson_1000
-    Found 6397 matching genes in var_names.
-    Aligning GRN weights to 661 matched genes for projection...
+    Found 7228 matching genes in var_names.
+    Aligning GRN weights to 512 matched genes for projection...
     Computing sparse-dense dot product...
-      HVGs: 1000, GRN genes used: 661/6397 (10.3%)
+      HVGs: 1000, GRN genes used: 512/7228 (7.1%)
 
     ============================================================
     Condition: seurat_v3_2000
-    Found 6397 matching genes in var_names.
-    Aligning GRN weights to 985 matched genes for projection...
+    Found 7228 matching genes in var_names.
+    Aligning GRN weights to 720 matched genes for projection...
     Computing sparse-dense dot product...
-      HVGs: 2000, GRN genes used: 985/6397 (15.4%)
+      HVGs: 2000, GRN genes used: 720/7228 (10.0%)
 
     ============================================================
     Condition: seurat_2000
-    Found 6397 matching genes in var_names.
-    Aligning GRN weights to 963 matched genes for projection...
+    Found 7228 matching genes in var_names.
+    Aligning GRN weights to 641 matched genes for projection...
     Computing sparse-dense dot product...
-      HVGs: 2000, GRN genes used: 963/6397 (15.1%)
+      HVGs: 2000, GRN genes used: 641/7228 (8.9%)
 
     ============================================================
     Condition: pearson_2000
-    Found 6397 matching genes in var_names.
-    Aligning GRN weights to 1258 matched genes for projection...
+    Found 7228 matching genes in var_names.
+    Aligning GRN weights to 979 matched genes for projection...
     Computing sparse-dense dot product...
-      HVGs: 2000, GRN genes used: 1258/6397 (19.7%)
+      HVGs: 2000, GRN genes used: 979/7228 (13.5%)
 
     ============================================================
     Condition: seurat_v3_4000
-    Found 6397 matching genes in var_names.
-    Aligning GRN weights to 1974 matched genes for projection...
+    Found 7228 matching genes in var_names.
+    Aligning GRN weights to 1398 matched genes for projection...
     Computing sparse-dense dot product...
-      HVGs: 4000, GRN genes used: 1974/6397 (30.9%)
+      HVGs: 4000, GRN genes used: 1398/7228 (19.3%)
 
     ============================================================
     Condition: seurat_4000
-    Found 6397 matching genes in var_names.
-    Aligning GRN weights to 1767 matched genes for projection...
+    Found 7228 matching genes in var_names.
+    Aligning GRN weights to 1057 matched genes for projection...
     Computing sparse-dense dot product...
-      HVGs: 4000, GRN genes used: 1767/6397 (27.6%)
+      HVGs: 4000, GRN genes used: 1057/7228 (14.6%)
 
     ============================================================
     Condition: pearson_4000
-    Found 6397 matching genes in var_names.
-    Aligning GRN weights to 2279 matched genes for projection...
+    Found 7228 matching genes in var_names.
+    Aligning GRN weights to 1645 matched genes for projection...
     Computing sparse-dense dot product...
-      HVGs: 4000, GRN genes used: 2279/6397 (35.6%)
+      HVGs: 4000, GRN genes used: 1645/7228 (22.8%)
 
     ============================================================
     Condition: seurat_v3_6000
-    Found 6397 matching genes in var_names.
-    Aligning GRN weights to 2957 matched genes for projection...
+    Found 7228 matching genes in var_names.
+    Aligning GRN weights to 1947 matched genes for projection...
     Computing sparse-dense dot product...
-      HVGs: 6000, GRN genes used: 2957/6397 (46.2%)
+      HVGs: 6000, GRN genes used: 1947/7228 (26.9%)
 
     ============================================================
     Condition: seurat_6000
-    Found 6397 matching genes in var_names.
-    Aligning GRN weights to 2568 matched genes for projection...
+    Found 7228 matching genes in var_names.
+    Aligning GRN weights to 1410 matched genes for projection...
     Computing sparse-dense dot product...
-      HVGs: 6000, GRN genes used: 2568/6397 (40.1%)
+      HVGs: 6000, GRN genes used: 1410/7228 (19.5%)
 
     ============================================================
     Condition: pearson_6000
-    Found 6397 matching genes in var_names.
-    Aligning GRN weights to 3154 matched genes for projection...
+    Found 7228 matching genes in var_names.
+    Aligning GRN weights to 2211 matched genes for projection...
     Computing sparse-dense dot product...
-      HVGs: 6000, GRN genes used: 3154/6397 (49.3%)
+      HVGs: 6000, GRN genes used: 2211/7228 (30.6%)
 
     ============================================================
     Condition: seurat_v3_8000
-    Found 6397 matching genes in var_names.
-    Aligning GRN weights to 3703 matched genes for projection...
+    Found 7228 matching genes in var_names.
+    Aligning GRN weights to 2348 matched genes for projection...
     Computing sparse-dense dot product...
-      HVGs: 8000, GRN genes used: 3703/6397 (57.9%)
+      HVGs: 8000, GRN genes used: 2348/7228 (32.5%)
 
     ============================================================
     Condition: seurat_8000
-    Found 6397 matching genes in var_names.
-    Aligning GRN weights to 3332 matched genes for projection...
+    Found 7228 matching genes in var_names.
+    Aligning GRN weights to 1721 matched genes for projection...
     Computing sparse-dense dot product...
-      HVGs: 8000, GRN genes used: 3332/6397 (52.1%)
+      HVGs: 8000, GRN genes used: 1721/7228 (23.8%)
 
     ============================================================
     Condition: pearson_8000
-    Found 6397 matching genes in var_names.
-    Aligning GRN weights to 3857 matched genes for projection...
+    Found 7228 matching genes in var_names.
+    Aligning GRN weights to 2755 matched genes for projection...
     Computing sparse-dense dot product...
-      HVGs: 8000, GRN genes used: 3857/6397 (60.3%)
+      HVGs: 8000, GRN genes used: 2755/7228 (38.1%)
 
     ============================================================
     Condition: seurat_v3_10000
-    Found 6397 matching genes in var_names.
-    Aligning GRN weights to 4363 matched genes for projection...
+    Found 7228 matching genes in var_names.
+    Aligning GRN weights to 2639 matched genes for projection...
     Computing sparse-dense dot product...
-      HVGs: 10000, GRN genes used: 4363/6397 (68.2%)
+      HVGs: 10000, GRN genes used: 2639/7228 (36.5%)
 
     ============================================================
     Condition: seurat_10000
-    Found 6397 matching genes in var_names.
-    Aligning GRN weights to 4122 matched genes for projection...
+    Found 7228 matching genes in var_names.
+    Aligning GRN weights to 2034 matched genes for projection...
     Computing sparse-dense dot product...
-      HVGs: 10000, GRN genes used: 4122/6397 (64.4%)
+      HVGs: 10000, GRN genes used: 2034/7228 (28.1%)
 
     ============================================================
     Condition: pearson_10000
-    Found 6397 matching genes in var_names.
-    Aligning GRN weights to 4363 matched genes for projection...
+    Found 7228 matching genes in var_names.
+    Aligning GRN weights to 3230 matched genes for projection...
     Computing sparse-dense dot product...
-      HVGs: 10000, GRN genes used: 4363/6397 (68.2%)
-    Cache saved to /rds/user/rajd2/hpc-work/snRNAseq_2026/notebooks/ahbaC3_sensitivity_combined_scVI/_cache
-    scores: 8419546, stats: 19, final_df (excitatory): 3101978, hvg_df: 93000
+      HVGs: 10000, GRN genes used: 3230/7228 (44.7%)
+    Cache saved to /rds/user/rajd2/hpc-work/snRNAseq_2026/notebooks/ahbaC3_hvg_investigation_psychAD/_cache
+    scores: 4157542, stats: 19, final_df (excitatory): 944642, hvg_df: 93000
 
 ### Gene Overlap Summary
 
@@ -345,100 +346,86 @@ print(stats_df.to_string(index=False))
 ```
 
           condition  n_hvg  n_grn_genes_used  pct_grn_retained
-          all_genes  15540              6397             100.0
-     seurat_v3_1000   1000               503               7.9
-        seurat_1000   1000               491               7.7
-       pearson_1000   1000               661              10.3
-     seurat_v3_2000   2000               985              15.4
-        seurat_2000   2000               963              15.1
-       pearson_2000   2000              1258              19.7
-     seurat_v3_4000   4000              1974              30.9
-        seurat_4000   4000              1767              27.6
-       pearson_4000   4000              2279              35.6
-     seurat_v3_6000   6000              2957              46.2
-        seurat_6000   6000              2568              40.1
-       pearson_6000   6000              3154              49.3
-     seurat_v3_8000   8000              3703              57.9
-        seurat_8000   8000              3332              52.1
-       pearson_8000   8000              3857              60.3
-    seurat_v3_10000  10000              4363              68.2
-       seurat_10000  10000              4122              64.4
-      pearson_10000  10000              4363              68.2
+          all_genes  34176              7228             100.0
+     seurat_v3_1000   1000               367               5.1
+        seurat_1000   1000               362               5.0
+       pearson_1000   1000               512               7.1
+     seurat_v3_2000   2000               720              10.0
+        seurat_2000   2000               641               8.9
+       pearson_2000   2000               979              13.5
+     seurat_v3_4000   4000              1398              19.3
+        seurat_4000   4000              1057              14.6
+       pearson_4000   4000              1645              22.8
+     seurat_v3_6000   6000              1947              26.9
+        seurat_6000   6000              1410              19.5
+       pearson_6000   6000              2211              30.6
+     seurat_v3_8000   8000              2348              32.5
+        seurat_8000   8000              1721              23.8
+       pearson_8000   8000              2755              38.1
+    seurat_v3_10000  10000              2639              36.5
+       seurat_10000  10000              2034              28.1
+      pearson_10000  10000              3230              44.7
 
-## 3. Age Range Sensitivity (Gap Model)
+## 4. Age Range Sensitivity
 
-We fix the childhood lower bound at 1 year and independently vary:
+Before comparing HVG methods, we identify the age range definitions that
+best capture the childhood-adolescence C3+ difference.
 
--   **Childhood upper bound**: 6, 7, 8, 9 (row facets)
--   **Adolescence lower bound**: 12, 13, 14, 15 (x-axis)
--   **Adolescence upper bound**: 22, 23, 24, 25 (column facets)
-
-This leaves a gap between childhood and adolescence to account for
-uncertainty about when children enter adolescence.
-
-### 3.1 Compute Sensitivity Grid
+### 4.1 Compute Sensitivity Grid
 
 ``` python
 %%R -i final_df -i code_dir -i N_VALUES
 
 source(file.path(code_dir, 'hvg_plots.r'))
-source(file.path(code_dir, 'sensitivity_gap_plots.r'))
-
 df <- prepare_r_data(final_df, N_VALUES)
 
 selected_conds <- c('seurat_v3_2000', 'seurat_2000', 'pearson_2000',
                      'seurat_v3_8000', 'seurat_8000', 'pearson_8000', 'all_genes')
 
-CHILD_START <- 1
+sens_all <- compute_sensitivity(df, selected_conds)
 
-sens_all <- compute_sensitivity_gap(df, selected_conds,
-                                     child_start = CHILD_START,
-                                     child_ends  = c(7, 8, 9, 10),
-                                     adol_starts = c(10, 11, 12, 13, 14, 15),
-                                     adol_ends   = c(19, 21, 23, 25))
-
-best <- select_best_gap(sens_all)
-best_ce <- best$child_end
-best_as <- best$adol_start
+best <- select_best_age_range(sens_all)
+best_cs <- best$child_start
+best_bd <- best$boundary
 best_ae <- best$adol_end
 
-cat(sprintf("Best age range (lowest p for all_genes): Childhood [%d, %d), Adolescence [%d, %d)  (p = %.4f, d = %.2f)\n",
-            CHILD_START, best_ce, best_as, best_ae, best$p_value, best$cohens_d))
+cat(sprintf("Best age range (lowest p for all_genes): childhood >= %.1fy, boundary = %dy, adolescence < %dy (p = %.4f, d = %.2f)\n",
+            best_cs, best_bd, best_ae, best$p_value, best$cohens_d))
 ```
 
-    Best age range (lowest p for all_genes): Childhood [1, 10), Adolescence [14, 21)  (p = 0.0000, d = 1.26)
+    Best age range (lowest p for all_genes): childhood >= 1.0y, boundary = 14y, adolescence < 21y (p = 0.0598, d = 0.64)
 
-### 3.2 Cohen’s d
+### 4.2 Cohen’s d
 
 ``` python
-%%R -w 280 -h 220 -u mm -r 300
+%%R -w 260 -h 200 -u mm -r 300
 
-plot_gap_cohens_d(sens_all)
+plot_sensitivity_cohens_d(sens_all)
 ```
 
-![](ahbaC3_sensitivity_combined_scVI_files/figure-markdown_strict/cell-11-output-1.png)
+![](ahbaC3_hvg_investigation_psychAD_files/figure-markdown_strict/cell-11-output-1.png)
 
-### 3.3 P-value
+### 4.3 P-value
 
 ``` python
-%%R -w 280 -h 220 -u mm -r 300
+%%R -w 260 -h 200 -u mm -r 300
 
-plot_gap_pvalue(sens_all)
+plot_sensitivity_pvalue(sens_all)
 ```
 
-![](ahbaC3_sensitivity_combined_scVI_files/figure-markdown_strict/cell-12-output-1.png)
+![](ahbaC3_hvg_investigation_psychAD_files/figure-markdown_strict/cell-12-output-1.png)
 
-### 3.4 Power
+### 4.4 Power
 
 ``` python
-%%R -w 280 -h 220 -u mm -r 300
+%%R -w 260 -h 200 -u mm -r 300
 
-plot_gap_power(sens_all)
+plot_sensitivity_power(sens_all)
 ```
 
-![](ahbaC3_sensitivity_combined_scVI_files/figure-markdown_strict/cell-13-output-1.png)
+![](ahbaC3_hvg_investigation_psychAD_files/figure-markdown_strict/cell-13-output-1.png)
 
-## 4. HVG Comparison (best age range)
+## 5. HVG Comparison (best age range)
 
 All subsequent analyses use the age range with the lowest p-value from
 the `all_genes` baseline above.
@@ -446,13 +433,13 @@ the `all_genes` baseline above.
 ``` python
 %%R
 
-cat(sprintf("Using: Childhood = [%d, %d), Gap = [%d, %d), Adolescence = [%d, %d)\n",
-            CHILD_START, best_ce, best_ce, best_as, best_as, best_ae))
+cat(sprintf("Using: Childhood = [%.1f, %d), Adolescence = [%d, %d)\n",
+            best_cs, best_bd, best_bd, best_ae))
 ```
 
-    Using: Childhood = [1, 10), Gap = [10, 14), Adolescence = [14, 21)
+    Using: Childhood = [1.0, 14), Adolescence = [14, 21)
 
-### 4.1 GRN Gene Retention
+### 5.1 GRN Gene Retention
 
 ``` python
 %%R -i stats_df -w 220 -h 80 -u mm -r 300
@@ -460,9 +447,9 @@ cat(sprintf("Using: Childhood = [%d, %d), Gap = [%d, %d), Adolescence = [%d, %d)
 plot_gene_retention(stats_df, N_VALUES)
 ```
 
-![](ahbaC3_sensitivity_combined_scVI_files/figure-markdown_strict/cell-15-output-1.png)
+![](ahbaC3_hvg_investigation_psychAD_files/figure-markdown_strict/cell-15-output-1.png)
 
-### 4.1b HVG Gene Set Overlap (Euler diagrams)
+### 5.1b HVG Gene Set Overlap (Euler diagrams)
 
 ``` python
 %%R -i hvg_df -w 280 -h 110 -u mm -r 300
@@ -470,17 +457,17 @@ plot_gene_retention(stats_df, N_VALUES)
 plot_hvg_euler(hvg_df)
 ```
 
-![](ahbaC3_sensitivity_combined_scVI_files/figure-markdown_strict/cell-16-output-1.png)
+![](ahbaC3_hvg_investigation_psychAD_files/figure-markdown_strict/cell-16-output-1.png)
 
-### 4.2 Age Trajectories & Developmental Stage Scores
+### 5.2 Age Trajectories & Developmental Stage Scores
 
 ``` python
 %%R -w 360 -h 280 -u mm -r 300
 
-p_a <- plot_gap_trajectories(df, CHILD_START, best_ce, best_as, best_ae)
-p_b <- plot_gap_pseudobulk(df, CHILD_START, best_ce, best_as, best_ae)
-df_boxes <- make_boxes_gap_df(df, CHILD_START, best_ce, best_as, best_ae)
-p_c <- plot_gap_boxes(df_boxes, CHILD_START, best_ce, best_as, best_ae)
+p_a <- plot_age_trajectories(df, best_cs, best_bd, best_ae)
+p_b <- plot_pseudobulk_trajectories(df, best_cs, best_bd, best_ae)
+df_boxes <- make_boxes_df(df, best_cs, best_bd, best_ae)
+p_c <- plot_boxes(df_boxes, best_cs, best_bd, best_ae)
 
 (p_a | p_b | p_c) +
   plot_layout(guides = 'collect') +
@@ -494,16 +481,16 @@ p_c <- plot_gap_boxes(df_boxes, CHILD_START, best_ce, best_as, best_ae)
     R[write to console]: In addition: 
     R[write to console]: Warning messages:
 
-    R[write to console]: 1: Removed 815929 rows containing non-finite outside the scale range
+    R[write to console]: 1: Removed 262968 rows containing non-finite outside the scale range
     (`stat_smooth()`). 
 
-    R[write to console]: 2: Removed 815929 rows containing missing values or values outside the scale range
+    R[write to console]: 2: Removed 262968 rows containing missing values or values outside the scale range
     (`geom_point()`). 
 
-    R[write to console]: 3: Removed 2844 rows containing non-finite outside the scale range
+    R[write to console]: 3: Removed 2772 rows containing non-finite outside the scale range
     (`stat_smooth()`). 
 
-    R[write to console]: 4: Removed 2844 rows containing missing values or values outside the scale range
+    R[write to console]: 4: Removed 2772 rows containing missing values or values outside the scale range
     (`geom_point()`). 
 
     In addition: Warning message:
@@ -513,16 +500,16 @@ p_c <- plot_gap_boxes(df_boxes, CHILD_START, best_ce, best_as, best_ae)
     Call `lifecycle::last_lifecycle_warnings()` to see where this warning was
     generated. 
 
-![](ahbaC3_sensitivity_combined_scVI_files/figure-markdown_strict/cell-17-output-4.png)
+![](ahbaC3_hvg_investigation_psychAD_files/figure-markdown_strict/cell-17-output-4.png)
 
-### 4.3 Z-scored
+### 5.3 Z-scored
 
 ``` python
 %%R -w 360 -h 280 -u mm -r 300
 
-p_a <- plot_gap_trajectories(df, CHILD_START, best_ce, best_as, best_ae, zscore = TRUE)
-p_b <- plot_gap_pseudobulk(df, CHILD_START, best_ce, best_as, best_ae, zscore = TRUE)
-p_c <- plot_gap_boxes(df_boxes, CHILD_START, best_ce, best_as, best_ae, zscore = TRUE)
+p_a <- plot_age_trajectories(df, best_cs, best_bd, best_ae, zscore = TRUE)
+p_b <- plot_pseudobulk_trajectories(df, best_cs, best_bd, best_ae, zscore = TRUE)
+p_c <- plot_boxes(df_boxes, best_cs, best_bd, best_ae, zscore = TRUE)
 
 (p_a | p_b | p_c) +
   plot_layout(guides = 'collect') +
@@ -536,21 +523,21 @@ p_c <- plot_gap_boxes(df_boxes, CHILD_START, best_ce, best_as, best_ae, zscore =
     R[write to console]: In addition: 
     R[write to console]: Warning messages:
 
-    R[write to console]: 1: Removed 815929 rows containing non-finite outside the scale range
+    R[write to console]: 1: Removed 262968 rows containing non-finite outside the scale range
     (`stat_smooth()`). 
 
-    R[write to console]: 2: Removed 815929 rows containing missing values or values outside the scale range
+    R[write to console]: 2: Removed 262968 rows containing missing values or values outside the scale range
     (`geom_point()`). 
 
-    R[write to console]: 3: Removed 2844 rows containing non-finite outside the scale range
+    R[write to console]: 3: Removed 2772 rows containing non-finite outside the scale range
     (`stat_smooth()`). 
 
-    R[write to console]: 4: Removed 2844 rows containing missing values or values outside the scale range
+    R[write to console]: 4: Removed 2772 rows containing missing values or values outside the scale range
     (`geom_point()`). 
 
-![](ahbaC3_sensitivity_combined_scVI_files/figure-markdown_strict/cell-18-output-3.png)
+![](ahbaC3_hvg_investigation_psychAD_files/figure-markdown_strict/cell-18-output-3.png)
 
-### 4.4 C3+ Effect Summary
+### 5.4 C3+ Effect Summary
 
 ``` python
 %%R -w 300 -h 220 -u mm -r 300
@@ -569,4 +556,4 @@ plot_effect_summary(df_boxes, 'Adolescence', 'Adulthood')
     Caused by warning in `ifelse()`:
     ! NAs introduced by coercion 
 
-![](ahbaC3_sensitivity_combined_scVI_files/figure-markdown_strict/cell-19-output-2.png)
+![](ahbaC3_hvg_investigation_psychAD_files/figure-markdown_strict/cell-19-output-2.png)

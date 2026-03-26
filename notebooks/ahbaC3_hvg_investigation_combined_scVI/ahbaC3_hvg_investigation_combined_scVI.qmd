@@ -70,8 +70,7 @@ library(tidyr)
 library(patchwork)
 library(ggpubr)
 library(pwr)
-library(eulerr)
-library(ggplotify)
+library(ggvenn)
 ```
 
 ```{python}
@@ -84,7 +83,7 @@ from hvg_investigation import (build_conditions, run_hvg_conditions,
 ## 2. Data & HVG Projections
 
 ```{python}
-DATA_FILE = rds_dir + "/Cam_snRNAseq/combined/VelWangPsychad_10k_PFC_lessOld/scvi_output/integrated.h5ad"
+DATA_FILE = rds_dir + "/Cam_snRNAseq/combined/VelWangPsychad_100k_PFC_lessOld/scvi_output/integrated.h5ad"
 N_VALUES = [1000, 2000, 4000, 6000, 8000, 10000]
 CACHE_DIR = os.path.join(_repo_root, 'notebooks', 'ahbaC3_hvg_investigation_combined_scVI', '_cache')
 

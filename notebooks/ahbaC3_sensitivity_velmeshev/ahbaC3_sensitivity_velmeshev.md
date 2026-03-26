@@ -43,10 +43,10 @@ print(f"  code_dir : {code_dir}")
 print(f"  ref_dir  : {ref_dir}")
 ```
 
-    Environment : local
-      rds_dir  : /Users/richard/Git/snRNAseq_2026/rds-cam-psych-transc-Pb9UGUlrwWc
-      code_dir : /Users/richard/Git/snRNAseq_2026/code
-      ref_dir  : /Users/richard/Git/snRNAseq_2026/reference
+    Environment : hpc
+      rds_dir  : /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc
+      code_dir : /home/rajd2/rds/hpc-work/snRNAseq_2026/code
+      ref_dir  : /home/rajd2/rds/hpc-work/snRNAseq_2026/reference
 
 ### 1.2 Libraries
 
@@ -63,6 +63,34 @@ if _env['name'] == 'local':
 %load_ext rpy2.ipython
 ```
 
+    /opt/micromamba/envs/shortcake_default/lib/python3.10/site-packages/anndata/utils.py:429: FutureWarning:
+
+    Importing read_csv from `anndata` is deprecated. Import anndata.io.read_csv instead.
+
+    /opt/micromamba/envs/shortcake_default/lib/python3.10/site-packages/anndata/utils.py:429: FutureWarning:
+
+    Importing read_text from `anndata` is deprecated. Import anndata.io.read_text instead.
+
+    /opt/micromamba/envs/shortcake_default/lib/python3.10/site-packages/anndata/utils.py:429: FutureWarning:
+
+    Importing read_excel from `anndata` is deprecated. Import anndata.io.read_excel instead.
+
+    /opt/micromamba/envs/shortcake_default/lib/python3.10/site-packages/anndata/utils.py:429: FutureWarning:
+
+    Importing read_mtx from `anndata` is deprecated. Import anndata.io.read_mtx instead.
+
+    /opt/micromamba/envs/shortcake_default/lib/python3.10/site-packages/anndata/utils.py:429: FutureWarning:
+
+    Importing read_loom from `anndata` is deprecated. Import anndata.io.read_loom instead.
+
+    /opt/micromamba/envs/shortcake_default/lib/python3.10/site-packages/anndata/utils.py:429: FutureWarning:
+
+    Importing read_hdf from `anndata` is deprecated. Import anndata.io.read_hdf instead.
+
+    /opt/micromamba/envs/shortcake_default/lib/python3.10/site-packages/anndata/utils.py:429: FutureWarning:
+
+    Importing read_umi_tools from `anndata` is deprecated. Import anndata.io.read_umi_tools instead.
+
 ``` python
 %%R
 
@@ -72,22 +100,23 @@ library(tidyr)
 library(patchwork)
 library(ggpubr)
 library(pwr)
-library(eulerr)
-library(ggplotify)
+library(ggvenn)
 ```
 
-    R[write to console]: 
+
     Attaching package: ‘dplyr’
 
-
-    R[write to console]: The following objects are masked from ‘package:stats’:
+    The following objects are masked from ‘package:stats’:
 
         filter, lag
 
-
-    R[write to console]: The following objects are masked from ‘package:base’:
+    The following objects are masked from ‘package:base’:
 
         intersect, setdiff, setequal, union
+
+    In addition: Warning message:
+    In (function (package, help, pos = 2, lib.loc = NULL, character.only = FALSE,  :
+      library ‘/usr/lib/R/site-library’ contains no packages
 
 ``` python
 from regulons import get_ahba_GRN, project_GRN
@@ -105,8 +134,6 @@ CACHE_DIR = os.path.join(_repo_root, 'notebooks', 'ahbaC3_sensitivity_velmeshev'
 
 cached = load_cache(CACHE_DIR)
 ```
-
-    Loaded cache from /Users/richard/Git/snRNAseq_2026/notebooks/ahbaC3_sensitivity_velmeshev/_cache
 
 ``` python
 if cached is not None:
@@ -149,8 +176,154 @@ else:
 print(f"scores: {len(scores_df)}, stats: {len(stats_df)}, final_df (excitatory): {len(final_df)}, hvg_df: {len(hvg_df)}")
 ```
 
-    scores: 2441500 rows, stats: 19 rows, final: 1284970 rows, hvg_df: 93000 rows
-    scores: 2441500, stats: 19, final_df (excitatory): 1284970, hvg_df: 93000
+    Shape: (64250, 17663)
+
+    Input sequence provided is already in string format. No operation performed
+    Input sequence provided is already in string format. No operation performed
+
+    Mapped 6641/7973 symbols via adata.var
+    Querying mygene for 1332 unmapped symbols...
+
+    134 input query terms found dup hits:   [('ACTG1P4', 2), ('ADAM20P1', 2), ('AKR7A2P1', 3), ('AMZ2P1', 2), ('ANKRD18CP', 2), ('ANKRD19P', 2),
+    339 input query terms found no hit: ['AAED1', 'AARS', 'ADPRHL2', 'ADSSL1', 'ALS2CR12', 'APOPT1', 'ARMT1', 'ARNTL', 'ARNTL2', 'AZIN1-AS1'
+
+    After mygene: 6650/7973 mapped, 1323 dropped
+    GRN genes in adata: 6650 / 6650
+
+    ============================================================
+    Condition: all_genes
+    Found 6650 matching genes in var_names.
+    Aligning GRN weights to 6650 matched genes for projection...
+    Computing sparse-dense dot product...
+      HVGs: 17663, GRN genes used: 6650/6650 (100.0%)
+
+    ============================================================
+    Condition: seurat_v3_1000
+    Found 6650 matching genes in var_names.
+    Aligning GRN weights to 626 matched genes for projection...
+    Computing sparse-dense dot product...
+      HVGs: 1000, GRN genes used: 626/6650 (9.4%)
+
+    ============================================================
+    Condition: seurat_1000
+    Found 6650 matching genes in var_names.
+    Aligning GRN weights to 495 matched genes for projection...
+    Computing sparse-dense dot product...
+      HVGs: 1000, GRN genes used: 495/6650 (7.4%)
+
+    ============================================================
+    Condition: pearson_1000
+    Found 6650 matching genes in var_names.
+    Aligning GRN weights to 626 matched genes for projection...
+    Computing sparse-dense dot product...
+      HVGs: 1000, GRN genes used: 626/6650 (9.4%)
+
+    ============================================================
+    Condition: seurat_v3_2000
+    Found 6650 matching genes in var_names.
+    Aligning GRN weights to 1220 matched genes for projection...
+    Computing sparse-dense dot product...
+      HVGs: 2000, GRN genes used: 1220/6650 (18.3%)
+
+    ============================================================
+    Condition: seurat_2000
+    Found 6650 matching genes in var_names.
+    Aligning GRN weights to 918 matched genes for projection...
+    Computing sparse-dense dot product...
+      HVGs: 2000, GRN genes used: 918/6650 (13.8%)
+
+    ============================================================
+    Condition: pearson_2000
+    Found 6650 matching genes in var_names.
+    Aligning GRN weights to 1131 matched genes for projection...
+    Computing sparse-dense dot product...
+      HVGs: 2000, GRN genes used: 1131/6650 (17.0%)
+
+    ============================================================
+    Condition: seurat_v3_4000
+    Found 6650 matching genes in var_names.
+    Aligning GRN weights to 2237 matched genes for projection...
+    Computing sparse-dense dot product...
+      HVGs: 4000, GRN genes used: 2237/6650 (33.6%)
+
+    ============================================================
+    Condition: seurat_4000
+    Found 6650 matching genes in var_names.
+    Aligning GRN weights to 1653 matched genes for projection...
+    Computing sparse-dense dot product...
+      HVGs: 4000, GRN genes used: 1653/6650 (24.9%)
+
+    ============================================================
+    Condition: pearson_4000
+    Found 6650 matching genes in var_names.
+    Aligning GRN weights to 2019 matched genes for projection...
+    Computing sparse-dense dot product...
+      HVGs: 4000, GRN genes used: 2019/6650 (30.4%)
+
+    ============================================================
+    Condition: seurat_v3_6000
+    Found 6650 matching genes in var_names.
+    Aligning GRN weights to 2860 matched genes for projection...
+    Computing sparse-dense dot product...
+      HVGs: 6000, GRN genes used: 2860/6650 (43.0%)
+
+    ============================================================
+    Condition: seurat_6000
+    Found 6650 matching genes in var_names.
+    Aligning GRN weights to 2373 matched genes for projection...
+    Computing sparse-dense dot product...
+      HVGs: 6000, GRN genes used: 2373/6650 (35.7%)
+
+    ============================================================
+    Condition: pearson_6000
+    Found 6650 matching genes in var_names.
+    Aligning GRN weights to 2897 matched genes for projection...
+    Computing sparse-dense dot product...
+      HVGs: 6000, GRN genes used: 2897/6650 (43.6%)
+
+    ============================================================
+    Condition: seurat_v3_8000
+    Found 6650 matching genes in var_names.
+    Aligning GRN weights to 3312 matched genes for projection...
+    Computing sparse-dense dot product...
+      HVGs: 8000, GRN genes used: 3312/6650 (49.8%)
+
+    ============================================================
+    Condition: seurat_8000
+    Found 6650 matching genes in var_names.
+    Aligning GRN weights to 3190 matched genes for projection...
+    Computing sparse-dense dot product...
+      HVGs: 8931, GRN genes used: 3190/6650 (48.0%)
+
+    ============================================================
+    Condition: pearson_8000
+    Found 6650 matching genes in var_names.
+    Aligning GRN weights to 3667 matched genes for projection...
+    Computing sparse-dense dot product...
+      HVGs: 8000, GRN genes used: 3667/6650 (55.1%)
+
+    ============================================================
+    Condition: seurat_v3_10000
+    Found 6650 matching genes in var_names.
+    Aligning GRN weights to 3956 matched genes for projection...
+    Computing sparse-dense dot product...
+      HVGs: 10000, GRN genes used: 3956/6650 (59.5%)
+
+    ============================================================
+    Condition: seurat_10000
+    Found 6650 matching genes in var_names.
+    Aligning GRN weights to 3986 matched genes for projection...
+    Computing sparse-dense dot product...
+      HVGs: 10931, GRN genes used: 3986/6650 (59.9%)
+
+    ============================================================
+    Condition: pearson_10000
+    Found 6650 matching genes in var_names.
+    Aligning GRN weights to 4438 matched genes for projection...
+    Computing sparse-dense dot product...
+      HVGs: 10000, GRN genes used: 4438/6650 (66.7%)
+    Cache saved to /rds/user/rajd2/hpc-work/snRNAseq_2026/notebooks/ahbaC3_sensitivity_velmeshev/_cache
+    scores: 2441500, stats: 19, final_df (excitatory): 1284970, hvg_df: 94862
 
 ### Gene Overlap Summary
 
@@ -168,24 +341,24 @@ print(stats_df.to_string(index=False))
        pearson_2000   2000              1131              17.0
      seurat_v3_4000   4000              2237              33.6
         seurat_4000   4000              1653              24.9
-       pearson_4000   4000              2018              30.3
-     seurat_v3_6000   6000              2861              43.0
+       pearson_4000   4000              2019              30.4
+     seurat_v3_6000   6000              2860              43.0
         seurat_6000   6000              2373              35.7
-       pearson_6000   6000              2896              43.5
+       pearson_6000   6000              2897              43.6
      seurat_v3_8000   8000              3312              49.8
-        seurat_8000   8000              3127              47.0
-       pearson_8000   8000              3666              55.1
+        seurat_8000   8931              3190              48.0
+       pearson_8000   8000              3667              55.1
     seurat_v3_10000  10000              3956              59.5
-       seurat_10000  10000              3923              59.0
+       seurat_10000  10931              3986              59.9
       pearson_10000  10000              4438              66.7
 
 ## 3. Age Range Sensitivity (Gap Model)
 
 We fix the childhood lower bound at 1 year and independently vary:
 
-- **Childhood upper bound**: 6, 7, 8, 9 (row facets)
-- **Adolescence lower bound**: 12, 13, 14, 15 (x-axis)
-- **Adolescence upper bound**: 22, 23, 24, 25 (column facets)
+-   **Childhood upper bound**: 6, 7, 8, 9 (row facets)
+-   **Adolescence lower bound**: 12, 13, 14, 15 (x-axis)
+-   **Adolescence upper bound**: 22, 23, 24, 25 (column facets)
 
 This leaves a gap between childhood and adolescence to account for
 uncertainty about when children enter adolescence.
@@ -305,7 +478,29 @@ p_c <- plot_gap_boxes(df_boxes, CHILD_START, best_ce, best_as, best_ae)
     `geom_smooth()` using method = 'gam' and formula = 'y ~ s(x, bs = "cs")'
     `geom_smooth()` using method = 'loess' and formula = 'y ~ x'
 
-![](ahbaC3_sensitivity_velmeshev_files/figure-markdown_strict/cell-17-output-2.png)
+    R[write to console]: In addition: 
+    R[write to console]: Warning messages:
+
+    R[write to console]: 1: Removed 396015 rows containing non-finite outside the scale range
+    (`stat_smooth()`). 
+
+    R[write to console]: 2: Removed 396015 rows containing missing values or values outside the scale range
+    (`geom_point()`). 
+
+    R[write to console]: 3: Removed 576 rows containing non-finite outside the scale range
+    (`stat_smooth()`). 
+
+    R[write to console]: 4: Removed 576 rows containing missing values or values outside the scale range
+    (`geom_point()`). 
+
+    In addition: Warning message:
+    The `panel.margin` argument of `theme()` is deprecated as of ggplot2 2.2.0.
+    ℹ Please use the `panel.spacing` argument instead.
+    This warning is displayed once every 8 hours.
+    Call `lifecycle::last_lifecycle_warnings()` to see where this warning was
+    generated. 
+
+![](ahbaC3_sensitivity_velmeshev_files/figure-markdown_strict/cell-17-output-4.png)
 
 ### 4.3 Z-scored
 
@@ -325,7 +520,22 @@ p_c <- plot_gap_boxes(df_boxes, CHILD_START, best_ce, best_as, best_ae, zscore =
     `geom_smooth()` using method = 'gam' and formula = 'y ~ s(x, bs = "cs")'
     `geom_smooth()` using method = 'loess' and formula = 'y ~ x'
 
-![](ahbaC3_sensitivity_velmeshev_files/figure-markdown_strict/cell-18-output-2.png)
+    R[write to console]: In addition: 
+    R[write to console]: Warning messages:
+
+    R[write to console]: 1: Removed 396015 rows containing non-finite outside the scale range
+    (`stat_smooth()`). 
+
+    R[write to console]: 2: Removed 396015 rows containing missing values or values outside the scale range
+    (`geom_point()`). 
+
+    R[write to console]: 3: Removed 576 rows containing non-finite outside the scale range
+    (`stat_smooth()`). 
+
+    R[write to console]: 4: Removed 576 rows containing missing values or values outside the scale range
+    (`geom_point()`). 
+
+![](ahbaC3_sensitivity_velmeshev_files/figure-markdown_strict/cell-18-output-3.png)
 
 ### 4.4 C3+ Effect Summary
 
@@ -336,4 +546,14 @@ plot_effect_summary(df_boxes, 'Childhood', 'Adolescence') /
 plot_effect_summary(df_boxes, 'Adolescence', 'Adulthood')
 ```
 
-![](ahbaC3_sensitivity_velmeshev_files/figure-markdown_strict/cell-19-output-1.png)
+    In addition: Warning messages:
+    1: There was 1 warning in `mutate()`.
+    ℹ In argument: `n_genes = ifelse(...)`.
+    Caused by warning in `ifelse()`:
+    ! NAs introduced by coercion 
+    2: There was 1 warning in `mutate()`.
+    ℹ In argument: `n_genes = ifelse(...)`.
+    Caused by warning in `ifelse()`:
+    ! NAs introduced by coercion 
+
+![](ahbaC3_sensitivity_velmeshev_files/figure-markdown_strict/cell-19-output-2.png)

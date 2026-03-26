@@ -1,5 +1,5 @@
 ---
-title: AHBA C3 Age Sensitivity (Combined, scVI)
+title: AHBA C3 Age Sensitivity (PsychAD)
 format: md
 jupyter: python3
 ---
@@ -83,9 +83,10 @@ from hvg_investigation import (build_conditions, run_hvg_conditions,
 ## 2. Data & HVG Projections
 
 ```{python}
-DATA_FILE = rds_dir + "/Cam_snRNAseq/combined/VelWangPsychad_100k_PFC_lessOld/scvi_output/integrated.h5ad"
+AGING_FILE = rds_dir + "/Cam_PsychAD/RNAseq/Aging_Cohort_100k_PFC_lessOld.h5ad"
+HBCC_FILE  = rds_dir + "/Cam_PsychAD/RNAseq/HBCC_Cohort_100k_PFC_lessOld.h5ad"
 N_VALUES = [1000, 2000, 4000, 6000, 8000, 10000]
-CACHE_DIR = os.path.join(_repo_root, 'notebooks', 'ahbaC3_sensitivity_combined_scVI', '_cache')
+CACHE_DIR = os.path.join(_repo_root, 'notebooks', 'ahbaC3_sensitivity_psychAD', '_cache')
 
 cached = load_cache(CACHE_DIR)
 ```
@@ -95,25 +96,25 @@ if cached is not None:
     scores_df, stats_df, final_df, hvg_df = cached
     print(f"scores: {len(scores_df)} rows, stats: {len(stats_df)} rows, final: {len(final_df)} rows, hvg_df: {len(hvg_df)} rows")
 else:
-    # ── Load and normalize ──
-    adata = sc.read_h5ad(DATA_FILE)
+    # ── Load and combine Aging + HBCC cohorts ──
+    aging = sc.read_h5ad(AGING_FILE)
+    hbcc  = sc.read_h5ad(HBCC_FILE)
+    aging.obs['source'] = 'Aging'
+    hbcc.obs['source']  = 'HBCC'
+    print(f"Aging shape: {aging.shape}, HBCC shape: {hbcc.shape}")
 
-    # Drop scanVI layer and all embeddings to save memory
-    for layer in ['scanvi_normalized']:
-        if layer in adata.layers:
-            del adata.layers[layer]
-    for key in list(adata.obsm.keys()):
-        del adata.obsm[key]
-    import gc; gc.collect()
+    # Concatenate; index_unique='-' disambiguates the 27 shared cell barcodes
+    # sc.concat drops var columns, so save them first and restore afterwards
+    var_df = aging.var.copy()
+    adata = sc.concat([aging, hbcc], keys=['Aging', 'HBCC'], index_unique='-',
+                      join='outer', fill_value=0)
+    adata.var = var_df.loc[adata.var_names]
+    del aging, hbcc
+    print(f"Combined shape: {adata.shape}")
 
-    # Use scVI normalized layer as batch-corrected counts
-    adata.layers['counts'] = adata.layers['scvi_normalized']
-
+    # ── Normalize ──
+    adata.layers['counts'] = adata.X.copy()
     sc.pp.normalize_total(adata, target_sum=1e6)
-
-    if 'source' not in adata.obs.columns:
-        adata.obs['source'] = 'combined'
-    print(f"Shape: {adata.shape}")
 
     adata_log = adata.copy()
     sc.pp.log1p(adata_log)
@@ -135,7 +136,7 @@ else:
     # ── Prepare for R ──
     final_df = prepare_for_r(scores_df, adata, N_VALUES)
     del adata
-    gc.collect()
+    import gc; gc.collect()
 
     # ── Save cache ──
     save_cache(CACHE_DIR, scores_df, stats_df, final_df, hvg_df)
@@ -276,8 +277,78 @@ p_c <- plot_gap_boxes(df_boxes, CHILD_START, best_ce, best_as, best_ae, zscore =
 ### 4.4 C3+ Effect Summary
 
 ```{python}
-%%R -w 300 -h 220 -u mm -r 300
+%%R -w 340 -h 160 -u mm -r 300
 
 plot_effect_summary(df_boxes, 'Childhood', 'Adolescence') /
 plot_effect_summary(df_boxes, 'Adolescence', 'Adulthood')
+```
+
+### 4.5 Signal vs Noise Decomposition
+
+Why does power drop when adding more genes? The GRN score is a weighted sum
+across genes. Adding non-HVG genes contributes noise (individual-level SD)
+without contributing developmental signal (childhood-adolescence delta).
+
+```{python}
+%%R -w 280 -h 100 -u mm -r 300
+
+# Decompose Cohen's d = delta / pooled_sd into its components
+decomp <- df_boxes %>%
+  filter(network == 'C3+') %>%
+  group_by(condition) %>%
+  summarize(
+    mean_child = mean(value[age_range == 'Childhood']),
+    mean_adol  = mean(value[age_range == 'Adolescence']),
+    n_child    = sum(age_range == 'Childhood'),
+    n_adol     = sum(age_range == 'Adolescence'),
+    sd_child   = sd(value[age_range == 'Childhood']),
+    sd_adol    = sd(value[age_range == 'Adolescence']),
+    .groups = 'drop'
+  ) %>%
+  mutate(
+    delta     = mean_child - mean_adol,
+    pooled_sd = sqrt(((pmax(n_child,1)-1)*sd_child^2 +
+                      (pmax(n_adol,1)-1)*sd_adol^2) /
+                     pmax(n_child + n_adol - 2, 1)),
+    cohens_d  = ifelse(pooled_sd > 0, delta / pooled_sd, NA_real_)
+  ) %>%
+  add_hvg_columns()
+
+ref <- decomp %>% filter(condition == 'all_genes')
+hvg <- decomp %>% filter(condition != 'all_genes')
+x_breaks <- sort(unique(hvg$n_genes))
+ct <- theme_classic() + theme(axis.text.x = element_text(size = 8), legend.position = 'none')
+
+p1 <- hvg %>%
+  ggplot(aes(x = n_genes, y = delta / 1e3, color = flavor, group = flavor)) +
+  geom_hline(yintercept = ref$delta / 1e3, linetype = 'dotted', color = 'grey30') +
+  geom_point(size = 2) + geom_line(linewidth = 0.5) +
+  scale_x_continuous(breaks = x_breaks) +
+  scale_color_brewer(palette = 'Set2') +
+  labs(x = 'n_top_genes', y = 'Signal\n(delta, K)') + ct
+
+p2 <- hvg %>%
+  ggplot(aes(x = n_genes, y = pooled_sd / 1e3, color = flavor, group = flavor)) +
+  geom_hline(yintercept = ref$pooled_sd / 1e3, linetype = 'dotted', color = 'grey30') +
+  geom_point(size = 2) + geom_line(linewidth = 0.5) +
+  scale_x_continuous(breaks = x_breaks) +
+  scale_color_brewer(palette = 'Set2') +
+  labs(x = 'n_top_genes', y = 'Noise\n(pooled SD, K)') + ct
+
+p3 <- hvg %>%
+  ggplot(aes(x = n_genes, y = cohens_d, color = flavor, group = flavor)) +
+  geom_hline(yintercept = ref$cohens_d, linetype = 'dotted', color = 'grey30') +
+  geom_point(size = 2) + geom_line(linewidth = 0.5) +
+  scale_x_continuous(breaks = x_breaks) +
+  scale_color_brewer(palette = 'Set2') +
+  labs(x = 'n_top_genes', y = "Signal/Noise\n(Cohen's d)") +
+  theme_classic() + theme(axis.text.x = element_text(size = 8))
+
+(p1 | p2 | p3) +
+  plot_layout(guides = 'collect') +
+  plot_annotation(
+    title = "Signal vs noise decomposition: why power drops with more genes",
+    subtitle = "Signal (delta) plateaus while noise (pooled SD) keeps rising. d = delta / SD.",
+    tag_levels = 'a'
+  )
 ```

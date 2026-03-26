@@ -1,6 +1,6 @@
 # hvg_plots.r — Shared plotting functions for AHBA C3 HVG investigation
 #
-# Requires: ggplot2, dplyr, tidyr, patchwork, ggpubr, pwr
+# Requires: ggplot2, dplyr, tidyr, patchwork, ggpubr, pwr, ggvenn
 # Source this file after loading libraries.
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -555,14 +555,13 @@ plot_hvg_euler <- function(hvg_df, n_show = c(2000, 4000, 8000)) {
       return(ggplot() + ggtitle(paste0('n=', n, ': no data')) + theme_void())
     }
     tryCatch({
-      e <- eulerr::euler(sets, shape = 'ellipse')
-      p <- plot(e,
-                quantities = list(fontsize = 8),
-                labels     = list(fontsize = 9),
-                fills      = list(fill = c('#66c2a5', '#fc8d62', '#8da0cb'),
-                                  alpha = 0.5),
-                main       = list(label = paste0('n_top = ', n), fontsize = 10))
-      ggplotify::as.ggplot(p)
+      ggvenn(sets,
+             fill_color    = c('#66c2a5', '#fc8d62', '#8da0cb'),
+             fill_alpha    = 0.5,
+             text_size     = 2.5,
+             set_name_size = 3) +
+        ggtitle(paste0('n_top = ', n)) +
+        theme(plot.title = element_text(size = 10, hjust = 0.5))
     }, error = function(err) {
       ggplot() +
         ggtitle(paste0('n=', n, ': ', conditionMessage(err))) +
@@ -573,6 +572,6 @@ plot_hvg_euler <- function(hvg_df, n_show = c(2000, 4000, 8000)) {
   wrap_plots(plots, nrow = 1) +
     plot_annotation(
       title    = 'HVG gene set overlap between selection methods',
-      subtitle = 'Ellipse areas proportional to set sizes. Sets: seurat_v3, seurat, pearson_residuals.'
+      subtitle = 'Sets: seurat_v3, seurat, pearson_residuals.'
     )
 }

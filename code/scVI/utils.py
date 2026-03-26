@@ -78,10 +78,10 @@ def get_device_info(logger: logging.Logger) -> dict:
         props = torch.cuda.get_device_properties(0)
         info["device"] = "cuda"
         info["gpu_name"] = props.name
-        info["vram_bytes"] = props.total_mem
+        info["vram_bytes"] = props.total_memory
         torch.set_float32_matmul_precision("high")
         logger.info(
-            f"GPU detected: {props.name} ({props.total_mem / 1e9:.1f} GB VRAM)"
+            f"GPU detected: {props.name} ({props.total_memory / 1e9:.1f} GB VRAM)"
         )
     elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
         info["device"] = "mps"

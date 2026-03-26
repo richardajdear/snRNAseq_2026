@@ -1,5 +1,5 @@
 ---
-title: AHBA C3 HVG Investigation (Combined)
+title: AHBA C3 HVG Investigation (PsychAD)
 format: md
 jupyter: python3
 ---
@@ -83,9 +83,10 @@ from hvg_investigation import (build_conditions, run_hvg_conditions,
 ## 2. Data & HVG Projections
 
 ```{python}
-DATA_FILE = rds_dir + "/Cam_snRNAseq/combined/VelWangPsychad_100k_PFC_lessOld_normal.h5ad"
+AGING_FILE = rds_dir + "/Cam_PsychAD/RNAseq/Aging_Cohort_100k_PFC_lessOld.h5ad"
+HBCC_FILE  = rds_dir + "/Cam_PsychAD/RNAseq/HBCC_Cohort_100k_PFC_lessOld.h5ad"
 N_VALUES = [1000, 2000, 4000, 6000, 8000, 10000]
-CACHE_DIR = os.path.join(_repo_root, 'notebooks', 'ahbaC3_hvg_investigation_combined', '_cache')
+CACHE_DIR = os.path.join(_repo_root, 'notebooks', 'ahbaC3_hvg_investigation_psychAD', '_cache')
 
 cached = load_cache(CACHE_DIR)
 ```
@@ -95,13 +96,25 @@ if cached is not None:
     scores_df, stats_df, final_df, hvg_df = cached
     print(f"scores: {len(scores_df)} rows, stats: {len(stats_df)} rows, final: {len(final_df)} rows, hvg_df: {len(hvg_df)} rows")
 else:
-    # ── Load and normalize ──
-    adata = sc.read_h5ad(DATA_FILE)
+    # ── Load and combine Aging + HBCC cohorts ──
+    aging = sc.read_h5ad(AGING_FILE)
+    hbcc  = sc.read_h5ad(HBCC_FILE)
+    aging.obs['source'] = 'Aging'
+    hbcc.obs['source']  = 'HBCC'
+    print(f"Aging shape: {aging.shape}, HBCC shape: {hbcc.shape}")
+
+    # Concatenate; index_unique='-' disambiguates the 27 shared cell barcodes
+    # sc.concat drops var columns, so save them first and restore afterwards
+    var_df = aging.var.copy()
+    adata = sc.concat([aging, hbcc], keys=['Aging', 'HBCC'], index_unique='-',
+                      join='outer', fill_value=0)
+    adata.var = var_df.loc[adata.var_names]
+    del aging, hbcc
+    print(f"Combined shape: {adata.shape}")
+
+    # ── Normalize ──
     adata.layers['counts'] = adata.X.copy()
     sc.pp.normalize_total(adata, target_sum=1e6)
-    if 'source' not in adata.obs.columns:
-        adata.obs['source'] = 'combined'
-    print(f"Shape: {adata.shape}")
 
     adata_log = adata.copy()
     sc.pp.log1p(adata_log)
@@ -255,4 +268,3 @@ p_c <- plot_boxes(df_boxes, best_cs, best_bd, best_ae, zscore = TRUE)
 plot_effect_summary(df_boxes, 'Childhood', 'Adolescence') /
 plot_effect_summary(df_boxes, 'Adolescence', 'Adulthood')
 ```
-
