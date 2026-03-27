@@ -58,14 +58,14 @@ compute_sensitivity_gap <- function(df, selected_conds,
                          pmax(n_child + n_adol - 2, 1)),
         cohens_d = ifelse(pooled_sd > 0,
                           (mean_child - mean_adol) / pooled_sd, NA_real_),
-        power = mapply(function(n1, n2, d) {
-          if (is.na(d) || n1 < 2 || n2 < 2) return(NA_real_)
+        min_detectable_d = mapply(function(n1, n2) {
+          if (n1 < 2 || n2 < 2) return(NA_real_)
           tryCatch(
-            pwr.t2n.test(n1 = n1, n2 = n2, d = abs(d),
-                         sig.level = 0.05)$power,
+            pwr.t2n.test(n1 = n1, n2 = n2, power = 0.80,
+                         sig.level = 0.05)$d,
             error = function(e) NA_real_
           )
-        }, n_child, n_adol, cohens_d),
+        }, n_child, n_adol),
         child_end = ce, adol_start = adol_s, adol_end = ae
       )
     all_stats[[i]] <- tmp
@@ -88,7 +88,7 @@ compute_sensitivity_gap <- function(df, selected_conds,
                        paste0(p_star, '\n', sprintf("%.2f", round(p_value, 2))),
                        ''),
       n_label = paste0(n_child, '/', n_adol, '\n',
-                       sprintf("%.2f", round(power, 2)))
+                       sprintf("%.2f", round(min_detectable_d, 2)))
     )
 }
 
@@ -166,7 +166,7 @@ plot_gap_pvalue <- function(sens_all) {
 
 plot_gap_power <- function(sens_all) {
   sens_all %>%
-    ggplot(aes(x = factor(adol_start), y = condition, fill = power)) +
+    ggplot(aes(x = factor(adol_start), y = condition, fill = min_detectable_d)) +
     facet_grid(
       paste0("child < ", child_end, "y") ~
       paste0("adol < ", adol_end, "y")
@@ -174,14 +174,14 @@ plot_gap_power <- function(sens_all) {
     geom_tile(color = 'white', linewidth = 0.3) +
     geom_text(aes(label = n_label), size = 1.7) +
     scale_fill_gradient(
-      low = 'grey95', high = '#1A9850', limits = c(0, 1),
-      name = 'Power'
+      low = '#1A9850', high = 'grey95',
+      name = "Min. detectable d"
     ) +
     labs(
       x = 'Adolescence start (years)',
       y = 'HVG condition',
-      title = "Power analysis: ability to detect observed C3+ effect at p < 0.05",
-      subtitle = "Cell labels: n_childhood / n_adolescence donors"
+      title = "Minimum detectable effect size at 80% power (Cohen's d, alpha = 0.05)",
+      subtitle = "Cell labels: n_childhood / n_adolescence donors. Lower = more sensitive."
     ) +
     theme_minimal(base_size = 9) +
     theme(

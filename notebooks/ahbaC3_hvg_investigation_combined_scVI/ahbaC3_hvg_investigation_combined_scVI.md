@@ -142,7 +142,15 @@ if cached is not None:
 else:
     # ── Load and normalize ──
     adata = sc.read_h5ad(DATA_FILE)
-    adata.layers['counts'] = adata.X.copy()
+    # Drop scanVI layer and all embeddings to save memory
+    for layer in ['scanvi_normalized']:
+        if layer in adata.layers:
+            del adata.layers[layer]
+    for key in list(adata.obsm.keys()):
+        del adata.obsm[key]
+    import gc; gc.collect()
+    # Use scVI normalized layer (batch-corrected, transform_batch=VELMESHEV)
+    adata.layers['counts'] = adata.layers['scvi_normalized']
     sc.pp.normalize_total(adata, target_sum=1e6)
     if 'source' not in adata.obs.columns:
         adata.obs['source'] = 'combined'
@@ -201,9 +209,9 @@ print(f"scores: {len(scores_df)}, stats: {len(stats_df)}, final_df (excitatory):
     ============================================================
     Condition: seurat_v3_1000
     Found 6397 matching genes in var_names.
-    Aligning GRN weights to 542 matched genes for projection...
+    Aligning GRN weights to 512 matched genes for projection...
     Computing sparse-dense dot product...
-      HVGs: 1000, GRN genes used: 542/6397 (8.5%)
+      HVGs: 1000, GRN genes used: 512/6397 (8.0%)
 
     ============================================================
     Condition: seurat_1000
@@ -215,16 +223,16 @@ print(f"scores: {len(scores_df)}, stats: {len(stats_df)}, final_df (excitatory):
     ============================================================
     Condition: pearson_1000
     Found 6397 matching genes in var_names.
-    Aligning GRN weights to 472 matched genes for projection...
+    Aligning GRN weights to 675 matched genes for projection...
     Computing sparse-dense dot product...
-      HVGs: 1000, GRN genes used: 472/6397 (7.4%)
+      HVGs: 1000, GRN genes used: 675/6397 (10.6%)
 
     ============================================================
     Condition: seurat_v3_2000
     Found 6397 matching genes in var_names.
-    Aligning GRN weights to 1019 matched genes for projection...
+    Aligning GRN weights to 1028 matched genes for projection...
     Computing sparse-dense dot product...
-      HVGs: 2000, GRN genes used: 1019/6397 (15.9%)
+      HVGs: 2000, GRN genes used: 1028/6397 (16.1%)
 
     ============================================================
     Condition: seurat_2000
@@ -236,16 +244,16 @@ print(f"scores: {len(scores_df)}, stats: {len(stats_df)}, final_df (excitatory):
     ============================================================
     Condition: pearson_2000
     Found 6397 matching genes in var_names.
-    Aligning GRN weights to 927 matched genes for projection...
+    Aligning GRN weights to 1261 matched genes for projection...
     Computing sparse-dense dot product...
-      HVGs: 2000, GRN genes used: 927/6397 (14.5%)
+      HVGs: 2000, GRN genes used: 1261/6397 (19.7%)
 
     ============================================================
     Condition: seurat_v3_4000
     Found 6397 matching genes in var_names.
-    Aligning GRN weights to 1879 matched genes for projection...
+    Aligning GRN weights to 2028 matched genes for projection...
     Computing sparse-dense dot product...
-      HVGs: 4000, GRN genes used: 1879/6397 (29.4%)
+      HVGs: 4000, GRN genes used: 2028/6397 (31.7%)
 
     ============================================================
     Condition: seurat_4000
@@ -257,16 +265,16 @@ print(f"scores: {len(scores_df)}, stats: {len(stats_df)}, final_df (excitatory):
     ============================================================
     Condition: pearson_4000
     Found 6397 matching genes in var_names.
-    Aligning GRN weights to 1746 matched genes for projection...
+    Aligning GRN weights to 2347 matched genes for projection...
     Computing sparse-dense dot product...
-      HVGs: 4000, GRN genes used: 1746/6397 (27.3%)
+      HVGs: 4000, GRN genes used: 2347/6397 (36.7%)
 
     ============================================================
     Condition: seurat_v3_6000
     Found 6397 matching genes in var_names.
-    Aligning GRN weights to 2671 matched genes for projection...
+    Aligning GRN weights to 2972 matched genes for projection...
     Computing sparse-dense dot product...
-      HVGs: 6000, GRN genes used: 2671/6397 (41.8%)
+      HVGs: 6000, GRN genes used: 2972/6397 (46.5%)
 
     ============================================================
     Condition: seurat_6000
@@ -278,16 +286,16 @@ print(f"scores: {len(scores_df)}, stats: {len(stats_df)}, final_df (excitatory):
     ============================================================
     Condition: pearson_6000
     Found 6397 matching genes in var_names.
-    Aligning GRN weights to 2554 matched genes for projection...
+    Aligning GRN weights to 3189 matched genes for projection...
     Computing sparse-dense dot product...
-      HVGs: 6000, GRN genes used: 2554/6397 (39.9%)
+      HVGs: 6000, GRN genes used: 3189/6397 (49.9%)
 
     ============================================================
     Condition: seurat_v3_8000
     Found 6397 matching genes in var_names.
-    Aligning GRN weights to 3441 matched genes for projection...
+    Aligning GRN weights to 3701 matched genes for projection...
     Computing sparse-dense dot product...
-      HVGs: 8000, GRN genes used: 3441/6397 (53.8%)
+      HVGs: 8000, GRN genes used: 3701/6397 (57.9%)
 
     ============================================================
     Condition: seurat_8000
@@ -299,16 +307,16 @@ print(f"scores: {len(scores_df)}, stats: {len(stats_df)}, final_df (excitatory):
     ============================================================
     Condition: pearson_8000
     Found 6397 matching genes in var_names.
-    Aligning GRN weights to 3311 matched genes for projection...
+    Aligning GRN weights to 3870 matched genes for projection...
     Computing sparse-dense dot product...
-      HVGs: 8000, GRN genes used: 3311/6397 (51.8%)
+      HVGs: 8000, GRN genes used: 3870/6397 (60.5%)
 
     ============================================================
     Condition: seurat_v3_10000
     Found 6397 matching genes in var_names.
-    Aligning GRN weights to 4211 matched genes for projection...
+    Aligning GRN weights to 4363 matched genes for projection...
     Computing sparse-dense dot product...
-      HVGs: 10000, GRN genes used: 4211/6397 (65.8%)
+      HVGs: 10000, GRN genes used: 4363/6397 (68.2%)
 
     ============================================================
     Condition: seurat_10000
@@ -320,9 +328,9 @@ print(f"scores: {len(scores_df)}, stats: {len(stats_df)}, final_df (excitatory):
     ============================================================
     Condition: pearson_10000
     Found 6397 matching genes in var_names.
-    Aligning GRN weights to 4082 matched genes for projection...
+    Aligning GRN weights to 4363 matched genes for projection...
     Computing sparse-dense dot product...
-      HVGs: 10000, GRN genes used: 4082/6397 (63.8%)
+      HVGs: 10000, GRN genes used: 4363/6397 (68.2%)
     Cache saved to /rds/user/rajd2/hpc-work/snRNAseq_2026/notebooks/ahbaC3_hvg_investigation_combined_scVI/_cache
     scores: 8419546, stats: 19, final_df (excitatory): 3101978, hvg_df: 93000
 
@@ -334,24 +342,24 @@ print(stats_df.to_string(index=False))
 
           condition  n_hvg  n_grn_genes_used  pct_grn_retained
           all_genes  15540              6397             100.0
-     seurat_v3_1000   1000               542               8.5
+     seurat_v3_1000   1000               512               8.0
         seurat_1000   1000               491               7.7
-       pearson_1000   1000               472               7.4
-     seurat_v3_2000   2000              1019              15.9
+       pearson_1000   1000               675              10.6
+     seurat_v3_2000   2000              1028              16.1
         seurat_2000   2000               963              15.1
-       pearson_2000   2000               927              14.5
-     seurat_v3_4000   4000              1879              29.4
+       pearson_2000   2000              1261              19.7
+     seurat_v3_4000   4000              2028              31.7
         seurat_4000   4000              1767              27.6
-       pearson_4000   4000              1746              27.3
-     seurat_v3_6000   6000              2671              41.8
+       pearson_4000   4000              2347              36.7
+     seurat_v3_6000   6000              2972              46.5
         seurat_6000   6000              2568              40.1
-       pearson_6000   6000              2554              39.9
-     seurat_v3_8000   8000              3441              53.8
+       pearson_6000   6000              3189              49.9
+     seurat_v3_8000   8000              3701              57.9
         seurat_8000   8000              3332              52.1
-       pearson_8000   8000              3311              51.8
-    seurat_v3_10000  10000              4211              65.8
+       pearson_8000   8000              3870              60.5
+    seurat_v3_10000  10000              4363              68.2
        seurat_10000  10000              4122              64.4
-      pearson_10000  10000              4082              63.8
+      pearson_10000  10000              4363              68.2
 
 ## 4. Age Range Sensitivity
 
@@ -468,10 +476,10 @@ p_c <- plot_boxes(df_boxes, best_cs, best_bd, best_ae)
     R[write to console]: In addition: 
     R[write to console]: Warning messages:
 
-    R[write to console]: 1: Removed 896605 rows containing non-finite outside the scale range
+    R[write to console]: 1: Removed 897594 rows containing non-finite outside the scale range
     (`stat_smooth()`). 
 
-    R[write to console]: 2: Removed 896605 rows containing missing values or values outside the scale range
+    R[write to console]: 2: Removed 897594 rows containing missing values or values outside the scale range
     (`geom_point()`). 
 
     R[write to console]: 3: Removed 3492 rows containing non-finite outside the scale range
@@ -510,10 +518,10 @@ p_c <- plot_boxes(df_boxes, best_cs, best_bd, best_ae, zscore = TRUE)
     R[write to console]: In addition: 
     R[write to console]: Warning messages:
 
-    R[write to console]: 1: Removed 896605 rows containing non-finite outside the scale range
+    R[write to console]: 1: Removed 897594 rows containing non-finite outside the scale range
     (`stat_smooth()`). 
 
-    R[write to console]: 2: Removed 896605 rows containing missing values or values outside the scale range
+    R[write to console]: 2: Removed 897594 rows containing missing values or values outside the scale range
     (`geom_point()`). 
 
     R[write to console]: 3: Removed 3492 rows containing non-finite outside the scale range

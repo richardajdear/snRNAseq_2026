@@ -182,7 +182,7 @@ plot_sensitivity_cohens_d(sens_all)
 plot_sensitivity_pvalue(sens_all)
 ```
 
-### 4.4 Power
+### 4.4 Minimum Detectable Effect Size
 
 ```{python}
 %%R -w 260 -h 200 -u mm -r 300

@@ -1,0 +1,29 @@
+# scVI Pipeline — UMAP recomputation only
+# Loads from the existing integrated.h5ad checkpoint and recomputes UMAPs.
+# Use this after a fresh inference run to regenerate UMAP plots without
+# re-running inference.
+
+input_h5ad: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/combined/VelWangPsychad_100k_PFC_lessOld.h5ad
+output_dir: ""  # auto-derive from input path
+
+# Data keys
+batch_key: source
+cell_type_key: cell_class
+
+# UMAP
+umap_n_neighbors: 30
+umap_min_dist: 0.3
+umap_color_vars:
+  - source
+  - cell_class
+  - age_years
+umap_point_size: 0.5
+umap_log2_vars:
+  - age_years
+umap_log2_ticks: [0, 1, 3, 9, 25, 40]
+
+# Pipeline control — load checkpoint, recompute UMAPs, plot, save
+steps:
+  - umap
+  - plot
+  - save

@@ -78,10 +78,6 @@ def compute_raw_pca_umap(
     Stored in obsm['X_pca_raw'] and obsm['X_umap_raw'].
     This serves as the uncorrected baseline for comparison plots.
     """
-    if "X_umap_raw" in adata.obsm:
-        logger.info("Raw UMAP already present, skipping")
-        return
-
     logger.info("Computing raw (uncorrected) PCA + UMAP on HVG counts")
 
     # Work on a temporary copy of the HVG subset to avoid mutating adata.X

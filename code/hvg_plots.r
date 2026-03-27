@@ -85,14 +85,14 @@ compute_sensitivity <- function(df, selected_conds,
                          pmax(n_child + n_adol - 2, 1)),
         cohens_d = ifelse(pooled_sd > 0,
                           (mean_child - mean_adol) / pooled_sd, NA_real_),
-        power = mapply(function(n1, n2, d) {
-          if (is.na(d) || n1 < 2 || n2 < 2) return(NA_real_)
+        min_detectable_d = mapply(function(n1, n2) {
+          if (n1 < 2 || n2 < 2) return(NA_real_)
           tryCatch(
-            pwr.t2n.test(n1 = n1, n2 = n2, d = abs(d),
-                         sig.level = 0.05)$power,
+            pwr.t2n.test(n1 = n1, n2 = n2, power = 0.80,
+                         sig.level = 0.05)$d,
             error = function(e) NA_real_
           )
-        }, n_child, n_adol, cohens_d),
+        }, n_child, n_adol),
         child_start = cs, boundary = bd, adol_end = ae
       )
     all_stats[[i]] <- tmp
@@ -115,7 +115,7 @@ compute_sensitivity <- function(df, selected_conds,
                        paste0(p_star, '\n', sprintf("%.2f", round(p_value, 2))),
                        ''),
       n_label = paste0(n_child, '/', n_adol, '\n',
-                       sprintf("%.2f", round(power, 2)))
+                       sprintf("%.2f", round(min_detectable_d, 2)))
     )
 }
 
@@ -194,7 +194,7 @@ plot_sensitivity_pvalue <- function(sens_all) {
 
 plot_sensitivity_power <- function(sens_all) {
   sens_all %>%
-    ggplot(aes(x = factor(boundary), y = condition, fill = power)) +
+    ggplot(aes(x = factor(boundary), y = condition, fill = min_detectable_d)) +
     facet_grid(
       paste0("child \u2265 ", child_start, "y") ~
       paste0("adol < ", adol_end, "y")
@@ -202,14 +202,14 @@ plot_sensitivity_power <- function(sens_all) {
     geom_tile(color = 'white', linewidth = 0.3) +
     geom_text(aes(label = n_label), size = 2) +
     scale_fill_gradient(
-      low = 'grey95', high = '#1A9850', limits = c(0, 1),
-      name = 'Power'
+      low = '#1A9850', high = 'grey95',
+      name = "Min. detectable d"
     ) +
     labs(
       x = 'Childhood / Adolescence boundary (years)',
       y = 'HVG condition',
-      title = "Power analysis: ability to detect observed C3+ effect at p < 0.05",
-      subtitle = "Cell labels: n_childhood / n_adolescence donors"
+      title = "Minimum detectable effect size at 80% power (Cohen's d, alpha = 0.05)",
+      subtitle = "Cell labels: n_childhood / n_adolescence donors. Lower = more sensitive."
     ) +
     theme_minimal(base_size = 9) +
     theme(
@@ -458,14 +458,14 @@ plot_effect_summary <- function(df_boxes, group1 = 'Childhood', group2 = 'Adoles
                        pmax(n_g1 + n_g2 - 2, 1)),
       cohens_d = ifelse(pooled_sd > 0,
                         (mean_g1 - mean_g2) / pooled_sd, NA_real_),
-      power = mapply(function(n1, n2, d) {
-        if (is.na(d) || n1 < 2 || n2 < 2) return(NA_real_)
+      min_detectable_d = mapply(function(n1, n2) {
+        if (n1 < 2 || n2 < 2) return(NA_real_)
         tryCatch(
-          pwr.t2n.test(n1 = n1, n2 = n2, d = abs(d),
-                       sig.level = 0.05)$power,
+          pwr.t2n.test(n1 = n1, n2 = n2, power = 0.80,
+                       sig.level = 0.05)$d,
           error = function(e) NA_real_
         )
-      }, n_g1, n_g2, cohens_d),
+      }, n_g1, n_g2),
       flavor = case_when(
         condition == 'all_genes' ~ 'none',
         grepl('seurat_v3', condition) ~ 'seurat_v3',
@@ -520,15 +520,13 @@ plot_effect_summary <- function(df_boxes, group1 = 'Childhood', group2 = 'Adoles
     common_theme
 
   p4 <- hvg_df %>%
-    ggplot(aes(x = n_genes, y = power, color = flavor, group = flavor)) +
-    geom_hline(yintercept = 0.8, linetype = 'dashed', color = 'red') +
-    geom_hline(yintercept = ref$power, linetype = 'dotted', color = 'grey30') +
+    ggplot(aes(x = n_genes, y = min_detectable_d, color = flavor, group = flavor)) +
+    geom_hline(yintercept = ref$min_detectable_d, linetype = 'dotted', color = 'grey30') +
     geom_point(size = 2.5) +
     geom_line(linewidth = 0.5) +
     scale_x_continuous(breaks = x_breaks) +
-    scale_y_continuous(limits = c(0, 1)) +
     scale_color_brewer(palette = 'Set2') +
-    labs(x = 'n_top_genes', y = 'Power') +
+    labs(x = 'n_top_genes', y = 'Min. detectable d') +
     theme_classic() +
     theme(axis.text.x = element_text(size = 8))
 
@@ -536,7 +534,7 @@ plot_effect_summary <- function(df_boxes, group1 = 'Childhood', group2 = 'Adoles
     plot_layout(guides = 'collect') +
     plot_annotation(
       title = sprintf('C3+ %s vs %s: effect by HVG condition', group1, group2),
-      subtitle = 'Dotted grey line = all_genes baseline. Red dashes: p=0.05 / power=0.8.',
+      subtitle = 'Dotted grey line = all_genes baseline. Red dashes: p=0.05.',
       tag_levels = 'a'
     )
 }

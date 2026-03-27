@@ -97,7 +97,15 @@ if cached is not None:
 else:
     # ── Load and normalize ──
     adata = sc.read_h5ad(DATA_FILE)
-    adata.layers['counts'] = adata.X.copy()
+    # Drop scanVI layer and all embeddings to save memory
+    for layer in ['scanvi_normalized']:
+        if layer in adata.layers:
+            del adata.layers[layer]
+    for key in list(adata.obsm.keys()):
+        del adata.obsm[key]
+    import gc; gc.collect()
+    # Use scVI normalized layer (batch-corrected, transform_batch=VELMESHEV)
+    adata.layers['counts'] = adata.layers['scvi_normalized']
     sc.pp.normalize_total(adata, target_sum=1e6)
     if 'source' not in adata.obs.columns:
         adata.obs['source'] = 'combined'
@@ -180,7 +188,7 @@ plot_sensitivity_cohens_d(sens_all)
 plot_sensitivity_pvalue(sens_all)
 ```
 
-### 4.4 Power
+### 4.4 Minimum Detectable Effect Size
 
 ```{python}
 %%R -w 260 -h 200 -u mm -r 300

@@ -117,6 +117,11 @@ def run(config: PipelineConfig):
             )
             scvi_model = SCVI.load(str(config.scvi_model_path), adata=adata_scvi)
 
+            # Recompute latent representation (skipped when not training)
+            logger.info("Computing X_scVI latent representation from loaded model...")
+            adata.obsm["X_scVI"] = scvi_model.get_latent_representation(adata=adata_scvi)
+            logger.info(f"X_scVI latent: shape={adata.obsm['X_scVI'].shape}")
+
         # scVI inference
         if config.run_scvi_inference and scvi_model is not None:
             with Timer("scVI inference", logger):
@@ -148,6 +153,11 @@ def run(config: PipelineConfig):
                     str(config.scanvi_model_path), adata=adata_scvi
                 )
 
+                # Recompute latent representation (skipped when not training)
+                logger.info("Computing X_scANVI latent representation from loaded model...")
+                adata.obsm["X_scANVI"] = scanvi_model.get_latent_representation(adata=adata_scvi)
+                logger.info(f"X_scANVI latent: shape={adata.obsm['X_scANVI'].shape}")
+
             with Timer("scANVI inference", logger):
                 get_normalized_expression(
                     model=scanvi_model,
@@ -162,16 +172,8 @@ def run(config: PipelineConfig):
 
     # --- UMAP ---
     if "umap" in steps and adata is not None:
-        needs_umap = any(
-            k not in adata.obsm for k in ["X_umap_scvi", "X_umap_scanvi"]
-            if ("X_scVI" in adata.obsm and k == "X_umap_scvi")
-            or ("X_scANVI" in adata.obsm and k == "X_umap_scanvi")
-        )
-        if needs_umap:
-            with Timer("UMAP computation", logger):
-                compute_umaps(adata, config, logger)
-        else:
-            logger.info("All UMAP embeddings already present, skipping recomputation")
+        with Timer("UMAP computation", logger):
+            compute_umaps(adata, config, logger)
 
     # --- PLOT ---
     if "plot" in steps and adata is not None:

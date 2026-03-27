@@ -44,7 +44,7 @@ n_mc_samples: 10
 output_layer_scvi: scvi_normalized
 output_layer_scanvi: scanvi_normalized
 save_npy_backup: true
-transform_batch: 'VELMESHEV'
+transform_batch: VELMESHEV
 
 # UMAP
 umap_n_neighbors: 30
@@ -59,9 +59,9 @@ umap_log2_ticks: [0, 1, 3, 9, 25, 40]
 
 # Pipeline control
 steps:
-  - prep
-  - train_scvi
-  - train_scanvi
+  # - prep
+  # - train_scvi
+  # - train_scanvi
   - infer
   - umap
   - plot

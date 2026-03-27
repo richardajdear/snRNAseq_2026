@@ -194,7 +194,7 @@ plot_gap_cohens_d(sens_all)
 plot_gap_pvalue(sens_all)
 ```
 
-### 3.4 Power
+### 3.4 Minimum Detectable Effect Size
 
 ```{python}
 %%R -w 280 -h 220 -u mm -r 300
