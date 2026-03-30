@@ -36,9 +36,10 @@ def main():
     p.add_argument('--confidence_threshold', type=float, default=0.5)
     p.add_argument('--embedding_key', default='X_scVI')
     p.add_argument('--umap_key', default='X_umap_scvi')
-    p.add_argument('--target_source', default='VELMESHEV')
-    p.add_argument('--reference_sources', nargs='+', default=None,
-                   help='Default: all non-target sources')
+    p.add_argument('--target_sources', nargs='+', default=None,
+                   help='Default: all non-reference sources')
+    p.add_argument('--reference_sources', nargs='+', default=['WANG'],
+                   help='Default: WANG only')
     args = p.parse_args()
 
     os.makedirs(args.output_dir, exist_ok=True)
@@ -55,8 +56,9 @@ def main():
     obs['cell_id']   = obs.index.values
     obs['h5ad_pos']  = np.arange(len(obs))
 
-    ref_sources = args.reference_sources or sorted(
-        s for s in obs['source'].unique() if s != args.target_source)
+    ref_sources = args.reference_sources
+    target_sources = args.target_sources or sorted(
+        s for s in obs['source'].unique() if s not in set(ref_sources))
 
     # ── derive subclass ──────────────────────────────────────────────────
     print("Deriving cell_subclass (per-source mappers) …")
@@ -65,7 +67,7 @@ def main():
     # ── build reference ──────────────────────────────────────────────────
     ref_mask    = (obs['source'].isin(ref_sources)
                    & ~obs['old_subclass'].isin(BROAD_LABELS)).values
-    target_mask = (obs['source'] == args.target_source).values
+    target_mask = obs['source'].isin(target_sources).values
 
     ref_labels = obs.loc[ref_mask, 'old_subclass'].values
     print(f"\nReference: {ref_mask.sum()} cells from {ref_sources}")
@@ -74,7 +76,9 @@ def main():
                    .value_counts().items()):
         print(f"    {lbl:25s} {n:6d}")
 
-    print(f"\nTarget: {target_mask.sum()} {args.target_source} cells")
+    print(f"\nTarget: {target_mask.sum()} cells from {target_sources}")
+    for _src in target_sources:
+        print(f"  {_src}: {(obs['source'] == _src).sum()} cells")
 
     # ── kNN transfer ─────────────────────────────────────────────────────
     print(f"\nRunning kNN transfer (k={args.k}, "
@@ -125,10 +129,21 @@ def main():
     rmap = results['is_class_remapped']
     sep  = '=' * 60
     print(f"\n{sep}\nTRANSFER SUMMARY\n{sep}")
+    print(f"Reference: {ref_sources}  →  Target: {target_sources}")
     print(f"Low confidence (<{args.confidence_threshold}): "
           f"{low.sum()} / {len(results)} ({100 * low.mean():.1f}%)")
     print(f"Class-remapped: "
           f"{rmap.sum()} / {len(results)} ({100 * rmap.mean():.1f}%)")
+
+    print("\nPer-source breakdown:")
+    for _src in target_sources:
+        sm = results['source'] == _src
+        if sm.sum() == 0:
+            continue
+        slc = results.loc[sm, 'is_low_confidence']
+        srm = results.loc[sm, 'is_class_remapped']
+        print(f"  {_src:12s}: n={sm.sum():6d}  low_conf={slc.sum()} ({100*slc.mean():.1f}%)  "
+              f"class_remapped={srm.sum()} ({100*srm.mean():.1f}%)")
 
     print("\nTransferred label distribution:")
     for lbl, n in results['transferred_subclass'].value_counts().items():

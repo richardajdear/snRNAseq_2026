@@ -410,6 +410,101 @@ def make_umap_perclass(all_df, emb, out, target_source='VELMESHEV'):
     print(f"  umap_perclass.png")
 
 
+def make_umap_velmeshev(all_df, out, target_source='VELMESHEV'):
+    """2×2 UMAP of Velmeshev cells only: pre/post-remapping × class / remap-status."""
+    vel = all_df[all_df['source'] == target_source].copy()
+    xy  = vel[['umap_1', 'umap_2']].values
+    vel['is_class_remapped'] = vel['old_cell_class'] != vel['new_cell_class']
+
+    CLASS_PALETTE = {
+        'Excitatory':  '#E41A1C',
+        'Inhibitory':  '#377EB8',
+        'Astrocytes':  '#4DAF4A',
+        'Oligos':      '#984EA3',
+        'OPC':         '#FF7F00',
+        'Microglia':   '#008080',
+        'Endothelial': '#778899',
+        'Glia':        '#2CA25F',
+        'Other':       '#BDBDBD',
+    }
+    AGE_BINS   = [-np.inf, 0, 1, 5, np.inf]
+    AGE_LABELS = ['Fetal (<0y)', 'Perinatal (0-1y)', 'Childhood (1-5y)', 'Post-5y (>5y)']
+    AGE_COLORS = ['#2171B5', '#6BAED6', '#FD8D3C', '#D62728']
+
+    vel['age_cat'] = pd.cut(vel['age_years'], bins=AGE_BINS, labels=AGE_LABELS)
+
+    fig, axes = plt.subplots(2, 2, figsize=(12, 10))
+
+    n_remap    = vel['is_class_remapped'].sum()
+    pct_remap  = 100 * n_remap / len(vel)
+
+    for row, (class_col, row_title) in enumerate([
+        ('old_cell_class', 'Pre-remapping'),
+        ('new_cell_class', 'Post-remapping'),
+    ]):
+        # ── col 0: broad cell class ──────────────────────────────────────────
+        ax = axes[row, 0]
+        classes = sorted(vel[class_col].unique())
+        for cls in classes:
+            m = (vel[class_col] == cls).values
+            ax.scatter(xy[m, 0], xy[m, 1],
+                       c=CLASS_PALETTE.get(cls, '#BFBFBF'),
+                       s=0.5, alpha=0.4, linewidths=0, rasterized=True)
+        handles = [Line2D([0], [0], marker='o', color='w',
+                          markerfacecolor=CLASS_PALETTE.get(c, '#BFBFBF'),
+                          markersize=6, label=c)
+                   for c in classes]
+        ax.legend(handles=handles, loc='lower right', fontsize=7,
+                  framealpha=0.85, edgecolor='0.8', handletextpad=0.3)
+        ax.set_title(f'{row_title} — cell class', fontsize=11)
+        ax.set_xticks([]); ax.set_yticks([])
+
+        # ── col 1: top row = remap status, bottom row = age category ─────────
+        ax = axes[row, 1]
+        if row == 0:
+            # Pre-remapping: show class-remapped binary
+            not_remap = ~vel['is_class_remapped'].values
+            ax.scatter(xy[not_remap, 0], xy[not_remap, 1],
+                       c='#CCCCCC', s=0.3, alpha=0.3, linewidths=0, rasterized=True)
+            ax.scatter(xy[vel['is_class_remapped'].values, 0],
+                       xy[vel['is_class_remapped'].values, 1],
+                       c='#D62728', s=0.8, alpha=0.5, linewidths=0, rasterized=True)
+            handles = [
+                Line2D([0], [0], marker='o', color='w', markerfacecolor='#CCCCCC',
+                       markersize=6, label=f'No class change  (n={len(vel)-n_remap:,})'),
+                Line2D([0], [0], marker='o', color='w', markerfacecolor='#D62728',
+                       markersize=6, label=f'Class remapped  (n={n_remap:,}, {pct_remap:.1f}%)'),
+            ]
+            ax.legend(handles=handles, loc='lower right', fontsize=7,
+                      framealpha=0.85, edgecolor='0.8', handletextpad=0.3)
+            ax.set_title('Pre-remapping — class remapping status', fontsize=11)
+        else:
+            # Post-remapping: show age category
+            for age_lbl, age_col in zip(AGE_LABELS, AGE_COLORS):
+                m = (vel['age_cat'] == age_lbl).values
+                n_age = m.sum()
+                ax.scatter(xy[m, 0], xy[m, 1],
+                           c=age_col, s=0.5, alpha=0.4, linewidths=0, rasterized=True,
+                           label=f'{age_lbl}  (n={n_age:,})')
+            handles = [Line2D([0], [0], marker='o', color='w',
+                              markerfacecolor=c, markersize=6,
+                              label=f'{l}  (n={( vel["age_cat"]==l).sum():,})')
+                       for l, c in zip(AGE_LABELS, AGE_COLORS)]
+            ax.legend(handles=handles, loc='lower right', fontsize=7,
+                      framealpha=0.85, edgecolor='0.8', handletextpad=0.3)
+            ax.set_title('Post-remapping — donor age', fontsize=11)
+        ax.set_xticks([]); ax.set_yticks([])
+
+    fig.suptitle(f'{target_source} cells only (n={len(vel):,}) — global UMAP embedding\n'
+                 'Pre- vs post-remapping',
+                 fontsize=13, y=0.98)
+    plt.tight_layout(rect=[0, 0, 1, 0.95])
+    path = os.path.join(out, 'umap_target.png')
+    plt.savefig(path, dpi=200, bbox_inches='tight')
+    plt.close()
+    print(f"  umap_target.png")
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # SANKEY DIAGRAM
 # ══════════════════════════════════════════════════════════════════════════════
@@ -422,8 +517,8 @@ def _make_sankey_panel(ax, tf_sub, title, within_color='#4DBEEE',
     """
     from label_transfer.transfer import subclass_to_class
 
-    # Build flow table
-    flows = (tf_sub.groupby(['cell_type', 'transferred_subclass'])
+    # Build flow table: old_subclass → transferred_subclass
+    flows = (tf_sub.groupby(['old_subclass', 'transferred_subclass'])
              .size().reset_index(name='n'))
     flows = flows[flows['n'] > 0].sort_values('n', ascending=False)
 
@@ -434,9 +529,8 @@ def _make_sankey_panel(ax, tf_sub, title, within_color='#4DBEEE',
 
     # Determine if each flow is within-class or cross-class
     flows['new_class'] = flows['transferred_subclass'].map(subclass_to_class)
-    # old class from the majority class in tf_sub for that cell_type
-    ct_class = tf_sub.groupby('cell_type')['old_cell_class'].first().to_dict()
-    flows['old_class'] = flows['cell_type'].map(ct_class)
+    ct_class = tf_sub.groupby('old_subclass')['old_cell_class'].first().to_dict()
+    flows['old_class'] = flows['old_subclass'].map(ct_class)
     flows['is_cross'] = flows['old_class'] != flows['new_class']
 
     # Filter to top flows for readability (keep flows with ≥ 0.5% of panel total)
@@ -448,9 +542,10 @@ def _make_sankey_panel(ax, tf_sub, title, within_color='#4DBEEE',
         ax.axis('off')
         return
 
-    # Left side: old cell_type, right side: transferred_subclass
-    left_labels = flows.groupby('cell_type')['n'].sum().sort_values(ascending=True)
+    # Left side: old_subclass, right side: transferred_subclass
+    left_labels = flows.groupby('old_subclass')['n'].sum().sort_values(ascending=True)
     right_labels = flows.groupby('transferred_subclass')['n'].sum().sort_values(ascending=True)
+    total_shown = left_labels.sum()
 
     gap = 0.02
     x_left, x_right = 0.0, 1.0
@@ -485,7 +580,7 @@ def _make_sankey_panel(ax, tf_sub, title, within_color='#4DBEEE',
         alpha = 0.6 if is_cross_val else 0.3
 
         for _, row in sub.iterrows():
-            lbl_l, lbl_r, n = row['cell_type'], row['transferred_subclass'], row['n']
+            lbl_l, lbl_r, n = row['old_subclass'], row['transferred_subclass'], row['n']
             if lbl_l not in left_pos or lbl_r not in right_pos:
                 continue
 
@@ -523,9 +618,10 @@ def _make_sankey_panel(ax, tf_sub, title, within_color='#4DBEEE',
 
     # Draw bars — use bar center (y0+y1)/2 since barh default align='center'
     for lbl, (y0, y1) in left_pos.items():
+        pct = 100 * left_labels[lbl] / total_shown
         ax.barh((y0 + y1) / 2, bar_width, height=y1 - y0, left=x_left,
                 color='#6BAED6', edgecolor='white', linewidth=0.5, zorder=3)
-        ax.text(x_left - 0.01, (y0 + y1) / 2, lbl,
+        ax.text(x_left - 0.01, (y0 + y1) / 2, f'{lbl} ({pct:.1f}%)',
                 ha='right', va='center', fontsize=6)
 
     for lbl, (y0, y1) in right_pos.items():
@@ -541,7 +637,7 @@ def _make_sankey_panel(ax, tf_sub, title, within_color='#4DBEEE',
     ax.axis('off')
 
 
-def make_sankey(tf, out):
+def make_sankey(tf, out, source_label=''):
     """3-panel Sankey diagram: Excitatory / Inhibitory / Glia."""
     fig, axes = plt.subplots(1, 3, figsize=(12, 5))
 
@@ -558,8 +654,10 @@ def make_sankey(tf, out):
     fig.legend(handles=legend_elements, loc='lower center', ncol=2,
                fontsize=10, frameon=False, bbox_to_anchor=(0.5, 0.01))
 
-    fig.suptitle('Sankey: Velmeshev old cell_type → kNN-transferred subclass',
-                 fontsize=14, y=0.98)
+    title = f'Sankey: old subclass → kNN-transferred Wang subclass'
+    if source_label:
+        title = f'{source_label}  —  {title}'
+    fig.suptitle(title, fontsize=14, y=0.98)
     plt.tight_layout(rect=[0, 0.05, 1, 0.95])
     path = os.path.join(out, 'sankey_remapping.png')
     plt.savefig(path, dpi=200, bbox_inches='tight')
@@ -571,132 +669,113 @@ def make_sankey(tf, out):
 # MARKER GENE VALIDATION
 # ══════════════════════════════════════════════════════════════════════════════
 
-def make_marker_validation(tf, adata, out, max_ref=5000):
+def make_marker_validation(tf, adata, out, max_ref=5000,
+                            ref_sources=None, age_lo=-np.inf, age_hi=np.inf,
+                            suffix='', period_label=''):
     """Violin plots of marker gene expression for class-remapped cells.
 
-    For the top 3 most common class remappings, show expression of
-    relevant markers in: reference old-class cells, remapped cells,
-    reference new-class cells.
-
-    Uses raw counts (log1p) to avoid circularity with scVI normalization.
+    ref_sources  : sources to use as reference (default AGING+HBCC)
+    age_lo/hi    : restrict remapped cells to this age window (age_lo <= age < age_hi)
+    suffix       : appended to output filename, e.g. '_prenatal'
+    period_label : human-readable label for the plot title
     """
-    remap = tf[tf['is_class_remapped']].copy()
+    import scipy.sparse as sp
+
+    if ref_sources is None:
+        ref_sources = ['WANG']
+
+    remap = tf[tf['is_class_remapped'] &
+               (tf['age_years'] >= age_lo) &
+               (tf['age_years'] < age_hi)].copy()
     if remap.empty:
-        print("  No class-remapped cells — skipping marker validation.")
+        print(f"  No class-remapped cells in [{age_lo}, {age_hi}) — skipping {suffix}.")
         return
 
-    # Build gene symbol → Ensembl ID mapping
+    # Gene symbol → Ensembl ID
     var = adata.var
-    if 'gene_symbol' in var.columns:
-        sym2ens = dict(zip(var['gene_symbol'], var.index))
-    else:
-        # Assume var_names are already symbols
-        sym2ens = {g: g for g in var.index}
+    sym2ens = (dict(zip(var['gene_symbol'], var.index))
+               if 'gene_symbol' in var.columns
+               else {g: g for g in var.index})
 
-    # Get top 3 remappings
     top_remaps = (remap.groupby(['old_cell_class', 'new_cell_class'])
                   .size().sort_values(ascending=False).head(3))
 
-    # Determine all markers needed
     all_markers_needed = set()
     for (old_cls, new_cls), _ in top_remaps.items():
         for cls in [old_cls, new_cls]:
             if cls in MARKERS:
                 all_markers_needed.update(MARKERS[cls])
 
-    # Map to Ensembl IDs
-    marker_ens = {}
-    for sym in all_markers_needed:
-        if sym in sym2ens:
-            marker_ens[sym] = sym2ens[sym]
-
+    marker_ens = {sym: sym2ens[sym] for sym in all_markers_needed if sym in sym2ens}
     if not marker_ens:
-        print("  No marker genes found in var — skipping validation.")
+        print(f"  No marker genes found — skipping {suffix}.")
         return
 
-    # Get expression for needed positions
-    # Collect all h5ad positions we need
-    ref_sources = ['AGING', 'HBCC']  # adult reference cells
-    all_positions = set(remap['h5ad_pos'].values)
-
-    # For each remapping, collect reference cell positions
+    # Collect positions: remapped cells + period-appropriate reference cells
     obs = adata.obs
+    all_positions = set(remap['h5ad_pos'].values)
     ref_positions = {}
     for (old_cls, new_cls), _ in top_remaps.items():
         for cls in [old_cls, new_cls]:
-            key = cls
-            if key not in ref_positions:
-                mask = (obs['source'].isin(ref_sources)) & (obs['cell_class'] == cls)
+            if cls not in ref_positions:
+                mask = obs['source'].isin(ref_sources) & (obs['cell_class'] == cls)
                 pos = np.where(mask.values)[0]
                 if len(pos) > max_ref:
-                    rng = np.random.RandomState(42)
-                    pos = rng.choice(pos, max_ref, replace=False)
-                ref_positions[key] = pos
+                    pos = np.random.RandomState(42).choice(pos, max_ref, replace=False)
+                ref_positions[cls] = pos
                 all_positions.update(pos)
 
     all_positions = sorted(all_positions)
     pos_to_local = {p: i for i, p in enumerate(all_positions)}
 
-    # Load expression (counts layer, backed)
-    ens_ids = list(marker_ens.values())
     ens_to_varidx = {eid: i for i, eid in enumerate(adata.var_names)}
-    valid_ens = [e for e in ens_ids if e in ens_to_varidx]
+    valid_ens = [e for e in marker_ens.values() if e in ens_to_varidx]
     var_indices = [ens_to_varidx[e] for e in valid_ens]
-    print(f"    Loading expression for {len(all_positions)} cells × "
-          f"{len(valid_ens)} markers …")
+    ref_label = '+'.join(ref_sources)
+    print(f"    [{period_label or 'all'}] {len(all_positions)} cells × "
+          f"{len(valid_ens)} markers (ref: {ref_label}) …")
 
-    # Read in chunks to manage memory
     chunk_size = 5000
     expr = np.zeros((len(all_positions), len(valid_ens)), dtype=np.float32)
-    for start in range(0, len(all_positions), chunk_size):
-        end = min(start + chunk_size, len(all_positions))
-        chunk_pos = all_positions[start:end]
-        if 'counts' in adata.layers:
+    for start_i in range(0, len(all_positions), chunk_size):
+        end_i = min(start_i + chunk_size, len(all_positions))
+        chunk_pos = all_positions[start_i:end_i]
+        if 'scvi_normalized' in adata.layers:
+            chunk_data = adata.layers['scvi_normalized'][chunk_pos][:, var_indices]
+        elif 'counts' in adata.layers:
             chunk_data = adata.layers['counts'][chunk_pos][:, var_indices]
         else:
             chunk_data = adata.X[chunk_pos][:, var_indices]
-        import scipy.sparse as sp
         if sp.issparse(chunk_data):
             chunk_data = chunk_data.toarray()
-        expr[start:end] = np.asarray(chunk_data, dtype=np.float32)
+        expr[start_i:end_i] = np.asarray(chunk_data, dtype=np.float32)
 
-    expr = np.log1p(expr)  # log1p transform
+    expr = np.log1p(expr)
 
-    # Plot: one row per remapping, columns = marker genes
-    n_remaps = len(top_remaps)
-    max_markers_per_row = 8
+    # Per-remapping marker gene lists (deduplicated, old then new class)
     markers_per_remap = {}
     for (old_cls, new_cls), _ in top_remaps.items():
-        m = []
+        seen, unique_m = set(), []
         for cls in [old_cls, new_cls]:
-            if cls in MARKERS:
-                m.extend(MARKERS[cls])
-        # Deduplicate preserving order
-        seen = set()
-        unique_m = []
-        for g in m:
-            if g not in seen and g in marker_ens:
-                seen.add(g)
-                unique_m.append(g)
-        markers_per_remap[(old_cls, new_cls)] = unique_m[:max_markers_per_row]
+            for g in MARKERS.get(cls, []):
+                ens = marker_ens.get(g)
+                if ens and g not in seen and ens in valid_ens:
+                    seen.add(g); unique_m.append(g)
+        markers_per_remap[(old_cls, new_cls)] = unique_m[:8]
 
-    max_cols = max(len(m) for m in markers_per_remap.values()) if markers_per_remap else 1
+    n_remaps = len(top_remaps)
+    max_cols = max((len(m) for m in markers_per_remap.values()), default=1)
     fig, axes = plt.subplots(n_remaps, max_cols,
                              figsize=(1.6 * max_cols, 2 * n_remaps),
                              squeeze=False)
-
     colors_violin = {'ref_old': '#377EB8', 'remapped': '#D62728', 'ref_new': '#4DAF4A'}
 
     for row_i, ((old_cls, new_cls), n_cells) in enumerate(top_remaps.items()):
         gene_list = markers_per_remap[(old_cls, new_cls)]
-
-        # Get remapped cell positions
         remap_sub = remap[(remap['old_cell_class'] == old_cls) &
                           (remap['new_cell_class'] == new_cls)]
         remap_local = [pos_to_local[p] for p in remap_sub['h5ad_pos'].values
                        if p in pos_to_local]
-
-        # Reference positions
         ref_old_local = [pos_to_local[p] for p in ref_positions.get(old_cls, [])
                          if p in pos_to_local]
         ref_new_local = [pos_to_local[p] for p in ref_positions.get(new_cls, [])
@@ -706,56 +785,43 @@ def make_marker_validation(tf, adata, out, max_ref=5000):
             ax = axes[row_i, col_i]
             ens_id = marker_ens[gene_sym]
             gene_col = valid_ens.index(ens_id) if ens_id in valid_ens else None
-
             if gene_col is None:
-                ax.axis('off')
-                continue
+                ax.axis('off'); continue
 
-            data_groups = []
-            labels_groups = []
-            group_colors = []
-
+            groups, lbls, cols = [], [], []
             if ref_old_local:
-                data_groups.append(expr[ref_old_local, gene_col])
-                labels_groups.append(f'Ref {old_cls}')
-                group_colors.append(colors_violin['ref_old'])
+                groups.append(expr[ref_old_local, gene_col])
+                lbls.append(f'Ref\n{old_cls}'); cols.append(colors_violin['ref_old'])
             if remap_local:
-                data_groups.append(expr[remap_local, gene_col])
-                labels_groups.append('Remapped')
-                group_colors.append(colors_violin['remapped'])
+                groups.append(expr[remap_local, gene_col])
+                lbls.append('Remapped'); cols.append(colors_violin['remapped'])
             if ref_new_local:
-                data_groups.append(expr[ref_new_local, gene_col])
-                labels_groups.append(f'Ref {new_cls}')
-                group_colors.append(colors_violin['ref_new'])
+                groups.append(expr[ref_new_local, gene_col])
+                lbls.append(f'Ref\n{new_cls}'); cols.append(colors_violin['ref_new'])
+            if not groups:
+                ax.axis('off'); continue
 
-            if not data_groups:
-                ax.axis('off')
-                continue
-
-            parts = ax.violinplot(data_groups, showextrema=False, showmedians=True)
+            parts = ax.violinplot(groups, showextrema=False, showmedians=True)
             for pc_i, pc in enumerate(parts['bodies']):
-                pc.set_facecolor(group_colors[pc_i])
-                pc.set_alpha(0.7)
-
-            ax.set_xticks(range(1, len(labels_groups) + 1))
-            ax.set_xticklabels(labels_groups, fontsize=6, rotation=30, ha='right')
+                pc.set_facecolor(cols[pc_i]); pc.set_alpha(0.7)
+            ax.set_xticks(range(1, len(lbls) + 1))
+            ax.set_xticklabels(lbls, fontsize=6, rotation=30, ha='right')
             ax.set_title(gene_sym, fontsize=9)
             if col_i == 0:
-                ax.set_ylabel(f'{old_cls} → {new_cls}\n(n={n_cells})',
-                              fontsize=8)
+                ax.set_ylabel(f'{old_cls}\u2192{new_cls}\n(n={n_cells})', fontsize=8)
 
-        # Hide unused axes
         for col_i in range(len(gene_list), max_cols):
             axes[row_i, col_i].axis('off')
 
-    fig.suptitle('Marker gene expression: class-remapped cells vs reference\n'
-                 '(log1p raw counts, AGING+HBCC reference)',
-                 fontsize=13, y=1.01)
+    title_period = f' — {period_label}' if period_label else ''
+    fig.suptitle(f'Marker gene expression: class-remapped cells vs reference{title_period}\n'
+                 f'(log1p scVI-normalized; reference: {ref_label})',
+                 fontsize=11, y=1.01)
     plt.tight_layout()
-    path = os.path.join(out, 'marker_validation.png')
-    plt.savefig(path, dpi=200, bbox_inches='tight')
+    fname = f'marker_validation{suffix}.png'
+    plt.savefig(os.path.join(out, fname), dpi=200, bbox_inches='tight')
     plt.close()
-    print(f"  marker_validation.png")
+    print(f"  {fname}")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -862,55 +928,91 @@ def main():
                    help='integrated.h5ad (for per-class UMAP and marker validation)')
     p.add_argument('--output_dir', required=True)
     p.add_argument('--embedding_key', default='X_scVI')
+    p.add_argument('--target_sources', nargs='+', default=None,
+                   help='Sources to generate diagnostics for. '
+                        'Default: all sources present in transferred_labels.csv')
     args = p.parse_args()
 
     os.makedirs(args.output_dir, exist_ok=True)
 
     print("Loading data …")
     all_df = pd.read_csv(args.all_labels)
-    tf = pd.read_csv(args.transfer)
+    tf     = pd.read_csv(args.transfer)
+    target_sources = args.target_sources or sorted(tf['source'].unique().tolist())
     print(f"  all_cell_labels: {len(all_df)} cells")
     print(f"  transferred:     {len(tf)} cells")
+    print(f"  target sources:  {target_sources}")
 
     print(f"\nLoading {args.input} (backed) …")
     adata = sc.read_h5ad(args.input, backed='r')
-    emb = np.array(adata.obsm[args.embedding_key])
+    emb   = np.array(adata.obsm[args.embedding_key])
     print(f"  {adata.shape[0]} cells, embedding dim={emb.shape[1]}")
 
-    # ── Tables ──
-    print("\n── Tables ──")
-    make_tables(tf, args.output_dir)
+    # ── Per-source diagnostics ─────────────────────────────────────────────
+    for src in target_sources:
+        tf_src = tf[tf['source'] == src].copy()
+        if tf_src.empty:
+            print(f"\nNo cells for source {src} — skipping.")
+            continue
 
-    print("\n── Class remapping analysis ──")
-    make_class_remapping_tables(tf, args.output_dir)
+        src_out = os.path.join(args.output_dir, src)
+        os.makedirs(src_out, exist_ok=True)
 
-    # ── Histograms ──
-    print("\n── Confidence histogram ──")
-    make_confidence_histogram(tf, args.output_dir)
+        sep = '=' * 60
+        print(f"\n{sep}\nDiagnostics for {src}  ({len(tf_src):,} cells)\n{sep}")
 
-    print("\n── Class-remapped confidence histogram ──")
-    make_remapped_confidence_histogram(tf, args.output_dir)
+        # Tables
+        print("\n── Tables ──")
+        make_tables(tf_src, src_out)
 
-    print("\n── Age histogram (class-remapped) ──")
-    make_age_histogram_remapped(tf, args.output_dir)
+        print("\n── Class remapping analysis ──")
+        make_class_remapping_tables(tf_src, src_out)
 
-    print("\n── Age vs confidence density ──")
-    make_age_confidence_density(tf, args.output_dir)
+        # Histograms
+        print("\n── Confidence histogram ──")
+        make_confidence_histogram(tf_src, src_out)
 
-    # ── UMAPs ──
-    print("\n── Global UMAP grid ──")
-    make_umap_global(all_df, args.output_dir)
+        print("\n── Class-remapped confidence histogram ──")
+        make_remapped_confidence_histogram(tf_src, src_out)
 
-    print("\n── Per-class UMAP grid ──")
-    make_umap_perclass(all_df, emb, args.output_dir)
+        print("\n── Age histogram (class-remapped) ──")
+        make_age_histogram_remapped(tf_src, src_out)
 
-    # ── Sankey ──
-    print("\n── Sankey diagram ──")
-    make_sankey(tf, args.output_dir)
+        print("\n── Age vs confidence density ──")
+        make_age_confidence_density(tf_src, src_out)
 
-    # ── Marker validation ──
-    print("\n── Marker gene validation ──")
-    make_marker_validation(tf, adata, args.output_dir)
+        # UMAPs
+        print("\n── Global UMAP grid ──")
+        make_umap_global(all_df, src_out, target_source=src)
+
+        print("\n── Target-cells UMAP ──")
+        make_umap_velmeshev(all_df, src_out, target_source=src)
+
+        print("\n── Per-class UMAP grid ──")
+        make_umap_perclass(all_df, emb, src_out, target_source=src)
+
+        # Sankey
+        print("\n── Sankey diagram ──")
+        make_sankey(tf_src, src_out, source_label=src)
+
+        # Marker validation — split by prenatal / postnatal when both exist
+        has_prenatal  = (tf_src['age_years'] < 0).any()
+        has_postnatal = (tf_src['age_years'] >= 0).any()
+
+        if has_prenatal:
+            print("\n── Marker validation (prenatal, ref=WANG) ──")
+            make_marker_validation(tf_src, adata, src_out,
+                                   ref_sources=['WANG'],
+                                   age_lo=-np.inf, age_hi=0,
+                                   suffix='_prenatal',
+                                   period_label=f'{src} prenatal (age < 0y)')
+        if has_postnatal:
+            print("\n── Marker validation (postnatal, ref=WANG) ──")
+            make_marker_validation(tf_src, adata, src_out,
+                                   ref_sources=['WANG'],
+                                   age_lo=0, age_hi=np.inf,
+                                   suffix='_postnatal',
+                                   period_label=f'{src} postnatal (age ≥ 0y)')
 
     print("\nDone.")
 

@@ -44,7 +44,8 @@ RUN="singularity exec \
 echo "── Label transfer ──"
 ${RUN} python3 -m label_transfer.run_transfer \
     --input "${INPUT}" \
-    --output_dir "${OUTPUT_DIR}"
+    --output_dir "${OUTPUT_DIR}" \
+    --reference_sources WANG
 
 echo ""
 echo "── Diagnostics ──"
