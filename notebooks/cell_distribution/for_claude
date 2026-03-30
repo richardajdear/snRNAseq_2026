@@ -1,0 +1,19 @@
+We need to refactor the codebase in light of the new label_transfer code pipeline, which should remap all cell_types to match the WANG data source.
+
+Please consider the following:
+1. The WANG data has several fields related to cell type. The specific Wang .obs field that I want to use as the reference for label transfer is 'Type-updated' (not Type, Subclass, cell_type, cell_subclass, etc).
+2. In Velmeshev, the 'old' field I want to use is the 'cell_type' field
+3. In HBCC/AGING, the 'old' field I want to use is the 'subclass' field.
+
+The current label transfer function uses the 'integrated.h5ad' dataset, but this uses data which has been processed using 'read_data.py', which has attempted to manually map cell types. This is confusing. 
+
+Instead, we should plan a new, clean pipeline. My suggestion is as follows:
+1. For each dataset, individually, use downsample.py + read_data.py to read the data, downsample it, AND align the *cell_class* labels (but not cell_type etc). *This means changing/simplifying read_data.py.*
+2. Use combine_data.py to combine the datasets into one large file.
+3. Use scVI to perform batch correction across the datasets.
+4. Use label_transfer to align the cell_type labels across all datasets, using the 'Type-updated' field in Wang (rename this to cell_type_aligned).
+5. If desired, use scANVI to further improve batch correction based on the new aligned labels.
+
+Does this make sense to you? Please review the plan and suggest any improvements.
+
+Then plan how the codebase should be refactored to achieve this. Feel free to clean up and simplify the code (previous versions are on github).

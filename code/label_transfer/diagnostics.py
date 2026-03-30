@@ -750,7 +750,8 @@ def make_marker_validation(tf, adata, out, max_ref=5000,
             chunk_data = chunk_data.toarray()
         expr[start_i:end_i] = np.asarray(chunk_data, dtype=np.float32)
 
-    expr = np.log1p(expr)
+    # Scale per-10k scVI values → per-1M (CPM) before log1p
+    expr = np.log1p(expr * 100.0)
 
     # Per-remapping marker gene lists (deduplicated, old then new class)
     markers_per_remap = {}
@@ -815,7 +816,7 @@ def make_marker_validation(tf, adata, out, max_ref=5000,
 
     title_period = f' — {period_label}' if period_label else ''
     fig.suptitle(f'Marker gene expression: class-remapped cells vs reference{title_period}\n'
-                 f'(log1p scVI-normalized; reference: {ref_label})',
+                 f'(log1p CPM; reference: {ref_label})',
                  fontsize=11, y=1.01)
     plt.tight_layout()
     fname = f'marker_validation{suffix}.png'

@@ -179,9 +179,10 @@ def main():
     # Class remapping summary
     if rmap.sum() > 0:
         print("\nClass remapping breakdown:")
-        for (oc, nc), n in (results.loc[rmap]
-                            .groupby(['old_cell_class', 'new_cell_class'])
-                            .size().sort_values(ascending=False).items()):
+        counts = (results.loc[rmap]
+                  .groupby(['old_cell_class', 'new_cell_class'], observed=True)
+                  .size().sort_values(ascending=False))
+        for (oc, nc), n in counts[counts > 0].items():
             c = results.loc[rmap & (results['old_cell_class'] == oc) &
                             (results['new_cell_class'] == nc),
                             'transfer_confidence'].mean()
