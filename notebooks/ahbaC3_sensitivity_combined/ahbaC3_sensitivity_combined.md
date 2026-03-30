@@ -72,8 +72,7 @@ library(tidyr)
 library(patchwork)
 library(ggpubr)
 library(pwr)
-library(eulerr)
-library(ggplotify)
+library(ggvenn)
 ```
 
     R[write to console]: 
@@ -242,7 +241,7 @@ plot_gap_pvalue(sens_all)
 
 ![](ahbaC3_sensitivity_combined_files/figure-markdown_strict/cell-12-output-1.png)
 
-### 3.4 Power
+### 3.4 Minimum Detectable Effect Size
 
 ``` python
 %%R -w 280 -h 220 -u mm -r 300

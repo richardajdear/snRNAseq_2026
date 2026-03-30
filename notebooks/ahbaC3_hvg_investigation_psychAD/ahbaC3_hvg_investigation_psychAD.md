@@ -43,10 +43,10 @@ print(f"  code_dir : {code_dir}")
 print(f"  ref_dir  : {ref_dir}")
 ```
 
-    Environment : hpc
-      rds_dir  : /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc
-      code_dir : /home/rajd2/rds/hpc-work/snRNAseq_2026/code
-      ref_dir  : /home/rajd2/rds/hpc-work/snRNAseq_2026/reference
+    Environment : local
+      rds_dir  : /Users/richard/Git/snRNAseq_2026/rds-cam-psych-transc-Pb9UGUlrwWc
+      code_dir : /Users/richard/Git/snRNAseq_2026/code
+      ref_dir  : /Users/richard/Git/snRNAseq_2026/reference
 
 ### 1.2 Libraries
 
@@ -63,34 +63,6 @@ if _env['name'] == 'local':
 %load_ext rpy2.ipython
 ```
 
-    /opt/micromamba/envs/shortcake_default/lib/python3.10/site-packages/anndata/utils.py:429: FutureWarning:
-
-    Importing read_csv from `anndata` is deprecated. Import anndata.io.read_csv instead.
-
-    /opt/micromamba/envs/shortcake_default/lib/python3.10/site-packages/anndata/utils.py:429: FutureWarning:
-
-    Importing read_text from `anndata` is deprecated. Import anndata.io.read_text instead.
-
-    /opt/micromamba/envs/shortcake_default/lib/python3.10/site-packages/anndata/utils.py:429: FutureWarning:
-
-    Importing read_excel from `anndata` is deprecated. Import anndata.io.read_excel instead.
-
-    /opt/micromamba/envs/shortcake_default/lib/python3.10/site-packages/anndata/utils.py:429: FutureWarning:
-
-    Importing read_mtx from `anndata` is deprecated. Import anndata.io.read_mtx instead.
-
-    /opt/micromamba/envs/shortcake_default/lib/python3.10/site-packages/anndata/utils.py:429: FutureWarning:
-
-    Importing read_loom from `anndata` is deprecated. Import anndata.io.read_loom instead.
-
-    /opt/micromamba/envs/shortcake_default/lib/python3.10/site-packages/anndata/utils.py:429: FutureWarning:
-
-    Importing read_hdf from `anndata` is deprecated. Import anndata.io.read_hdf instead.
-
-    /opt/micromamba/envs/shortcake_default/lib/python3.10/site-packages/anndata/utils.py:429: FutureWarning:
-
-    Importing read_umi_tools from `anndata` is deprecated. Import anndata.io.read_umi_tools instead.
-
 ``` python
 %%R
 
@@ -103,20 +75,18 @@ library(pwr)
 library(ggvenn)
 ```
 
-
+    R[write to console]: 
     Attaching package: ‘dplyr’
 
-    The following objects are masked from ‘package:stats’:
+
+    R[write to console]: The following objects are masked from ‘package:stats’:
 
         filter, lag
 
-    The following objects are masked from ‘package:base’:
+
+    R[write to console]: The following objects are masked from ‘package:base’:
 
         intersect, setdiff, setequal, union
-
-    In addition: Warning message:
-    In (function (package, help, pos = 2, lib.loc = NULL, character.only = FALSE,  :
-      library ‘/usr/lib/R/site-library’ contains no packages
 
 ``` python
 from regulons import get_ahba_GRN, project_GRN
@@ -228,9 +198,9 @@ print(f"scores: {len(scores_df)}, stats: {len(stats_df)}, final_df (excitatory):
     ============================================================
     Condition: pearson_1000
     Found 7228 matching genes in var_names.
-    Aligning GRN weights to 512 matched genes for projection...
+    Aligning GRN weights to 511 matched genes for projection...
     Computing sparse-dense dot product...
-      HVGs: 1000, GRN genes used: 512/7228 (7.1%)
+      HVGs: 1000, GRN genes used: 511/7228 (7.1%)
 
     ============================================================
     Condition: seurat_v3_2000
@@ -312,9 +282,9 @@ print(f"scores: {len(scores_df)}, stats: {len(stats_df)}, final_df (excitatory):
     ============================================================
     Condition: pearson_8000
     Found 7228 matching genes in var_names.
-    Aligning GRN weights to 2755 matched genes for projection...
+    Aligning GRN weights to 2754 matched genes for projection...
     Computing sparse-dense dot product...
-      HVGs: 8000, GRN genes used: 2755/7228 (38.1%)
+      HVGs: 8000, GRN genes used: 2754/7228 (38.1%)
 
     ============================================================
     Condition: seurat_v3_10000
@@ -333,10 +303,10 @@ print(f"scores: {len(scores_df)}, stats: {len(stats_df)}, final_df (excitatory):
     ============================================================
     Condition: pearson_10000
     Found 7228 matching genes in var_names.
-    Aligning GRN weights to 3230 matched genes for projection...
+    Aligning GRN weights to 3229 matched genes for projection...
     Computing sparse-dense dot product...
-      HVGs: 10000, GRN genes used: 3230/7228 (44.7%)
-    Cache saved to /rds/user/rajd2/hpc-work/snRNAseq_2026/notebooks/ahbaC3_hvg_investigation_psychAD/_cache
+      HVGs: 10000, GRN genes used: 3229/7228 (44.7%)
+    Cache saved to /Users/richard/Git/snRNAseq_2026/notebooks/ahbaC3_hvg_investigation_psychAD/_cache
     scores: 4157542, stats: 19, final_df (excitatory): 944642, hvg_df: 93000
 
 ### Gene Overlap Summary
@@ -349,7 +319,7 @@ print(stats_df.to_string(index=False))
           all_genes  34176              7228             100.0
      seurat_v3_1000   1000               367               5.1
         seurat_1000   1000               362               5.0
-       pearson_1000   1000               512               7.1
+       pearson_1000   1000               511               7.1
      seurat_v3_2000   2000               720              10.0
         seurat_2000   2000               641               8.9
        pearson_2000   2000               979              13.5
@@ -361,10 +331,10 @@ print(stats_df.to_string(index=False))
        pearson_6000   6000              2211              30.6
      seurat_v3_8000   8000              2348              32.5
         seurat_8000   8000              1721              23.8
-       pearson_8000   8000              2755              38.1
+       pearson_8000   8000              2754              38.1
     seurat_v3_10000  10000              2639              36.5
        seurat_10000  10000              2034              28.1
-      pearson_10000  10000              3230              44.7
+      pearson_10000  10000              3229              44.7
 
 ## 4. Age Range Sensitivity
 
@@ -415,7 +385,7 @@ plot_sensitivity_pvalue(sens_all)
 
 ![](ahbaC3_hvg_investigation_psychAD_files/figure-markdown_strict/cell-12-output-1.png)
 
-### 4.4 Power
+### 4.4 Minimum Detectable Effect Size
 
 ``` python
 %%R -w 260 -h 200 -u mm -r 300
@@ -478,29 +448,7 @@ p_c <- plot_boxes(df_boxes, best_cs, best_bd, best_ae)
     `geom_smooth()` using method = 'gam' and formula = 'y ~ s(x, bs = "cs")'
     `geom_smooth()` using method = 'loess' and formula = 'y ~ x'
 
-    R[write to console]: In addition: 
-    R[write to console]: Warning messages:
-
-    R[write to console]: 1: Removed 262968 rows containing non-finite outside the scale range
-    (`stat_smooth()`). 
-
-    R[write to console]: 2: Removed 262968 rows containing missing values or values outside the scale range
-    (`geom_point()`). 
-
-    R[write to console]: 3: Removed 2772 rows containing non-finite outside the scale range
-    (`stat_smooth()`). 
-
-    R[write to console]: 4: Removed 2772 rows containing missing values or values outside the scale range
-    (`geom_point()`). 
-
-    In addition: Warning message:
-    The `panel.margin` argument of `theme()` is deprecated as of ggplot2 2.2.0.
-    ℹ Please use the `panel.spacing` argument instead.
-    This warning is displayed once every 8 hours.
-    Call `lifecycle::last_lifecycle_warnings()` to see where this warning was
-    generated. 
-
-![](ahbaC3_hvg_investigation_psychAD_files/figure-markdown_strict/cell-17-output-4.png)
+![](ahbaC3_hvg_investigation_psychAD_files/figure-markdown_strict/cell-17-output-2.png)
 
 ### 5.3 Z-scored
 
@@ -520,22 +468,7 @@ p_c <- plot_boxes(df_boxes, best_cs, best_bd, best_ae, zscore = TRUE)
     `geom_smooth()` using method = 'gam' and formula = 'y ~ s(x, bs = "cs")'
     `geom_smooth()` using method = 'loess' and formula = 'y ~ x'
 
-    R[write to console]: In addition: 
-    R[write to console]: Warning messages:
-
-    R[write to console]: 1: Removed 262968 rows containing non-finite outside the scale range
-    (`stat_smooth()`). 
-
-    R[write to console]: 2: Removed 262968 rows containing missing values or values outside the scale range
-    (`geom_point()`). 
-
-    R[write to console]: 3: Removed 2772 rows containing non-finite outside the scale range
-    (`stat_smooth()`). 
-
-    R[write to console]: 4: Removed 2772 rows containing missing values or values outside the scale range
-    (`geom_point()`). 
-
-![](ahbaC3_hvg_investigation_psychAD_files/figure-markdown_strict/cell-18-output-3.png)
+![](ahbaC3_hvg_investigation_psychAD_files/figure-markdown_strict/cell-18-output-2.png)
 
 ### 5.4 C3+ Effect Summary
 
@@ -546,14 +479,4 @@ plot_effect_summary(df_boxes, 'Childhood', 'Adolescence') /
 plot_effect_summary(df_boxes, 'Adolescence', 'Adulthood')
 ```
 
-    In addition: Warning messages:
-    1: There was 1 warning in `mutate()`.
-    ℹ In argument: `n_genes = ifelse(...)`.
-    Caused by warning in `ifelse()`:
-    ! NAs introduced by coercion 
-    2: There was 1 warning in `mutate()`.
-    ℹ In argument: `n_genes = ifelse(...)`.
-    Caused by warning in `ifelse()`:
-    ! NAs introduced by coercion 
-
-![](ahbaC3_hvg_investigation_psychAD_files/figure-markdown_strict/cell-19-output-2.png)
+![](ahbaC3_hvg_investigation_psychAD_files/figure-markdown_strict/cell-19-output-1.png)
