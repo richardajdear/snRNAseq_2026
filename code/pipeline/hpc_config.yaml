@@ -1,0 +1,69 @@
+# snRNAseq Pipeline Config — HPC (full dataset)
+#
+# Run via SLURM:
+#   cd /home/rajd2/rds/hpc-work/snRNAseq_2026
+#   bash code/pipeline/slurm/submit_pipeline.sh code/pipeline/hpc_config.yaml
+
+output_dir: /home/rajd2/rds/hpc-work/snRNAseq_2026/pipeline_output
+
+sources:
+  - name: WANG
+    path: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/wang/wang.h5ad
+    dataset_type: Wang
+    cell_type_field: "Type-updated"
+    pfc_only: true
+    n_cells: null
+
+  - name: VELMESHEV
+    path: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/velmeshev/velmeshev.h5ad
+    dataset_type: Velmeshev
+    cell_type_field: "Cell_Type"
+    pfc_only: true
+    n_cells: null
+
+  - name: AGING
+    path: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_PsychAD/RNAseq/Aging_Cohort.h5ad
+    dataset_type: Aging
+    cell_type_field: "subclass"
+    pfc_only: true
+    n_cells: null
+
+  - name: HBCC
+    path: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_PsychAD/RNAseq/HBCC_Cohort.h5ad
+    dataset_type: HBCC
+    cell_type_field: "subclass"
+    pfc_only: true
+    n_cells: null
+
+age_downsample: false
+seed: 42
+
+scvi:
+  n_top_genes: 10000
+  n_latent: 30
+  max_epochs_scvi: 400
+  max_epochs_scanvi: 100
+  batch_size: 256
+  early_stopping: true
+  early_stopping_patience: 20
+  num_workers: 4
+
+label_transfer:
+  reference_source: WANG
+  target_sources:
+    - VELMESHEV
+    - AGING
+    - HBCC
+  k: 50
+  confidence_threshold: 0.5
+  embedding_key: X_scVI
+  umap_key: X_umap_scvi
+
+run_scanvi_with_aligned_labels: false
+
+steps:
+  - downsample
+  - combine
+  - scvi
+  - label_transfer
+overwrite: false

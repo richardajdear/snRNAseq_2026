@@ -8,12 +8,7 @@ import psutil
 import time
 import pandas as pd
 
-# Import our read_data module
-try:
-    import read_data
-except ImportError:
-    sys.path.append(os.path.dirname(os.path.realpath(__file__)))
-    import read_data
+from pipeline import read_data
 
 START_TIME = time.time()
 
@@ -32,6 +27,9 @@ def main():
     parser.add_argument("--dataset_type", choices=['Velmeshev', 'Wang', 'Aging', 'HBCC', 'Generic'], 
                         default='Generic', help="Dataset type to determine reading logic.")
 
+    parser.add_argument("--cell_type_field", default=None,
+                        help="Source obs/meta column to store as cell_type_raw. "
+                             "Defaults: Velmeshev='Cell_Type', Wang='Type-updated', Aging/HBCC='subclass'.")
     parser.add_argument("--pfc_only", action='store_true', help="Keep only 'prefrontal cortex' regions.")
     parser.add_argument("--age_downsample", action='store_true', help="Keep all <40, 20% of donors >=40.")
     parser.add_argument("--n_cells", type=int, help="Target number of cells (random downsample)")
@@ -49,14 +47,19 @@ def main():
     adata_backed = None
     meta_df = None
     
+    ctf = args.cell_type_field  # None → each reader uses its own default
     if args.dataset_type == 'Velmeshev':
-        adata_backed, meta_df = read_data.read_velmeshev_backed(h5ad_path=args.input)
+        kw = {'cell_type_field': ctf} if ctf else {}
+        adata_backed, meta_df = read_data.read_velmeshev_backed(h5ad_path=args.input, **kw)
     elif args.dataset_type == 'Wang':
-        adata_backed, meta_df = read_data.read_wang_backed(h5ad_path=args.input)
+        kw = {'cell_type_field': ctf} if ctf else {}
+        adata_backed, meta_df = read_data.read_wang_backed(h5ad_path=args.input, **kw)
     elif args.dataset_type == 'Aging':
-        adata_backed, meta_df = read_data.read_psychad_backed(h5ad_path=args.input, dataset_name='AGING')
+        kw = {'cell_type_field': ctf} if ctf else {}
+        adata_backed, meta_df = read_data.read_psychad_backed(h5ad_path=args.input, dataset_name='AGING', **kw)
     elif args.dataset_type == 'HBCC':
-        adata_backed, meta_df = read_data.read_psychad_backed(h5ad_path=args.input, dataset_name='HBCC')
+        kw = {'cell_type_field': ctf} if ctf else {}
+        adata_backed, meta_df = read_data.read_psychad_backed(h5ad_path=args.input, dataset_name='HBCC', **kw)
     else:
         # Generic: load backed, use obs as metadata
         adata_backed = sc.read_h5ad(args.input, backed='r')

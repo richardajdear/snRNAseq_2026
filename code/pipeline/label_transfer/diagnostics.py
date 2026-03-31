@@ -10,7 +10,7 @@ Usage
 
 Outputs
 -------
-    remapping_crosstab.csv      — cell_type × transferred_subclass (Velmeshev)
+    remapping_crosstab.csv      — cell_type_raw × cell_type_aligned
     interneurons_detail.csv     — how 'Interneurons' / 'INT' cells were remapped
     confidence_summary.csv      — confidence by cell_class and age bin
     class_remapping_table.csv   — proportions of cells remapped between classes
@@ -121,17 +121,17 @@ MARKERS = {
 def make_tables(tf, out):
     """Cross-tabulation and detail tables for Velmeshev transfer results."""
 
-    # 1. Full cross-tab: raw cell_type → transferred subclass
-    ct = pd.crosstab(tf['cell_type'], tf['transferred_subclass'], margins=True)
+    # 1. Full cross-tab: raw cell_type → aligned cell type
+    ct = pd.crosstab(tf['cell_type_raw'], tf['cell_type_aligned'], margins=True)
     ct.to_csv(os.path.join(out, 'remapping_crosstab.csv'))
     print(f"  remapping_crosstab.csv  ({ct.shape})")
 
     # 2. Interneurons / INT detail
     for label in ('Interneurons', 'INT'):
-        sub = tf[tf['cell_type'] == label]
+        sub = tf[tf['cell_type_raw'] == label]
         if sub.empty:
             continue
-        detail = (sub.groupby(['cell_class', 'transferred_subclass'])
+        detail = (sub.groupby(['cell_class', 'cell_type_aligned'])
                   .agg(n=('transfer_confidence', 'size'),
                        mean_conf=('transfer_confidence', 'mean'),
                        mean_dist=('mean_knn_distance', 'mean'))
@@ -349,8 +349,8 @@ def make_umap_global(all_df, out, target_source='VELMESHEV'):
         is_tgt = is_target[cls_mask]
 
         for row, (label_col, row_title) in enumerate([
-            ('old_subclass', 'Original subclass'),
-            ('new_subclass', 'Transferred subclass'),
+            ('cell_type_raw', 'Source label (cell_type_raw)'),
+            ('cell_type_aligned', 'Transferred label (cell_type_aligned)'),
         ]):
             ax = axes[row, col]
             _scatter_panel(ax, xy, sub[label_col], is_tgt)
@@ -358,7 +358,7 @@ def make_umap_global(all_df, out, target_source='VELMESHEV'):
             ax.set_title(f'{group_name}  —  {row_title}', fontsize=11)
 
     fig.suptitle(
-        'Cell subclass labels: original vs kNN-transferred '
+        'Cell type labels: cell_type_raw vs cell_type_aligned (kNN-transferred) '
         f'({target_source} highlighted, reference cells faded)\n'
         'Global UMAP embedding',
         fontsize=13, y=0.98)
@@ -389,8 +389,8 @@ def make_umap_perclass(all_df, emb, out, target_source='VELMESHEV'):
         xy = reducer.fit_transform(sub_emb)
 
         for row, (label_col, row_title) in enumerate([
-            ('old_subclass', 'Original subclass'),
-            ('new_subclass', 'Transferred subclass'),
+            ('cell_type_raw', 'Source label (cell_type_raw)'),
+            ('cell_type_aligned', 'Transferred label (cell_type_aligned)'),
         ]):
             ax = axes[row, col]
             _scatter_panel(ax, xy, sub[label_col], is_tgt)
@@ -398,7 +398,7 @@ def make_umap_perclass(all_df, emb, out, target_source='VELMESHEV'):
             ax.set_title(f'{group_name}  —  {row_title}', fontsize=11)
 
     fig.suptitle(
-        'Cell subclass labels: original vs kNN-transferred '
+        'Cell type labels: cell_type_raw vs cell_type_aligned (kNN-transferred) '
         f'({target_source} highlighted, reference cells faded)\n'
         'Per-class recomputed UMAP from scVI embedding',
         fontsize=13, y=0.98)
@@ -511,14 +511,14 @@ def make_umap_velmeshev(all_df, out, target_source='VELMESHEV'):
 
 def _make_sankey_panel(ax, tf_sub, title, within_color='#4DBEEE',
                        cross_color='#D62728'):
-    """Single sankey panel: old cell_type → transferred_subclass.
+    """Single sankey panel: cell_type_raw → cell_type_aligned.
 
     Within-class flows in blue, cross-class flows in red.
     """
-    from label_transfer.transfer import subclass_to_class
+    from pipeline.label_transfer.transfer import aligned_to_class
 
-    # Build flow table: old_subclass → transferred_subclass
-    flows = (tf_sub.groupby(['old_subclass', 'transferred_subclass'])
+    # Build flow table: cell_type_raw → cell_type_aligned
+    flows = (tf_sub.groupby(['cell_type_raw', 'cell_type_aligned'])
              .size().reset_index(name='n'))
     flows = flows[flows['n'] > 0].sort_values('n', ascending=False)
 
@@ -528,9 +528,9 @@ def _make_sankey_panel(ax, tf_sub, title, within_color='#4DBEEE',
         return
 
     # Determine if each flow is within-class or cross-class
-    flows['new_class'] = flows['transferred_subclass'].map(subclass_to_class)
-    ct_class = tf_sub.groupby('old_subclass')['old_cell_class'].first().to_dict()
-    flows['old_class'] = flows['old_subclass'].map(ct_class)
+    flows['new_class'] = flows['cell_type_aligned'].map(aligned_to_class)
+    ct_class = tf_sub.groupby('cell_type_raw')['old_cell_class'].first().to_dict()
+    flows['old_class'] = flows['cell_type_raw'].map(ct_class)
     flows['is_cross'] = flows['old_class'] != flows['new_class']
 
     # Filter to top flows for readability (keep flows with ≥ 0.5% of panel total)
@@ -542,9 +542,9 @@ def _make_sankey_panel(ax, tf_sub, title, within_color='#4DBEEE',
         ax.axis('off')
         return
 
-    # Left side: old_subclass, right side: transferred_subclass
-    left_labels = flows.groupby('old_subclass')['n'].sum().sort_values(ascending=True)
-    right_labels = flows.groupby('transferred_subclass')['n'].sum().sort_values(ascending=True)
+    # Left side: cell_type_raw, right side: cell_type_aligned
+    left_labels = flows.groupby('cell_type_raw')['n'].sum().sort_values(ascending=True)
+    right_labels = flows.groupby('cell_type_aligned')['n'].sum().sort_values(ascending=True)
     total_shown = left_labels.sum()
 
     gap = 0.02
@@ -580,7 +580,7 @@ def _make_sankey_panel(ax, tf_sub, title, within_color='#4DBEEE',
         alpha = 0.6 if is_cross_val else 0.3
 
         for _, row in sub.iterrows():
-            lbl_l, lbl_r, n = row['old_subclass'], row['transferred_subclass'], row['n']
+            lbl_l, lbl_r, n = row['cell_type_raw'], row['cell_type_aligned'], row['n']
             if lbl_l not in left_pos or lbl_r not in right_pos:
                 continue
 
@@ -654,7 +654,7 @@ def make_sankey(tf, out, source_label=''):
     fig.legend(handles=legend_elements, loc='lower center', ncol=2,
                fontsize=10, frameon=False, bbox_to_anchor=(0.5, 0.01))
 
-    title = f'Sankey: old subclass → kNN-transferred Wang subclass'
+    title = f'Sankey: cell_type_raw → kNN-transferred cell_type_aligned (Wang reference)'
     if source_label:
         title = f'{source_label}  —  {title}'
     fig.suptitle(title, fontsize=14, y=0.98)

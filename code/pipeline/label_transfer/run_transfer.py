@@ -1,21 +1,25 @@
 """Standalone label-transfer job.
 
-Assigns cell subclass labels to Velmeshev cells via weighted kNN in scVI
-latent space, using AGING + HBCC + WANG cells (with specific, non-broad
-subclass labels) as the reference.
+Transfers fine-grained cell type labels from a reference dataset to target
+datasets via weighted kNN in scVI latent space.
+
+The reference source provides curated labels (e.g. Wang 'Type-updated') as
+cell_type_raw.  Target cells receive the nearest-neighbour label as
+cell_type_aligned.  Reference cells are also written to the output with
+cell_type_aligned = cell_type_raw (pass-through).
 
 Usage
 -----
-    PYTHONPATH=code python3 -m label_transfer.run_transfer \
-        --input  path/to/integrated.h5ad \
+    PYTHONPATH=code python3 -m label_transfer.run_transfer \\
+        --input  path/to/integrated.h5ad \\
         --output_dir path/to/label_transfer/
 
 Outputs
 -------
-    transferred_labels.csv  — Velmeshev cells: cell_id, old/new class+subclass,
-                              confidence, h5ad_pos (for expression indexing)
-    all_cell_labels.csv     — ALL cells: cell_id, old/new class+subclass,
-                              UMAP coords
+    transferred_labels.csv  — target cells only: cell_id, cell_type_raw,
+                              cell_type_aligned, confidence, h5ad_pos, etc.
+    all_cell_labels.csv     — ALL cells: cell_id, cell_type_raw,
+                              cell_type_aligned, UMAP coords
 """
 
 import argparse
@@ -24,8 +28,7 @@ import numpy as np
 import pandas as pd
 import scanpy as sc
 
-from label_transfer.transfer import (derive_subclass, knn_transfer,
-                                     subclass_to_class, BROAD_LABELS)
+from .transfer import knn_transfer, aligned_to_class, BROAD_LABELS
 
 
 def main():
@@ -36,10 +39,10 @@ def main():
     p.add_argument('--confidence_threshold', type=float, default=0.5)
     p.add_argument('--embedding_key', default='X_scVI')
     p.add_argument('--umap_key', default='X_umap_scvi')
+    p.add_argument('--reference_source', default='WANG',
+                   help='Source to use as reference (default: WANG)')
     p.add_argument('--target_sources', nargs='+', default=None,
-                   help='Default: all non-reference sources')
-    p.add_argument('--reference_sources', nargs='+', default=['WANG'],
-                   help='Default: WANG only')
+                   help='Sources to transfer labels to (default: all non-reference)')
     args = p.parse_args()
 
     os.makedirs(args.output_dir, exist_ok=True)
@@ -47,58 +50,54 @@ def main():
     # ── load ─────────────────────────────────────────────────────────────
     print(f"Loading {args.input} (backed) …")
     adata = sc.read_h5ad(args.input, backed='r')
-    obs  = adata.obs.copy()
-    emb  = np.array(adata.obsm[args.embedding_key])
-    umap = np.array(adata.obsm[args.umap_key])
+    obs   = adata.obs.copy()
+    emb   = np.array(adata.obsm[args.embedding_key])
+    umap  = np.array(adata.obsm[args.umap_key])
     print(f"  {adata.shape[0]} cells, embedding dim={emb.shape[1]}")
 
-    # Preserve original cell IDs and positional index
-    obs['cell_id']   = obs.index.values
-    obs['h5ad_pos']  = np.arange(len(obs))
+    obs['cell_id']  = obs.index.values
+    obs['h5ad_pos'] = np.arange(len(obs))
 
-    ref_sources = args.reference_sources
+    ref_source = args.reference_source
     target_sources = args.target_sources or sorted(
-        s for s in obs['source'].unique() if s not in set(ref_sources))
+        s for s in obs['source'].unique() if s != ref_source)
 
-    # ── derive subclass ──────────────────────────────────────────────────
-    print("Deriving cell_subclass (per-source mappers) …")
-    obs['old_subclass'] = derive_subclass(obs)
+    print(f"\nReference source: {ref_source}")
+    print(f"Target sources:   {target_sources}")
 
     # ── build reference ──────────────────────────────────────────────────
-    ref_mask    = (obs['source'].isin(ref_sources)
-                   & ~obs['old_subclass'].isin(BROAD_LABELS)).values
+    # Reference = reference-source cells with specific (non-broad) cell_type_raw labels
+    ref_mask = (
+        (obs['source'] == ref_source) &
+        (~obs['cell_type_raw'].isin(BROAD_LABELS))
+    ).values
     target_mask = obs['source'].isin(target_sources).values
 
-    ref_labels = obs.loc[ref_mask, 'old_subclass'].values
-    print(f"\nReference: {ref_mask.sum()} cells from {ref_sources}")
-    print(f"  {len(np.unique(ref_labels))} unique labels")
-    for lbl, n in (pd.Series(ref_labels)
-                   .value_counts().items()):
-        print(f"    {lbl:25s} {n:6d}")
+    ref_labels = obs.loc[ref_mask, 'cell_type_raw'].values
+    print(f"\nReference: {ref_mask.sum()} cells ({len(np.unique(ref_labels))} unique labels)")
+    for lbl, n in pd.Series(ref_labels).value_counts().items():
+        print(f"    {lbl:30s} {n:6d}")
 
-    print(f"\nTarget: {target_mask.sum()} cells from {target_sources}")
+    print(f"\nTarget: {target_mask.sum()} cells")
     for _src in target_sources:
         print(f"  {_src}: {(obs['source'] == _src).sum()} cells")
 
     # ── kNN transfer ─────────────────────────────────────────────────────
-    print(f"\nRunning kNN transfer (k={args.k}, "
-          f"embedding={args.embedding_key}) …")
+    print(f"\nRunning kNN transfer (k={args.k}, embedding={args.embedding_key}) …")
     transferred, confidence, mean_dist = knn_transfer(
         emb[target_mask], emb[ref_mask], ref_labels, k=args.k)
     print("  Done.")
 
-    # ── save Velmeshev detail ────────────────────────────────────────────
-    cols = ['cell_id', 'h5ad_pos', 'source', 'cell_class', 'cell_type',
-            'age_years']
+    # ── save target-cells detail ─────────────────────────────────────────
+    cols = ['cell_id', 'h5ad_pos', 'source', 'cell_class', 'cell_type_raw', 'age_years']
     results = obs.loc[target_mask, cols].copy()
-    results['old_cell_class']       = results['cell_class']
-    results['old_subclass']         = obs.loc[target_mask, 'old_subclass'].values
-    results['transferred_subclass'] = transferred
-    results['new_cell_class']       = pd.Series(transferred).map(subclass_to_class).values
-    results['transfer_confidence']  = np.round(confidence, 4)
-    results['mean_knn_distance']    = np.round(mean_dist, 4)
-    results['is_low_confidence']    = confidence < args.confidence_threshold
-    results['is_class_remapped']    = results['old_cell_class'] != results['new_cell_class']
+    results['old_cell_class']    = results['cell_class']
+    results['cell_type_aligned'] = transferred
+    results['new_cell_class']    = pd.Series(transferred, index=results.index).map(aligned_to_class)
+    results['transfer_confidence'] = np.round(confidence, 4)
+    results['mean_knn_distance']   = np.round(mean_dist, 4)
+    results['is_low_confidence']   = confidence < args.confidence_threshold
+    results['is_class_remapped']   = results['old_cell_class'] != results['new_cell_class']
     results = results.reset_index(drop=True)
 
     detail_path = os.path.join(args.output_dir, 'transferred_labels.csv')
@@ -106,14 +105,15 @@ def main():
     print(f"\nSaved: {detail_path}")
 
     # ── save all-cell labels + UMAP coords ───────────────────────────────
-    all_cols = ['cell_id', 'h5ad_pos', 'source', 'cell_class', 'cell_type',
-                'age_years']
+    all_cols = ['cell_id', 'h5ad_pos', 'source', 'cell_class', 'cell_type_raw', 'age_years']
     all_df = obs[all_cols].copy()
-    all_df['old_cell_class'] = all_df['cell_class']
-    all_df['old_subclass']   = obs['old_subclass']
-    all_df['new_subclass']   = obs['old_subclass'].copy()
-    all_df.loc[target_mask, 'new_subclass'] = transferred
-    all_df['new_cell_class'] = all_df['new_subclass'].map(subclass_to_class)
+    all_df['old_cell_class']    = all_df['cell_class']
+
+    # Reference cells: pass-through (cell_type_aligned = cell_type_raw)
+    all_df['cell_type_aligned'] = all_df['cell_type_raw'].copy()
+    all_df.loc[target_mask, 'cell_type_aligned'] = transferred
+
+    all_df['new_cell_class']      = all_df['cell_type_aligned'].map(aligned_to_class)
     all_df['transfer_confidence'] = np.nan
     all_df.loc[target_mask, 'transfer_confidence'] = np.round(confidence, 4)
     all_df['umap_1'] = umap[:, 0]
@@ -129,7 +129,7 @@ def main():
     rmap = results['is_class_remapped']
     sep  = '=' * 60
     print(f"\n{sep}\nTRANSFER SUMMARY\n{sep}")
-    print(f"Reference: {ref_sources}  →  Target: {target_sources}")
+    print(f"Reference: {ref_source}  →  Target: {target_sources}")
     print(f"Low confidence (<{args.confidence_threshold}): "
           f"{low.sum()} / {len(results)} ({100 * low.mean():.1f}%)")
     print(f"Class-remapped: "
@@ -146,11 +146,9 @@ def main():
               f"class_remapped={srm.sum()} ({100*srm.mean():.1f}%)")
 
     print("\nTransferred label distribution:")
-    for lbl, n in results['transferred_subclass'].value_counts().items():
-        c = results.loc[
-            results['transferred_subclass'] == lbl, 'transfer_confidence'
-        ].mean()
-        print(f"  {lbl:25s} {n:6d}  (mean conf {c:.3f})")
+    for lbl, n in results['cell_type_aligned'].value_counts().items():
+        c = results.loc[results['cell_type_aligned'] == lbl, 'transfer_confidence'].mean()
+        print(f"  {lbl:30s} {n:6d}  (mean conf {c:.3f})")
 
     # Age-stratified confidence
     print("\nConfidence by age group:")
@@ -163,29 +161,29 @@ def main():
         m = (age >= lo) & (age < hi)
         if m.sum() == 0:
             continue
-        c = results.loc[m, 'transfer_confidence']
+        c  = results.loc[m, 'transfer_confidence']
         lc = results.loc[m, 'is_low_confidence']
         print(f"  {tag:20s}: n={m.sum():6d}  mean_conf={c.mean():.3f}  "
               f"low_conf={lc.sum()} ({100 * lc.mean():.1f}%)")
 
     print("\nConfidence by cell_class:")
     for cls in sorted(results['cell_class'].unique()):
-        m = results['cell_class'] == cls
-        c = results.loc[m, 'transfer_confidence']
+        m  = results['cell_class'] == cls
+        c  = results.loc[m, 'transfer_confidence']
         lc = results.loc[m, 'is_low_confidence']
         print(f"  {cls:15s}: n={m.sum():6d}  mean_conf={c.mean():.3f}  "
               f"low_conf={lc.sum()} ({100 * lc.mean():.1f}%)")
 
-    # Class remapping summary
     if rmap.sum() > 0:
         print("\nClass remapping breakdown:")
         counts = (results.loc[rmap]
                   .groupby(['old_cell_class', 'new_cell_class'], observed=True)
                   .size().sort_values(ascending=False))
         for (oc, nc), n in counts[counts > 0].items():
-            c = results.loc[rmap & (results['old_cell_class'] == oc) &
-                            (results['new_cell_class'] == nc),
-                            'transfer_confidence'].mean()
+            c = results.loc[
+                rmap & (results['old_cell_class'] == oc) & (results['new_cell_class'] == nc),
+                'transfer_confidence'
+            ].mean()
             print(f"  {oc:15s} → {nc:15s}: {n:5d}  (mean conf {c:.3f})")
 
 
