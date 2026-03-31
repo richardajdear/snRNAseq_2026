@@ -2,7 +2,7 @@
 #SBATCH --job-name=render_notebook
 #SBATCH --output=/home/rajd2/rds/hpc-work/snRNAseq_2026/logs/render_notebook_%j.out
 #SBATCH --error=/home/rajd2/rds/hpc-work/snRNAseq_2026/logs/render_notebook_%j.err
-#SBATCH --time=04:00:00
+#SBATCH --time=00:30:00
 #SBATCH --mem=200G
 #SBATCH --partition=icelake
 
