@@ -74,10 +74,8 @@ library(ggvenn)
 ```
 
 ```{python}
-from regulons import get_ahba_GRN, project_GRN
-from gene_mapping import map_grn_symbols_to_ensembl
-from hvg_investigation import (build_conditions, run_hvg_conditions,
-                                prepare_for_r, save_cache, load_cache)
+from hvg_investigation import (load_single_raw, setup_grn,
+                                run_projection_pipeline, load_cache)
 ```
 
 ## 2. Data & HVG Projections
@@ -95,38 +93,12 @@ if cached is not None:
     scores_df, stats_df, final_df, hvg_df = cached
     print(f"scores: {len(scores_df)} rows, stats: {len(stats_df)} rows, final: {len(final_df)} rows, hvg_df: {len(hvg_df)} rows")
 else:
-    # ── Load and normalize ──
-    adata = sc.read_h5ad(DATA_FILE)
-    adata.layers['counts'] = adata.X.copy()
-    sc.pp.normalize_total(adata, target_sum=1e6)
-    if 'source' not in adata.obs.columns:
-        adata.obs['source'] = 'VELMESHEV'
-    print(f"Shape: {adata.shape}")
-
-    adata_log = adata.copy()
-    sc.pp.log1p(adata_log)
-
-    # ── Load and remap GRN ──
-    grn_file = os.path.join(ref_dir, "ahba_dme_hcp_top8kgenes_weights.csv")
-    ahba_GRN = get_ahba_GRN(path_to_ahba_weights=grn_file, use_weights=True)
-    ahba_GRN = map_grn_symbols_to_ensembl(ahba_GRN, adata)
-    grn_pivot = ahba_GRN.pivot_table(index='Network', columns='Gene', values='Importance', fill_value=0)
-    total_grn_genes = len(np.intersect1d(grn_pivot.columns, adata.var_names))
-    print(f"GRN genes in adata: {total_grn_genes} / {grn_pivot.shape[1]}")
-
-    # ── Run HVG conditions ──
-    conditions = build_conditions(N_VALUES)
-    scores_df, stats_df, hvg_df = run_hvg_conditions(
-        adata, adata_log, ahba_GRN, conditions, total_grn_genes)
-    del adata_log
-
-    # ── Prepare for R ──
-    final_df = prepare_for_r(scores_df, adata, N_VALUES)
-    del adata
+    adata, adata_log = load_single_raw(DATA_FILE, source_label='VELMESHEV')
+    ahba_GRN, total_grn_genes = setup_grn(ref_dir, adata)
+    scores_df, stats_df, final_df, hvg_df = run_projection_pipeline(
+        adata, adata_log, ahba_GRN, total_grn_genes, N_VALUES, CACHE_DIR)
+    del adata, adata_log
     import gc; gc.collect()
-
-    # ── Save cache ──
-    save_cache(CACHE_DIR, scores_df, stats_df, final_df, hvg_df)
 
 print(f"scores: {len(scores_df)}, stats: {len(stats_df)}, final_df (excitatory): {len(final_df)}, hvg_df: {len(hvg_df)}")
 ```
