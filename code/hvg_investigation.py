@@ -157,3 +157,138 @@ def prepare_for_r(scores_df, adata, n_values):
         final_df['condition'], categories=condition_order, ordered=True)
 
     return final_df
+
+
+# ── High-level helpers for notebook data loading and pipeline execution ───────
+
+def setup_grn(ref_dir, adata):
+    """Load the AHBA GRN and remap gene symbols to Ensembl IDs in adata.
+
+    Returns
+    -------
+    ahba_GRN : DataFrame
+        Gene-level GRN with columns Network, Gene (Ensembl), Importance.
+    total_grn_genes : int
+        Number of GRN genes present in adata.
+    """
+    from regulons import get_ahba_GRN
+    from gene_mapping import map_grn_symbols_to_ensembl
+    grn_file = os.path.join(ref_dir, 'ahba_dme_hcp_top8kgenes_weights.csv')
+    ahba_GRN = get_ahba_GRN(path_to_ahba_weights=grn_file, use_weights=True)
+    ahba_GRN = map_grn_symbols_to_ensembl(ahba_GRN, adata)
+    grn_pivot = ahba_GRN.pivot_table(
+        index='Network', columns='Gene', values='Importance', fill_value=0)
+    total_grn_genes = len(np.intersect1d(grn_pivot.columns, adata.var_names))
+    print(f'GRN genes in adata: {total_grn_genes} / {grn_pivot.shape[1]}')
+    return ahba_GRN, total_grn_genes
+
+
+def load_single_raw(data_file, source_label='combined'):
+    """Load a single h5ad file with raw-count normalization.
+
+    Stores raw counts in layers['counts'], CPM-normalizes adata.X, and
+    returns a log-normalized copy for seurat-flavor HVG selection.
+
+    Returns
+    -------
+    adata : AnnData  (CPM-normalized raw counts)
+    adata_log : AnnData  (log1p of CPM)
+    """
+    adata = sc.read_h5ad(data_file)
+    adata.layers['counts'] = adata.X.copy()
+    sc.pp.normalize_total(adata, target_sum=1e6)
+    if 'source' not in adata.obs.columns:
+        adata.obs['source'] = source_label
+    print(f'Shape: {adata.shape}')
+    adata_log = adata.copy()
+    sc.pp.log1p(adata_log)
+    return adata, adata_log
+
+
+def load_combo_raw(aging_file, hbcc_file):
+    """Load and concatenate Aging + HBCC PsychAD cohorts with raw-count normalization.
+
+    Returns
+    -------
+    adata : AnnData  (CPM-normalized raw counts)
+    adata_log : AnnData  (log1p of CPM)
+    """
+    import gc
+    aging = sc.read_h5ad(aging_file)
+    hbcc  = sc.read_h5ad(hbcc_file)
+    aging.obs['source'] = 'Aging'
+    hbcc.obs['source']  = 'HBCC'
+    print(f'Aging shape: {aging.shape}, HBCC shape: {hbcc.shape}')
+    # sc.concat drops var columns, so save and restore them
+    var_df = aging.var.copy()
+    adata = sc.concat([aging, hbcc], keys=['Aging', 'HBCC'], index_unique='-',
+                      join='outer', fill_value=0)
+    adata.var = var_df.loc[adata.var_names]
+    del aging, hbcc
+    gc.collect()
+    print(f'Combined shape: {adata.shape}')
+    adata.layers['counts'] = adata.X.copy()
+    sc.pp.normalize_total(adata, target_sum=1e6)
+    adata_log = adata.copy()
+    sc.pp.log1p(adata_log)
+    return adata, adata_log
+
+
+def load_single_scvi(data_file, source_label='combined',
+                     scvi_layer='scvi_normalized', drop_layers=None):
+    """Load a single h5ad that contains scVI-normalized expression.
+
+    Moves scvi_layer into adata.X *before* normalize_total so that both
+    HVG selection (via layers['counts']) and the GRN projection (which reads
+    adata.X directly) operate on the same batch-corrected expression.
+
+    Parameters
+    ----------
+    drop_layers : list of str, optional
+        Extra layers to drop to save memory (default: ['scanvi_normalized']).
+
+    Returns
+    -------
+    adata : AnnData  (CPM-scaled scvi_normalized)
+    adata_log : AnnData  (log1p of CPM-scaled scvi_normalized)
+    """
+    import gc
+    if drop_layers is None:
+        drop_layers = ['scanvi_normalized']
+    adata = sc.read_h5ad(data_file)
+    for layer in drop_layers:
+        if layer in adata.layers:
+            del adata.layers[layer]
+    for key in list(adata.obsm.keys()):
+        del adata.obsm[key]
+    gc.collect()
+    # Replace adata.X with scvi_normalized so both HVG selection and the GRN
+    # projection (which reads adata.X directly) use batch-corrected expression.
+    adata.X = adata.layers[scvi_layer]
+    adata.layers['counts'] = adata.X.copy()
+    sc.pp.normalize_total(adata, target_sum=1e6)
+    if 'source' not in adata.obs.columns:
+        adata.obs['source'] = source_label
+    print(f'Shape: {adata.shape}')
+    adata_log = adata.copy()
+    sc.pp.log1p(adata_log)
+    return adata, adata_log
+
+
+def run_projection_pipeline(adata, adata_log, ahba_GRN, total_grn_genes,
+                             N_VALUES, CACHE_DIR):
+    """Run HVG conditions, prepare R data, cache, and return all four dataframes.
+
+    Combines build_conditions → run_hvg_conditions → prepare_for_r →
+    save_cache into a single call for use in notebooks.
+
+    Returns
+    -------
+    scores_df, stats_df, final_df, hvg_df
+    """
+    conditions = build_conditions(N_VALUES)
+    scores_df, stats_df, hvg_df = run_hvg_conditions(
+        adata, adata_log, ahba_GRN, conditions, total_grn_genes)
+    final_df = prepare_for_r(scores_df, adata, N_VALUES)
+    save_cache(CACHE_DIR, scores_df, stats_df, final_df, hvg_df)
+    return scores_df, stats_df, final_df, hvg_df
