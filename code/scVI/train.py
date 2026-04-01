@@ -154,10 +154,20 @@ def train_scanvi(
             f"Available: {list(adata_scvi.obs.columns)}"
         )
 
-    n_labels = adata_scvi.obs[config.cell_type_key].nunique()
+    labels = adata_scvi.obs[config.cell_type_key].astype(str)
+    n_labels = labels.nunique()
+    n_labeled = int((labels != "Unknown").sum())
+    n_labeled_classes = int(labels[labels != "Unknown"].nunique())
     logger.info(
-        f"scANVI labels: '{config.cell_type_key}' with {n_labels} categories"
+        f"scANVI labels: '{config.cell_type_key}' with {n_labels} categories "
+        f"({n_labeled} labeled cells across {n_labeled_classes} non-Unknown classes)"
     )
+    if n_labeled_classes == 0:
+        raise ValueError(
+            "No labeled reference classes found for scANVI (all cells are 'Unknown'). "
+            f"Check '{config.cell_type_key}' population in the combined input and rerun "
+            "downsample/combine before scanvi."
+        )
 
     accel = _get_accelerator(device_info)
     extra_kwargs = {}

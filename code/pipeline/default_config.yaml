@@ -1,11 +1,10 @@
 # snRNAseq Pipeline Config — Local Testing (10k)
 #
 # Pipeline steps (run via run_pipeline.py):
-#   1. downsample   — per-dataset: read + filter + write individual h5ads
-#   2. combine      — concatenate individual h5ads → combined.h5ad
-#   3. scvi         — batch correction (delegates to scVI/run_pipeline.py)
-#   4. label_transfer — kNN label transfer → cell_type_aligned
-#   5. scanvi       — (optional) re-run scANVI with cell_type_aligned
+#   1. downsample  — per-dataset: read + filter + write individual h5ads
+#   2. combine     — concatenate individual h5ads → combined.h5ad
+#   3. scvi        — scVI batch correction + scANVI label transfer
+#                    (scANVI trained with WANG labels, model.predict() → cell_type_aligned)
 
 # ── Output directory ──────────────────────────────────────────────────────────
 # All intermediate and final outputs are written under output_dir.
@@ -17,32 +16,32 @@ output_dir: rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/combined/pipeline_test
 #                 to label transfer).
 sources:
   - name: WANG
-    path: rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/wang/wang.h5ad
+    path: rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/wang/wang_100k_PFC_lessOld.h5ad
     dataset_type: Wang
-    cell_type_field: "Type-updated"   # Wang's curated cell type labels
+    cell_type_field: "Type_updated"   # Wang's curated cell type labels
     pfc_only: true
-    n_cells: 2500                     # null = no cell-level downsampling
+    n_cells: 10000                    # null = no cell-level downsampling
 
   - name: VELMESHEV
-    path: rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/velmeshev/velmeshev.h5ad
+    path: rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/velmeshev/velmeshev_100k_PFC_lessOld.h5ad
     dataset_type: Velmeshev
     cell_type_field: "Cell_Type"      # from Velmeshev TSV metadata
     pfc_only: true
-    n_cells: 2500
+    n_cells: 10000
 
   - name: AGING
-    path: rds-cam-psych-transc-Pb9UGUlrwWc/Cam_PsychAD/RNAseq/Aging_Cohort.h5ad
+    path: rds-cam-psych-transc-Pb9UGUlrwWc/Cam_PsychAD/RNAseq/Aging_Cohort_100k_PFC_lessOld.h5ad
     dataset_type: Aging
     cell_type_field: "subclass"       # PsychAD fine-grained label
     pfc_only: true
-    n_cells: 2500
+    n_cells: 10000
 
   - name: HBCC
-    path: rds-cam-psych-transc-Pb9UGUlrwWc/Cam_PsychAD/RNAseq/HBCC_Cohort.h5ad
+    path: rds-cam-psych-transc-Pb9UGUlrwWc/Cam_PsychAD/RNAseq/HBCC_Cohort_100k_PFC_lessOld.h5ad
     dataset_type: HBCC
     cell_type_field: "subclass"       # PsychAD fine-grained label
     pfc_only: true
-    n_cells: 2500
+    n_cells: 10000
 
 # ── Downsampling ──────────────────────────────────────────────────────────────
 age_downsample: false   # true = keep all <40, 20% of donors ≥40
@@ -55,31 +54,25 @@ scvi:
   n_top_genes: 5000
   n_latent: 30
   max_epochs_scvi: 50
-  max_epochs_scanvi: 20
   batch_size: 128
   early_stopping: true
   early_stopping_patience: 10
 
-# ── Label transfer ────────────────────────────────────────────────────────────
-label_transfer:
-  reference_source: WANG        # dataset whose cell_type_raw is the reference vocabulary
-  target_sources:               # null = all non-reference sources
-    - VELMESHEV
-    - AGING
-    - HBCC
-  k: 50
+# ── scANVI label transfer ─────────────────────────────────────────────────────
+# Replaces kNN label transfer. scANVI trains jointly on batch correction +
+# fine-grained label prediction. WANG cells provide the reference vocabulary
+# (cell_type_for_scanvi); all other cells are "Unknown" (unlabelled).
+# After training, model.predict() assigns cell_type_aligned to all cells.
+# Diagnostics are written automatically to scanvi_diagnostics/.
+scanvi_label_transfer:
+  enabled: true
+  label_column: cell_type_for_scanvi
+  max_epochs_scanvi: 50   # early_stopping will cut short when converged
   confidence_threshold: 0.5
-  embedding_key: X_scVI
-  umap_key: X_umap_scvi
-
-# ── scANVI with aligned labels (optional step 5) ─────────────────────────────
-run_scanvi_with_aligned_labels: false
 
 # ── Pipeline control ──────────────────────────────────────────────────────────
 steps:
   - downsample
   - combine
   - scvi
-  - label_transfer
-  # - scanvi_aligned   # uncomment to enable step 5
 overwrite: false

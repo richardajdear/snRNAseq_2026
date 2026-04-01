@@ -286,10 +286,22 @@ def make_remapped_confidence_histogram(tf, out):
 # UMAP GRIDS
 # ══════════════════════════════════════════════════════════════════════════════
 
+def _adaptive_umap_point_size(n_points, min_size=0.2, max_size=2.0, scale=220.0):
+    """Compute point size that shrinks with dataset size for readability."""
+    n = max(int(n_points), 1)
+    size = scale / np.sqrt(n)
+    return float(np.clip(size, min_size, max_size))
+
+
 def _scatter_panel(ax, xy, labels, is_target,
-                   bg_size=0.4, bg_alpha=0.15,
-                   fg_size=1.0, fg_alpha=0.5):
+                   bg_size=None, bg_alpha=0.15,
+                   fg_size=None, fg_alpha=0.5):
     """Plot background (reference) cells in grey, then foreground (target) cells colored."""
+    if bg_size is None:
+        bg_size = _adaptive_umap_point_size(len(xy), min_size=0.15, max_size=1.0, scale=180.0)
+    if fg_size is None:
+        fg_size = _adaptive_umap_point_size(is_target.sum(), min_size=0.2, max_size=2.0, scale=260.0)
+
     # Background: all non-target cells in uniform grey for structure context
     bg = ~is_target
     if bg.sum():
@@ -429,9 +441,10 @@ def make_umap_velmeshev(all_df, out, target_source='VELMESHEV'):
     }
     AGE_BINS   = [-np.inf, 0, 1, 5, np.inf]
     AGE_LABELS = ['Fetal (<0y)', 'Perinatal (0-1y)', 'Childhood (1-5y)', 'Post-5y (>5y)']
-    AGE_COLORS = ['#2171B5', '#6BAED6', '#FD8D3C', '#D62728']
+    AGE_COLORS = ['#1B9E77', '#E6AB02', '#E7298A', '#7570B3']
 
     vel['age_cat'] = pd.cut(vel['age_years'], bins=AGE_BINS, labels=AGE_LABELS)
+    base_size = _adaptive_umap_point_size(len(vel), min_size=0.2, max_size=1.2, scale=220.0)
 
     fig, axes = plt.subplots(2, 2, figsize=(12, 10))
 
@@ -465,10 +478,10 @@ def make_umap_velmeshev(all_df, out, target_source='VELMESHEV'):
             # Pre-remapping: show class-remapped binary
             not_remap = ~vel['is_class_remapped'].values
             ax.scatter(xy[not_remap, 0], xy[not_remap, 1],
-                       c='#CCCCCC', s=0.3, alpha=0.3, linewidths=0, rasterized=True)
+                       c='#CCCCCC', s=base_size * 0.9, alpha=0.3, linewidths=0, rasterized=True)
             ax.scatter(xy[vel['is_class_remapped'].values, 0],
                        xy[vel['is_class_remapped'].values, 1],
-                       c='#D62728', s=0.8, alpha=0.5, linewidths=0, rasterized=True)
+                       c='#D62728', s=base_size * 1.25, alpha=0.5, linewidths=0, rasterized=True)
             handles = [
                 Line2D([0], [0], marker='o', color='w', markerfacecolor='#CCCCCC',
                        markersize=6, label=f'No class change  (n={len(vel)-n_remap:,})'),
@@ -484,7 +497,7 @@ def make_umap_velmeshev(all_df, out, target_source='VELMESHEV'):
                 m = (vel['age_cat'] == age_lbl).values
                 n_age = m.sum()
                 ax.scatter(xy[m, 0], xy[m, 1],
-                           c=age_col, s=0.5, alpha=0.4, linewidths=0, rasterized=True,
+                           c=age_col, s=base_size, alpha=0.45, linewidths=0, rasterized=True,
                            label=f'{age_lbl}  (n={n_age:,})')
             handles = [Line2D([0], [0], marker='o', color='w',
                               markerfacecolor=c, markersize=6,
@@ -533,9 +546,20 @@ def _make_sankey_panel(ax, tf_sub, title, within_color='#4DBEEE',
     flows['old_class'] = flows['cell_type_raw'].map(ct_class)
     flows['is_cross'] = flows['old_class'] != flows['new_class']
 
-    # Filter to top flows for readability (keep flows with ≥ 0.5% of panel total)
-    min_n = max(5, int(0.005 * flows['n'].sum()))
+    # Filter to informative flows for readability.
+    total_flows = int(flows['n'].sum())
+    flows['pct_panel'] = flows['n'] / total_flows
+    min_n = max(20, int(0.01 * total_flows))
     flows = flows[flows['n'] >= min_n].copy()
+    flows = flows[flows['pct_panel'] >= 0.01].copy()
+
+    # Keep enough flows to cover most mass, while capping visual clutter.
+    if not flows.empty:
+        flows = flows.sort_values('n', ascending=False)
+        flows['cum_pct'] = flows['pct_panel'].cumsum()
+        keep = (flows['cum_pct'] <= 0.95)
+        keep.iloc[:8] = True  # always retain at least a compact top set
+        flows = flows[keep].copy()
 
     if flows.empty:
         ax.set_title(title)
@@ -836,6 +860,13 @@ def make_age_histogram_remapped(tf, out):
         print("  No class-remapped cells — skipping age histogram.")
         return
 
+    # Guard against NaN/Inf ages in sparse remapping subsets.
+    remap['age_years'] = pd.to_numeric(remap['age_years'], errors='coerce')
+    remap = remap[np.isfinite(remap['age_years'])].copy()
+    if remap.empty:
+        print("  No finite ages in class-remapped cells — skipping age histogram.")
+        return
+
     age_min = max(-5, np.floor(remap['age_years'].min()))
     bins = np.linspace(age_min, 30, 36)
 
@@ -884,8 +915,22 @@ def make_age_confidence_density(tf, out):
         ax = axes_flat[i]
         m = (remap['old_cell_class'] == oc) & (remap['new_cell_class'] == nc)
         sub = remap[m].copy()
-        age = sub['age_years'].clip(upper=30)
-        conf = sub['transfer_confidence']
+        age = pd.to_numeric(sub['age_years'], errors='coerce').clip(upper=30)
+        conf = pd.to_numeric(sub['transfer_confidence'], errors='coerce')
+        valid = np.isfinite(age.values) & np.isfinite(conf.values)
+        age = age[valid]
+        conf = conf[valid]
+
+        if len(age) == 0:
+            ax.text(0.5, 0.5, 'No finite age/conf data',
+                ha='center', va='center', fontsize=8)
+            ax.set_title(f'{oc} → {nc}  (n={n_cells:,})', fontsize=9)
+            ax.set_xlim(-5, 30)
+            ax.set_ylim(0, 1.02)
+            ax.set_xlabel('Age (years)', fontsize=8)
+            ax.set_ylabel('Transfer confidence', fontsize=8)
+            ax.tick_params(labelsize=7)
+            continue
 
         hb = ax.hexbin(age, conf, gridsize=30, cmap='Reds', mincnt=1,
                        extent=[age.min() - 0.5, 30.5, 0, 1])

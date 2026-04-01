@@ -19,7 +19,7 @@ CONFIG="${CONFIG:-code/pipeline/hpc_config.yaml}"
 mkdir -p "${WORK_DIR}/logs"
 
 echo "========================================"
-echo "STEP 2: scVI Batch Correction"
+echo "STEP 2: scVI (+ scANVI if enabled in config)"
 echo "Job ID:    ${SLURM_JOB_ID}"
 echo "Node:      $(hostname)"
 echo "GPUs:      ${CUDA_VISIBLE_DEVICES:-none}"
@@ -28,7 +28,7 @@ echo "Start:     $(date)"
 echo "========================================"
 
 # The pipeline.run_pipeline step=scvi generates a temporary scvi_config.yaml
-# and calls scVI.run_pipeline internally.
+# and calls scVI.run_pipeline internally (including scANVI when enabled).
 singularity exec --nv \
     --pwd "${WORK_DIR}" \
     --bind "${DATA_DIR}:${DATA_DIR}" \

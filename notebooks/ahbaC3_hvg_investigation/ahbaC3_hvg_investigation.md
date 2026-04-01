@@ -72,7 +72,7 @@ library(tidyr)
 library(patchwork)
 library(ggpubr)
 library(pwr)
-library(ggVennDiagram)
+library(ggvenn)
 ```
 
     R[write to console]: 
@@ -88,20 +88,9 @@ library(ggVennDiagram)
 
         intersect, setdiff, setequal, union
 
-
-    R[write to console]: 
-    Attaching package: ‘ggVennDiagram’
-
-
-    R[write to console]: The following object is masked from ‘package:tidyr’:
-
-        unite
-
 ``` python
-from regulons import get_ahba_GRN, project_GRN
-from gene_mapping import map_grn_symbols_to_ensembl
-from hvg_investigation import (build_conditions, run_hvg_conditions,
-                                prepare_for_r, save_cache, load_cache)
+from hvg_investigation import (load_single_raw, setup_grn,
+                                run_projection_pipeline, load_cache)
 ```
 
 ## 2. Data & HVG Projections
@@ -109,201 +98,29 @@ from hvg_investigation import (build_conditions, run_hvg_conditions,
 ``` python
 DATA_FILE = rds_dir + "/Cam_snRNAseq/velmeshev/velmeshev_100k_PFC_lessOld.h5ad"
 N_VALUES = [1000, 2000, 4000, 6000, 8000, 10000]
-CACHE_DIR = os.path.join(os.path.dirname(os.path.abspath('.')), '_cache')
-# Use notebook directory for cache
 CACHE_DIR = os.path.join(_repo_root, 'notebooks', 'ahbaC3_hvg_investigation', '_cache')
 
 cached = load_cache(CACHE_DIR)
 ```
+
+    Loaded cache from /Users/richard/Git/snRNAseq_2026/notebooks/ahbaC3_hvg_investigation/_cache
 
 ``` python
 if cached is not None:
     scores_df, stats_df, final_df, hvg_df = cached
     print(f"scores: {len(scores_df)} rows, stats: {len(stats_df)} rows, final: {len(final_df)} rows, hvg_df: {len(hvg_df)} rows")
 else:
-    # ── Load and normalize ──
-    adata = sc.read_h5ad(DATA_FILE)
-    adata.layers['counts'] = adata.X.copy()
-    sc.pp.normalize_total(adata, target_sum=1e6)
-    if 'source' not in adata.obs.columns:
-        adata.obs['source'] = 'VELMESHEV'
-    print(f"Shape: {adata.shape}")
-
-    adata_log = adata.copy()
-    sc.pp.log1p(adata_log)
-
-    # ── Load and remap GRN ──
-    grn_file = os.path.join(ref_dir, "ahba_dme_hcp_top8kgenes_weights.csv")
-    ahba_GRN = get_ahba_GRN(path_to_ahba_weights=grn_file, use_weights=True)
-    ahba_GRN = map_grn_symbols_to_ensembl(ahba_GRN, adata)
-    grn_pivot = ahba_GRN.pivot_table(index='Network', columns='Gene', values='Importance', fill_value=0)
-    total_grn_genes = len(np.intersect1d(grn_pivot.columns, adata.var_names))
-    print(f"GRN genes in adata: {total_grn_genes} / {grn_pivot.shape[1]}")
-
-    # ── Run HVG conditions ──
-    conditions = build_conditions(N_VALUES)
-    scores_df, stats_df, hvg_df = run_hvg_conditions(
-        adata, adata_log, ahba_GRN, conditions, total_grn_genes)
-    del adata_log
-
-    # ── Prepare for R ──
-    final_df = prepare_for_r(scores_df, adata, N_VALUES)
-    del adata
+    adata, adata_log = load_single_raw(DATA_FILE, source_label='VELMESHEV')
+    ahba_GRN, total_grn_genes = setup_grn(ref_dir, adata)
+    scores_df, stats_df, final_df, hvg_df = run_projection_pipeline(
+        adata, adata_log, ahba_GRN, total_grn_genes, N_VALUES, CACHE_DIR)
+    del adata, adata_log
     import gc; gc.collect()
-
-    # ── Save cache ──
-    save_cache(CACHE_DIR, scores_df, stats_df, final_df, hvg_df)
 
 print(f"scores: {len(scores_df)}, stats: {len(stats_df)}, final_df (excitatory): {len(final_df)}, hvg_df: {len(hvg_df)}")
 ```
 
-    Shape: (64250, 17663)
-
-    Input sequence provided is already in string format. No operation performed
-    Input sequence provided is already in string format. No operation performed
-
-    Mapped 6641/7973 symbols via adata.var
-    Querying mygene for 1332 unmapped symbols...
-
-    134 input query terms found dup hits:   [('ACTG1P4', 2), ('ADAM20P1', 2), ('AKR7A2P1', 3), ('AMZ2P1', 2), ('ANKRD18CP', 2), ('ANKRD19P', 2),
-    337 input query terms found no hit: ['AAED1', 'AARS', 'ADPRHL2', 'ADSSL1', 'ALS2CR12', 'APOPT1', 'ARMT1', 'ARNTL', 'ARNTL2', 'AZIN1-AS1'
-
-    After mygene: 6650/7973 mapped, 1323 dropped
-    GRN genes in adata: 6650 / 6650
-
-    ============================================================
-    Condition: all_genes
-    Found 6650 matching genes in var_names.
-    Aligning GRN weights to 6650 matched genes for projection...
-    Computing sparse-dense dot product...
-      HVGs: 17663, GRN genes used: 6650/6650 (100.0%)
-
-    ============================================================
-    Condition: seurat_v3_1000
-    Found 6650 matching genes in var_names.
-    Aligning GRN weights to 626 matched genes for projection...
-    Computing sparse-dense dot product...
-      HVGs: 1000, GRN genes used: 626/6650 (9.4%)
-
-    ============================================================
-    Condition: seurat_1000
-    Found 6650 matching genes in var_names.
-    Aligning GRN weights to 495 matched genes for projection...
-    Computing sparse-dense dot product...
-      HVGs: 1000, GRN genes used: 495/6650 (7.4%)
-
-    ============================================================
-    Condition: pearson_1000
-    Found 6650 matching genes in var_names.
-    Aligning GRN weights to 626 matched genes for projection...
-    Computing sparse-dense dot product...
-      HVGs: 1000, GRN genes used: 626/6650 (9.4%)
-
-    ============================================================
-    Condition: seurat_v3_2000
-    Found 6650 matching genes in var_names.
-    Aligning GRN weights to 1220 matched genes for projection...
-    Computing sparse-dense dot product...
-      HVGs: 2000, GRN genes used: 1220/6650 (18.3%)
-
-    ============================================================
-    Condition: seurat_2000
-    Found 6650 matching genes in var_names.
-    Aligning GRN weights to 918 matched genes for projection...
-    Computing sparse-dense dot product...
-      HVGs: 2000, GRN genes used: 918/6650 (13.8%)
-
-    ============================================================
-    Condition: pearson_2000
-    Found 6650 matching genes in var_names.
-    Aligning GRN weights to 1131 matched genes for projection...
-    Computing sparse-dense dot product...
-      HVGs: 2000, GRN genes used: 1131/6650 (17.0%)
-
-    ============================================================
-    Condition: seurat_v3_4000
-    Found 6650 matching genes in var_names.
-    Aligning GRN weights to 2237 matched genes for projection...
-    Computing sparse-dense dot product...
-      HVGs: 4000, GRN genes used: 2237/6650 (33.6%)
-
-    ============================================================
-    Condition: seurat_4000
-    Found 6650 matching genes in var_names.
-    Aligning GRN weights to 1653 matched genes for projection...
-    Computing sparse-dense dot product...
-      HVGs: 4000, GRN genes used: 1653/6650 (24.9%)
-
-    ============================================================
-    Condition: pearson_4000
-    Found 6650 matching genes in var_names.
-    Aligning GRN weights to 2018 matched genes for projection...
-    Computing sparse-dense dot product...
-      HVGs: 4000, GRN genes used: 2018/6650 (30.3%)
-
-    ============================================================
-    Condition: seurat_v3_6000
-    Found 6650 matching genes in var_names.
-    Aligning GRN weights to 2861 matched genes for projection...
-    Computing sparse-dense dot product...
-      HVGs: 6000, GRN genes used: 2861/6650 (43.0%)
-
-    ============================================================
-    Condition: seurat_6000
-    Found 6650 matching genes in var_names.
-    Aligning GRN weights to 2373 matched genes for projection...
-    Computing sparse-dense dot product...
-      HVGs: 6000, GRN genes used: 2373/6650 (35.7%)
-
-    ============================================================
-    Condition: pearson_6000
-    Found 6650 matching genes in var_names.
-    Aligning GRN weights to 2896 matched genes for projection...
-    Computing sparse-dense dot product...
-      HVGs: 6000, GRN genes used: 2896/6650 (43.5%)
-
-    ============================================================
-    Condition: seurat_v3_8000
-    Found 6650 matching genes in var_names.
-    Aligning GRN weights to 3312 matched genes for projection...
-    Computing sparse-dense dot product...
-      HVGs: 8000, GRN genes used: 3312/6650 (49.8%)
-
-    ============================================================
-    Condition: seurat_8000
-    Found 6650 matching genes in var_names.
-    Aligning GRN weights to 3127 matched genes for projection...
-    Computing sparse-dense dot product...
-      HVGs: 8000, GRN genes used: 3127/6650 (47.0%)
-
-    ============================================================
-    Condition: pearson_8000
-    Found 6650 matching genes in var_names.
-    Aligning GRN weights to 3666 matched genes for projection...
-    Computing sparse-dense dot product...
-      HVGs: 8000, GRN genes used: 3666/6650 (55.1%)
-
-    ============================================================
-    Condition: seurat_v3_10000
-    Found 6650 matching genes in var_names.
-    Aligning GRN weights to 3956 matched genes for projection...
-    Computing sparse-dense dot product...
-      HVGs: 10000, GRN genes used: 3956/6650 (59.5%)
-
-    ============================================================
-    Condition: seurat_10000
-    Found 6650 matching genes in var_names.
-    Aligning GRN weights to 3923 matched genes for projection...
-    Computing sparse-dense dot product...
-      HVGs: 10000, GRN genes used: 3923/6650 (59.0%)
-
-    ============================================================
-    Condition: pearson_10000
-    Found 6650 matching genes in var_names.
-    Aligning GRN weights to 4438 matched genes for projection...
-    Computing sparse-dense dot product...
-      HVGs: 10000, GRN genes used: 4438/6650 (66.7%)
-    Cache saved to /Users/richard/Git/snRNAseq_2026/notebooks/ahbaC3_hvg_investigation/_cache
+    scores: 2441500 rows, stats: 19 rows, final: 1284970 rows, hvg_df: 93000 rows
     scores: 2441500, stats: 19, final_df (excitatory): 1284970, hvg_df: 93000
 
 ### Gene Overlap Summary
@@ -333,12 +150,12 @@ print(stats_df.to_string(index=False))
        seurat_10000  10000              3923              59.0
       pearson_10000  10000              4438              66.7
 
-## 4. Age Range Sensitivity
+## 3. Age Range Sensitivity
 
 Before comparing HVG methods, we identify the age range definitions that
 best capture the childhood-adolescence C3+ difference.
 
-### 4.1 Compute Sensitivity Grid
+### 3.1 Compute Sensitivity Grid
 
 ``` python
 %%R -i final_df -i code_dir -i N_VALUES
@@ -362,7 +179,7 @@ cat(sprintf("Best age range (lowest p for all_genes): childhood >= %.1fy, bounda
 
     Best age range (lowest p for all_genes): childhood >= 1.0y, boundary = 12y, adolescence < 21y (p = 0.0089, d = 1.27)
 
-### 4.2 Cohen’s d
+### 3.2 Cohen’s d
 
 ``` python
 %%R -w 260 -h 200 -u mm -r 300
@@ -372,7 +189,7 @@ plot_sensitivity_cohens_d(sens_all)
 
 ![](ahbaC3_hvg_investigation_files/figure-markdown_strict/cell-11-output-1.png)
 
-### 4.3 P-value
+### 3.3 P-value
 
 ``` python
 %%R -w 260 -h 200 -u mm -r 300
@@ -382,7 +199,7 @@ plot_sensitivity_pvalue(sens_all)
 
 ![](ahbaC3_hvg_investigation_files/figure-markdown_strict/cell-12-output-1.png)
 
-### 4.4 Power
+### 3.4 Minimum Detectable Effect Size
 
 ``` python
 %%R -w 260 -h 200 -u mm -r 300
@@ -392,7 +209,7 @@ plot_sensitivity_power(sens_all)
 
 ![](ahbaC3_hvg_investigation_files/figure-markdown_strict/cell-13-output-1.png)
 
-## 5. HVG Comparison (best age range)
+## 4. HVG Comparison (best age range)
 
 All subsequent analyses use the age range with the lowest p-value from
 the `all_genes` baseline above.
@@ -406,7 +223,7 @@ cat(sprintf("Using: Childhood = [%.1f, %d), Adolescence = [%d, %d)\n",
 
     Using: Childhood = [1.0, 12), Adolescence = [12, 21)
 
-### 5.1 GRN Gene Retention
+### 4.1 GRN Gene Retention
 
 ``` python
 %%R -i stats_df -w 220 -h 80 -u mm -r 300
@@ -416,17 +233,17 @@ plot_gene_retention(stats_df, N_VALUES)
 
 ![](ahbaC3_hvg_investigation_files/figure-markdown_strict/cell-15-output-1.png)
 
-### 5.1b HVG Gene Set Overlap (Euler diagrams)
+### 4.1b HVG Gene Set Overlap (Euler diagrams)
 
 ``` python
-%%R -i hvg_df -w 280 -h 180 -u mm -r 300
+%%R -i hvg_df -w 280 -h 110 -u mm -r 300
 
-plot_hvg_venn(hvg_df, N_VALUES)
+plot_hvg_euler(hvg_df)
 ```
 
 ![](ahbaC3_hvg_investigation_files/figure-markdown_strict/cell-16-output-1.png)
 
-### 5.2 Age Trajectories & Developmental Stage Scores
+### 4.2 Age Trajectories & Developmental Stage Scores
 
 ``` python
 %%R -w 360 -h 280 -u mm -r 300
@@ -447,7 +264,7 @@ p_c <- plot_boxes(df_boxes, best_cs, best_bd, best_ae)
 
 ![](ahbaC3_hvg_investigation_files/figure-markdown_strict/cell-17-output-2.png)
 
-### 5.3 Z-scored
+### 4.3 Z-scored
 
 ``` python
 %%R -w 360 -h 280 -u mm -r 300
@@ -467,7 +284,7 @@ p_c <- plot_boxes(df_boxes, best_cs, best_bd, best_ae, zscore = TRUE)
 
 ![](ahbaC3_hvg_investigation_files/figure-markdown_strict/cell-18-output-2.png)
 
-### 5.4 C3+ Effect Summary
+### 4.4 C3+ Effect Summary
 
 ``` python
 %%R -w 300 -h 220 -u mm -r 300

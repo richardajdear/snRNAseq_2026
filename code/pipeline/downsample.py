@@ -158,10 +158,31 @@ def main():
     
     log_mem("Subset materialized")
     print(f"In-memory shape: {adata.shape}")
-    
+
     # Close backed file
     del adata_backed
-    
+
+    # =========================================================================
+    # Step 3b: Build cell_type_for_scanvi column
+    #   WANG cells: keep their fine-grained cell_type_raw as the reference label
+    #   All other datasets: "Unknown" (treated as unlabelled by scANVI)
+    # =========================================================================
+    adata.obs['cell_type_for_scanvi'] = 'Unknown'
+    if args.dataset_type == 'Wang':
+        broad = {'Unknown', 'unknown', 'Excitatory', 'Inhibitory', 'Glia', 'Other'}
+        labeled_mask = ~adata.obs['cell_type_raw'].isin(broad)
+        adata.obs.loc[labeled_mask, 'cell_type_for_scanvi'] = \
+            adata.obs.loc[labeled_mask, 'cell_type_raw']
+        counts = adata.obs.loc[labeled_mask, 'cell_type_for_scanvi'].value_counts()
+        print(f"\ncell_type_for_scanvi: {labeled_mask.sum()} labelled WANG cells "
+              f"across {len(counts)} types")
+        for lbl, n in counts.items():
+            flag = "  *** LOW (<15)" if n < 15 else ""
+            print(f"  {lbl:35s}  {n:5d}{flag}")
+        n_broad = (~labeled_mask).sum()
+        if n_broad:
+            print(f"  {'(broad/excluded → Unknown)':35s}  {n_broad:5d}")
+
     # =========================================================================
     # Step 4: Save
     # =========================================================================

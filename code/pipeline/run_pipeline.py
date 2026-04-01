@@ -2,17 +2,21 @@
 Top-level orchestration script for the full snRNAseq pipeline.
 
 Steps (in order):
-    1. downsample      — per-dataset: read + filter → individual h5ads
-    2. combine         — concatenate individual h5ads → combined.h5ad
-    3. scvi            — batch correction via scVI (delegates to scVI/run_pipeline.py)
-    4. label_transfer  — kNN transfer of cell_type labels → cell_type_aligned
-    5. scanvi_aligned  — (optional) re-run scANVI with cell_type_aligned labels
+    1. downsample  — per-dataset: read + filter → individual h5ads
+    2. combine     — concatenate individual h5ads → combined.h5ad
+    3. scvi        — batch correction (scVI) + label transfer (scANVI) via scVI/run_pipeline.py
+                     When scanvi_label_transfer.enabled=true in config, scANVI is trained with
+                     WANG's fine-grained labels and model.predict() assigns cell_type_aligned
+                     to all cells. Diagnostics are written to scanvi_diagnostics/.
+    4. scanvi      — scANVI-only rerun using existing scVI model (no scVI retraining)
 
 Usage (from project root):
-    PYTHONPATH=code python -m run_pipeline --config code/pipeline_config.yaml
-    PYTHONPATH=code python -m run_pipeline --config code/pipeline_config.yaml \\
+    PYTHONPATH=code python -m pipeline.run_pipeline --config code/pipeline/default_config.yaml
+    PYTHONPATH=code python -m pipeline.run_pipeline --config code/pipeline/default_config.yaml \\
         --steps downsample combine scvi
-    PYTHONPATH=code python -m run_pipeline --config code/pipeline_config.yaml \\
+    PYTHONPATH=code python -m pipeline.run_pipeline --config code/pipeline/default_config.yaml \
+        --steps scanvi
+    PYTHONPATH=code python -m pipeline.run_pipeline --config code/pipeline/default_config.yaml \\
         --overwrite
 """
 
@@ -40,13 +44,15 @@ def _setup_logger(log_path: str) -> logging.Logger:
     return logger
 
 
-def _run(cmd: list, logger: logging.Logger):
-    """Run a subprocess command, streaming output and raising on failure."""
+def _run(cmd: list, logger: logging.Logger, required: bool = True):
+    """Run a subprocess command, optionally allowing non-zero exits."""
     logger.info(f"$ {' '.join(cmd)}")
     result = subprocess.run(cmd, text=True)
     if result.returncode != 0:
-        logger.error(f"Command failed (exit {result.returncode})")
-        sys.exit(result.returncode)
+        level = logger.error if required else logger.warning
+        level(f"Command failed (exit {result.returncode})")
+        if required:
+            sys.exit(result.returncode)
 
 
 def step_downsample(cfg: dict, output_dir: Path, overwrite: bool,
@@ -115,7 +121,7 @@ def step_combine(cfg: dict, output_dir: Path, input_paths: list,
 
 def step_scvi(cfg: dict, output_dir: Path, combined_path: Path,
               overwrite: bool, logger: logging.Logger) -> Path:
-    """Run scVI batch correction pipeline."""
+    """Run scVI batch correction + optional scANVI label transfer pipeline."""
     logger.info("=" * 60)
     logger.info("STEP 3: scVI")
     logger.info("=" * 60)
@@ -137,6 +143,21 @@ def step_scvi(cfg: dict, output_dir: Path, combined_path: Path,
     }
     scvi_cfg.update(cfg.get('scvi', {}))
 
+    # scANVI label transfer: use fine-grained WANG labels (cell_type_for_scanvi)
+    # instead of broad cell_class, and run model.predict() for label transfer
+    slt = cfg.get('scanvi_label_transfer', {})
+    if slt.get('enabled', False):
+        scvi_cfg['cell_type_key'] = slt.get('label_column', 'cell_type_for_scanvi')
+        scvi_cfg['run_scanvi'] = True
+        scvi_cfg['predict_cell_types'] = True
+        if 'max_epochs_scanvi' in slt:
+            scvi_cfg['max_epochs_scanvi'] = slt['max_epochs_scanvi']
+        logger.info(
+            f"  scANVI label transfer enabled: "
+            f"cell_type_key={scvi_cfg['cell_type_key']}, "
+            f"max_epochs_scanvi={scvi_cfg.get('max_epochs_scanvi', 20)}"
+        )
+
     scvi_config_path = output_dir / 'scvi_config.yaml'
     with open(scvi_config_path, 'w') as f:
         yaml.dump(scvi_cfg, f, default_flow_style=False)
@@ -150,57 +171,114 @@ def step_scvi(cfg: dict, output_dir: Path, combined_path: Path,
         cmd += ['--overwrite_scvi', 'true']
 
     _run(cmd, logger)
+
+    # Diagnostics for scANVI label transfer
+    if slt.get('enabled', False) and integrated_path.exists():
+        diag_dir = output_dir / 'scanvi_diagnostics'
+        logger.info(f"  Running scANVI diagnostics → {diag_dir}")
+        diag_cmd = [
+            sys.executable, '-m', 'pipeline.scanvi_diagnostics',
+            '--input', str(integrated_path),
+            '--output_dir', str(diag_dir),
+            '--confidence_threshold', str(slt.get('confidence_threshold', 0.5)),
+        ]
+        _run(diag_cmd, logger, required=False)
+
     return integrated_path
 
 
-def step_label_transfer(cfg: dict, output_dir: Path, integrated_path: Path,
-                        overwrite: bool, logger: logging.Logger) -> Path:
-    """Run kNN label transfer to produce cell_type_aligned."""
+def step_scanvi(cfg: dict, output_dir: Path, combined_path: Path,
+                overwrite: bool, logger: logging.Logger) -> Path:
+    """Run scANVI-only label transfer using an existing scVI model."""
     logger.info("=" * 60)
-    logger.info("STEP 4: LABEL TRANSFER")
+    logger.info("STEP 4: scANVI (SCANVI-ONLY)")
     logger.info("=" * 60)
 
-    lt_cfg = cfg.get('label_transfer', {})
-    lt_output_dir = output_dir / 'label_transfer'
-    all_labels_path = lt_output_dir / 'all_cell_labels.csv'
+    scvi_output_dir = output_dir / 'scvi_output'
+    integrated_path = scvi_output_dir / 'integrated.h5ad'
+    scvi_model_dir = scvi_output_dir / 'scvi_model'
 
-    if all_labels_path.exists() and not overwrite:
-        logger.info(f"  Label transfer output already exists, skipping ({lt_output_dir})")
-        return lt_output_dir
+    if not combined_path.exists():
+        logger.error(
+            f"Combined input missing: {combined_path}. "
+            f"Run --steps combine (or downsample+combine) first."
+        )
+        sys.exit(1)
+    if not scvi_model_dir.exists():
+        logger.error(
+            f"scVI model missing: {scvi_model_dir}. "
+            f"Run --steps scvi first to train/load the base scVI model."
+        )
+        sys.exit(1)
+
+    if integrated_path.exists() and not overwrite:
+        logger.info(f"  integrated.h5ad already exists, skipping ({integrated_path})")
+        logger.info("  Use --overwrite to force a fresh scANVI-only rerun.")
+        return integrated_path
+
+    scvi_cfg = {
+        'input_h5ad': str(combined_path),
+        'output_dir': str(scvi_output_dir),
+        'batch_key': 'source',
+        'cell_type_key': 'cell_class',
+        'counts_layer': 'counts',
+        'steps': ['prep', 'train_scanvi', 'infer', 'umap', 'plot', 'save'],
+        'run_scanvi': True,
+        'run_scanvi_inference': True,
+        'predict_cell_types': True,
+    }
+    scvi_cfg.update(cfg.get('scvi', {}))
+
+    slt = cfg.get('scanvi_label_transfer', {})
+    if slt.get('enabled', True):
+        scvi_cfg['cell_type_key'] = slt.get('label_column', 'cell_type_for_scanvi')
+        if 'max_epochs_scanvi' in slt:
+            scvi_cfg['max_epochs_scanvi'] = slt['max_epochs_scanvi']
+    else:
+        logger.warning(
+            "scanvi_label_transfer.enabled=false in config, "
+            "but scanvi step was requested. Forcing scANVI on for this run."
+        )
+
+    scvi_config_path = output_dir / 'scvi_config_scanvi_only.yaml'
+    with open(scvi_config_path, 'w') as f:
+        yaml.dump(scvi_cfg, f, default_flow_style=False)
+    logger.info(f"  scANVI-only config written to {scvi_config_path}")
 
     cmd = [
-        sys.executable, '-m', 'pipeline.label_transfer.run_transfer',
-        '--input',      str(integrated_path),
-        '--output_dir', str(lt_output_dir),
+        sys.executable, '-m', 'scVI.run_pipeline',
+        '--config', str(scvi_config_path),
     ]
-    if lt_cfg.get('reference_source'):
-        cmd += ['--reference_source', lt_cfg['reference_source']]
-    if lt_cfg.get('target_sources'):
-        cmd += ['--target_sources'] + lt_cfg['target_sources']
-    if lt_cfg.get('k'):
-        cmd += ['--k', str(lt_cfg['k'])]
-    if lt_cfg.get('confidence_threshold'):
-        cmd += ['--confidence_threshold', str(lt_cfg['confidence_threshold'])]
-    if lt_cfg.get('embedding_key'):
-        cmd += ['--embedding_key', lt_cfg['embedding_key']]
-    if lt_cfg.get('umap_key'):
-        cmd += ['--umap_key', lt_cfg['umap_key']]
+    if overwrite:
+        cmd += ['--overwrite_scanvi', 'true']
 
     _run(cmd, logger)
-    return lt_output_dir
+
+    # Diagnostics for scANVI label transfer
+    if integrated_path.exists():
+        diag_dir = output_dir / 'scanvi_diagnostics'
+        logger.info(f"  Running scANVI diagnostics → {diag_dir}")
+        diag_cmd = [
+            sys.executable, '-m', 'pipeline.scanvi_diagnostics',
+            '--input', str(integrated_path),
+            '--output_dir', str(diag_dir),
+            '--confidence_threshold', str(slt.get('confidence_threshold', 0.5)),
+        ]
+        _run(diag_cmd, logger, required=False)
+
+    return integrated_path
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Full snRNAseq pipeline: downsample → combine → scVI → label_transfer',
+        description='Full snRNAseq pipeline: downsample → combine → scVI (+ scANVI label transfer)',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )
     parser.add_argument('--config', required=True,
                         help='Path to pipeline_config.yaml')
     parser.add_argument('--steps', nargs='+',
-                        choices=['downsample', 'combine', 'scvi', 'label_transfer',
-                                 'scanvi_aligned', 'all'],
+                        choices=['downsample', 'combine', 'scvi', 'scanvi', 'label_transfer', 'all'],
                         default=['all'],
                         help='Which steps to run (default: all)')
     parser.add_argument('--overwrite', action='store_true',
@@ -210,9 +288,12 @@ def main():
     with open(args.config) as f:
         cfg = yaml.safe_load(f)
 
-    steps = cfg.get('steps', ['downsample', 'combine', 'scvi', 'label_transfer'])
+    steps = cfg.get('steps', ['downsample', 'combine', 'scvi'])
     if args.steps != ['all']:
         steps = args.steps  # CLI overrides config
+
+    # Backward-compat: legacy label_transfer step now maps to scANVI rerun step.
+    steps = ['scanvi' if s == 'label_transfer' else s for s in steps]
     overwrite = args.overwrite or cfg.get('overwrite', False)
 
     output_dir = Path(cfg['output_dir'])
@@ -240,8 +321,7 @@ def main():
         output_dir / 'per_dataset' / f"{src['name']}.h5ad"
         for src in cfg['sources']
     ]
-    combined_path   = output_dir / 'combined.h5ad'
-    integrated_path = output_dir / 'scvi_output' / 'integrated.h5ad'
+    combined_path = output_dir / 'combined.h5ad'
 
     # Execute steps
     if 'downsample' in steps:
@@ -251,17 +331,10 @@ def main():
         combined_path = step_combine(cfg, output_dir, per_dataset_paths, overwrite, logger)
 
     if 'scvi' in steps:
-        integrated_path = step_scvi(cfg, output_dir, combined_path, overwrite, logger)
+        step_scvi(cfg, output_dir, combined_path, overwrite, logger)
 
-    if 'label_transfer' in steps:
-        step_label_transfer(cfg, output_dir, integrated_path, overwrite, logger)
-
-    if 'scanvi_aligned' in steps:
-        logger.info("=" * 60)
-        logger.info("STEP 5: scANVI WITH ALIGNED LABELS")
-        logger.info("Not yet implemented — run scVI/run_pipeline.py manually with "
-                    "cell_type_key=cell_type_aligned after label transfer.")
-        logger.info("=" * 60)
+    if 'scanvi' in steps:
+        step_scanvi(cfg, output_dir, combined_path, overwrite, logger)
 
     logger.info("Pipeline complete.")
 

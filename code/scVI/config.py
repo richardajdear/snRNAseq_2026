@@ -45,6 +45,7 @@ class PipelineConfig:
     run_scvi_inference: bool = True
     run_scanvi: bool = False
     run_scanvi_inference: bool = False
+    predict_cell_types: bool = False  # run model.predict() after scANVI for label transfer
     n_mc_samples: int = 10
     transform_batch: Optional[str] = None
     chunk_size: Optional[int] = None
