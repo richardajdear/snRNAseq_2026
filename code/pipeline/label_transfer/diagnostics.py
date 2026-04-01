@@ -612,20 +612,50 @@ def make_umap_excitatory(all_df, out, target_source='VELMESHEV'):
 
     fig, axes = plt.subplots(2, 2, figsize=(13, 11))
 
+    # ── helpers for consolidated legend ──────────────────────────────────────
+    def _consolidated_handles(type_series, class_series, palette):
+        """Return scatter handles with Excitatory subtypes listed individually,
+        Inhibitory types merged, and all other classes merged."""
+        types = type_series.astype(str)
+        classes = class_series.astype(str)
+        handles_out = []
+        inh_n = (classes == 'Inhibitory').sum()
+        other_n = (~classes.isin(['Excitatory', 'Inhibitory'])).sum()
+        # Excitatory subtypes individually (sorted)
+        exc_types = sorted(types[classes == 'Excitatory'].unique())
+        for ct in exc_types:
+            n = (types == ct).sum()
+            handles_out.append(Line2D([0], [0], marker='o', color='w',
+                                      markerfacecolor=palette.get(ct, '#aaaaaa'),
+                                      markersize=6, label=f'{ct}  (n={n:,})'))
+        if inh_n > 0:
+            handles_out.append(Line2D([0], [0], marker='o', color='w',
+                                      markerfacecolor='#5B7EB5', markersize=6,
+                                      label=f'Inhibitory  (n={inh_n:,})'))
+        if other_n > 0:
+            handles_out.append(Line2D([0], [0], marker='o', color='w',
+                                      markerfacecolor='#999999', markersize=6,
+                                      label=f'Other  (n={other_n:,})'))
+        return handles_out
+
     # ── TL: colour by cell_type_raw ───────────────────────────────────────────
     ax = axes[0, 0]
     raw_types = sorted(df['cell_type_raw'].astype(str).unique())
     for ct in raw_types:
         m = (df['cell_type_raw'].astype(str) == ct).values
+        # non-Excitatory types get a unified colour per class
+        if (df.loc[m, 'old_cell_class'] == 'Inhibitory').all():
+            col = '#5B7EB5'
+        elif (df.loc[m, 'old_cell_class'] == 'Excitatory').all():
+            col = raw_pal[ct]
+        else:
+            col = '#999999'
         ax.scatter(xy[m, 0], xy[m, 1],
-                   c=raw_pal[ct], s=base_size, alpha=0.45, linewidths=0, rasterized=True)
-    handles = [Line2D([0], [0], marker='o', color='w',
-                      markerfacecolor=raw_pal[c], markersize=6,
-                      label=f'{c}  (n={(df["cell_type_raw"].astype(str)==c).sum():,})')
-               for c in raw_types]
+                   c=col, s=base_size, alpha=0.45, linewidths=0, rasterized=True)
+    handles = _consolidated_handles(df['cell_type_raw'], df['old_cell_class'], raw_pal)
     ax.legend(handles=handles, loc='lower right', fontsize=6,
               framealpha=0.85, edgecolor='0.8', handletextpad=0.3,
-              ncol=max(1, len(raw_types) // 12))
+              ncol=max(1, len(handles) // 12))
     ax.set_title('Raw cell type (original label)', fontsize=11)
     ax.set_xticks([]); ax.set_yticks([])
 
@@ -634,29 +664,41 @@ def make_umap_excitatory(all_df, out, target_source='VELMESHEV'):
     aligned_types = sorted(df['cell_type_aligned'].astype(str).unique())
     for ct in aligned_types:
         m = (df['cell_type_aligned'].astype(str) == ct).values
+        if (df.loc[m, 'new_cell_class'] == 'Inhibitory').all():
+            col = '#5B7EB5'
+        elif (df.loc[m, 'new_cell_class'] == 'Excitatory').all():
+            col = aligned_pal[ct]
+        else:
+            col = '#999999'
         ax.scatter(xy[m, 0], xy[m, 1],
-                   c=aligned_pal[ct], s=base_size, alpha=0.45, linewidths=0, rasterized=True)
-    handles = [Line2D([0], [0], marker='o', color='w',
-                      markerfacecolor=aligned_pal[c], markersize=6,
-                      label=f'{c}  (n={(df["cell_type_aligned"].astype(str)==c).sum():,})')
-               for c in aligned_types]
+                   c=col, s=base_size, alpha=0.45, linewidths=0, rasterized=True)
+    handles = _consolidated_handles(df['cell_type_aligned'], df['new_cell_class'], aligned_pal)
     ax.legend(handles=handles, loc='lower right', fontsize=6,
               framealpha=0.85, edgecolor='0.8', handletextpad=0.3,
-              ncol=max(1, len(aligned_types) // 12))
+              ncol=max(1, len(handles) // 12))
     ax.set_title('Aligned cell type (after label transfer)', fontsize=11)
     ax.set_xticks([]); ax.set_yticks([])
 
-    # ── TR: Layer 2/3 status ─────────────────────────────────────────────────
+    # ── TR: Layer 2/3 status + cross-class overlay ───────────────────────────
     ax = axes[0, 1]
+    old_exc = df['old_cell_class'].astype(str) == 'Excitatory'
+    new_exc = df['new_cell_class'].astype(str) == 'Excitatory'
+    cross_out = old_exc & ~new_exc   # Excitatory → other class (red)
+    cross_in  = ~old_exc & new_exc   # other class → Excitatory (pink)
+    cross_class = cross_out | cross_in
     layers = [
-        (m_other,  '#CCCCCC', 0.25, base_size * 0.7,
-         f'Other Excitatory / cross-class  (n={m_other.sum():,})'),
+        (m_other & ~cross_class, '#CCCCCC', 0.25, base_size * 0.7,
+         f'Other Excitatory  (n={(m_other & ~cross_class).sum():,})'),
         (m_stayed, '#1F77B4', 0.75, base_size * 1.3,
          f'L2/3 → L2/3 (stayed)  (n={m_stayed.sum():,})'),
-        (m_gained, '#2CA02C', 0.80, base_size * 1.4,
-         f'Other → L2/3 (gained)  (n={m_gained.sum():,})'),
-        (m_lost,   '#FF7F0E', 0.80, base_size * 1.4,
-         f'L2/3 → Other (lost)  (n={m_lost.sum():,})'),
+        (m_gained & ~cross_class, '#2CA02C', 0.80, base_size * 1.4,
+         f'Other → L2/3 (gained, same class)  (n={(m_gained & ~cross_class).sum():,})'),
+        (m_lost & ~cross_class, '#FF7F0E', 0.80, base_size * 1.4,
+         f'L2/3 → Other (lost, same class)  (n={(m_lost & ~cross_class).sum():,})'),
+        (cross_out, '#D62728', 0.85, base_size * 1.5,
+         f'Excitatory → other class  (n={cross_out.sum():,})'),
+        (cross_in,  '#F48CB4', 0.85, base_size * 1.5,
+         f'Other class → Excitatory  (n={cross_in.sum():,})'),
     ]
     for mask_arr, color, alpha, size, label in layers:
         idx = mask_arr.values if hasattr(mask_arr, 'values') else mask_arr
@@ -665,7 +707,7 @@ def make_umap_excitatory(all_df, out, target_source='VELMESHEV'):
                        c=color, s=size, alpha=alpha, linewidths=0, rasterized=True)
     handles = [Line2D([0], [0], marker='o', color='w',
                       markerfacecolor=color, markersize=6, label=label)
-               for (_, color, _, _, label) in layers]
+               for (mask_arr, color, alpha, size, label) in layers]
     ax.legend(handles=handles, loc='lower right', fontsize=7,
               framealpha=0.85, edgecolor='0.8', handletextpad=0.3)
     ax.set_title('Layer 2/3 remapping status', fontsize=11)
