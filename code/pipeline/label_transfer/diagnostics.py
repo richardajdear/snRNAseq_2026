@@ -25,6 +25,7 @@ Outputs
 
 import argparse
 import os
+import re
 import numpy as np
 import pandas as pd
 import scanpy as sc
@@ -37,6 +38,19 @@ from matplotlib.patches import PathPatch
 from matplotlib.path import Path
 
 # ── colour palette ────────────────────────────────────────────────────────────
+# Broad cell-class palette — used for Sankey right-hand bars and UMAP class plots
+CLASS_PALETTE = {
+    'Excitatory':  '#E41A1C',
+    'Inhibitory':  '#377EB8',
+    'Astrocytes':  '#4DAF4A',
+    'Oligos':      '#984EA3',
+    'OPC':         '#FF7F00',
+    'Microglia':   '#008080',
+    'Endothelial': '#778899',
+    'Glia':        '#2CA25F',
+    'Other':       '#BDBDBD',
+}
+
 PALETTE = {
     # Excitatory (warm)
     'EN_L2_3_IT':   '#E41A1C',
@@ -87,8 +101,49 @@ PALETTE = {
 
 _FALLBACK = '#BFBFBF'
 
+
+def _norm_key(label):
+    """Normalise a label for PALETTE lookup: replace hyphens with underscores."""
+    return str(label).replace('-', '_')
+
+
 def _col(label):
-    return PALETTE.get(label, _FALLBACK)
+    """Look up colour from PALETTE, trying normalised key if exact match fails."""
+    c = PALETTE.get(label)
+    if c is not None:
+        return c
+    c = PALETTE.get(_norm_key(label))
+    if c is not None:
+        return c
+    return _FALLBACK
+
+
+def _make_local_palette(labels):
+    """Build a colour dict covering all *labels*.
+
+    Uses PALETTE (with normalisation fallback) where possible, then cycles
+    through tab20 for any remaining labels so nothing is left grey.
+    """
+    import matplotlib.cm as cm
+    cmap = cm.get_cmap('tab20', 20)
+    result = {}
+    fallback_idx = 0
+    for lbl in sorted(set(str(l) for l in labels)):
+        c = PALETTE.get(lbl) or PALETTE.get(_norm_key(lbl))
+        if c is None:
+            result[lbl] = matplotlib.colors.to_hex(cmap(fallback_idx % 20))
+            fallback_idx += 1
+        else:
+            result[lbl] = c
+    return result
+
+
+def _is_L23(label):
+    """Return True if *label* refers to Layer 2/3 in any naming convention.
+
+    Matches: L2-3, L2_3, EN-L2_3-IT, EN_L2_3_IT, L2/3, L2.3 …
+    """
+    return bool(re.search(r'L2[_\-\/\.]?3', str(label), re.IGNORECASE))
 
 
 # ── cell class grouping ──────────────────────────────────────────────────────
@@ -422,29 +477,18 @@ def make_umap_perclass(all_df, emb, out, target_source='VELMESHEV'):
     print(f"  umap_perclass.png")
 
 
-def make_umap_velmeshev(all_df, out, target_source='VELMESHEV'):
-    """2×2 UMAP of Velmeshev cells only: pre/post-remapping × class / remap-status."""
+def make_umap_all(all_df, out, target_source='VELMESHEV'):
+    """2×2 UMAP of target-source cells only: pre/post-remapping × class / remap-status."""
     vel = all_df[all_df['source'] == target_source].copy()
     xy  = vel[['umap_1', 'umap_2']].values
     vel['is_class_remapped'] = vel['old_cell_class'] != vel['new_cell_class']
 
-    CLASS_PALETTE = {
-        'Excitatory':  '#E41A1C',
-        'Inhibitory':  '#377EB8',
-        'Astrocytes':  '#4DAF4A',
-        'Oligos':      '#984EA3',
-        'OPC':         '#FF7F00',
-        'Microglia':   '#008080',
-        'Endothelial': '#778899',
-        'Glia':        '#2CA25F',
-        'Other':       '#BDBDBD',
-    }
     AGE_BINS   = [-np.inf, 0, 1, 5, np.inf]
     AGE_LABELS = ['Fetal (<0y)', 'Perinatal (0-1y)', 'Childhood (1-5y)', 'Post-5y (>5y)']
     AGE_COLORS = ['#1B9E77', '#E6AB02', '#E7298A', '#7570B3']
 
     vel['age_cat'] = pd.cut(vel['age_years'], bins=AGE_BINS, labels=AGE_LABELS)
-    base_size = _adaptive_umap_point_size(len(vel), min_size=0.2, max_size=1.2, scale=220.0)
+    base_size = _adaptive_umap_point_size(len(vel), min_size=1.0, max_size=6.0, scale=400.0)
 
     fig, axes = plt.subplots(2, 2, figsize=(12, 10))
 
@@ -462,7 +506,7 @@ def make_umap_velmeshev(all_df, out, target_source='VELMESHEV'):
             m = (vel[class_col] == cls).values
             ax.scatter(xy[m, 0], xy[m, 1],
                        c=CLASS_PALETTE.get(cls, '#BFBFBF'),
-                       s=0.5, alpha=0.4, linewidths=0, rasterized=True)
+                       s=base_size, alpha=0.4, linewidths=0, rasterized=True)
         handles = [Line2D([0], [0], marker='o', color='w',
                           markerfacecolor=CLASS_PALETTE.get(c, '#BFBFBF'),
                           markersize=6, label=c)
@@ -512,10 +556,147 @@ def make_umap_velmeshev(all_df, out, target_source='VELMESHEV'):
                  'Pre- vs post-remapping',
                  fontsize=13, y=0.98)
     plt.tight_layout(rect=[0, 0, 1, 0.95])
-    path = os.path.join(out, 'umap_target.png')
+    path = os.path.join(out, 'umap_all.png')
     plt.savefig(path, dpi=200, bbox_inches='tight')
     plt.close()
-    print(f"  umap_target.png")
+    print(f"  umap_all.png")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# EXCITATORY-ONLY UMAP
+# ══════════════════════════════════════════════════════════════════════════════
+
+def make_umap_excitatory(all_df, out, target_source='VELMESHEV'):
+    """2×2 UMAP focusing on Excitatory cells (before OR after remapping).
+
+    Panel layout:
+      TL: colour by cell_type_raw
+      BL: colour by cell_type_aligned
+      TR: remapping-status highlight
+            grey  = no remap at all
+            red   = within-Excitatory subtype remap
+            blue  = Excitatory → other class (lost excitatory)
+            green = other class → Excitatory (gained excitatory)
+      BR: age category (same bins as umap_all)
+    """
+    src = all_df[all_df['source'] == target_source].copy()
+
+    # Include cells that were Excitatory before OR after remapping
+    mask = (src['old_cell_class'] == 'Excitatory') | (src['new_cell_class'] == 'Excitatory')
+    df = src[mask].copy()
+
+    if len(df) < 5:
+        print(f"  umap_excitatory.png  SKIPPED (too few Excitatory cells: {len(df)})")
+        return
+
+    xy = df[['umap_1', 'umap_2']].values
+    base_size = _adaptive_umap_point_size(len(df), min_size=1.5, max_size=8.0, scale=500.0)
+
+    AGE_BINS   = [-np.inf, 0, 1, 5, np.inf]
+    AGE_LABELS = ['Fetal (<0y)', 'Perinatal (0-1y)', 'Childhood (1-5y)', 'Post-5y (>5y)']
+    AGE_COLORS = ['#1B9E77', '#E6AB02', '#E7298A', '#7570B3']
+    df['age_cat'] = pd.cut(df['age_years'], bins=AGE_BINS, labels=AGE_LABELS)
+
+    # ── L2/3 status for top-right panel ──────────────────────────────────────
+    raw_is_L23    = df['cell_type_raw'].astype(str).apply(_is_L23)
+    aligned_is_L23 = df['cell_type_aligned'].astype(str).apply(_is_L23)
+
+    m_other  = ~raw_is_L23 & ~aligned_is_L23  # other Excitatory (or cross-class)
+    m_stayed = raw_is_L23  &  aligned_is_L23  # L2/3 → L2/3
+    m_gained = ~raw_is_L23 &  aligned_is_L23  # other → L2/3
+    m_lost   =  raw_is_L23 & ~aligned_is_L23  # L2/3 → other
+
+    # Per-dataset palettes for left panels (tab20 fill for unrecognised labels)
+    raw_pal     = _make_local_palette(df['cell_type_raw'].astype(str).unique())
+    aligned_pal = _make_local_palette(df['cell_type_aligned'].astype(str).unique())
+
+    fig, axes = plt.subplots(2, 2, figsize=(13, 11))
+
+    # ── TL: colour by cell_type_raw ───────────────────────────────────────────
+    ax = axes[0, 0]
+    raw_types = sorted(df['cell_type_raw'].astype(str).unique())
+    for ct in raw_types:
+        m = (df['cell_type_raw'].astype(str) == ct).values
+        ax.scatter(xy[m, 0], xy[m, 1],
+                   c=raw_pal[ct], s=base_size, alpha=0.45, linewidths=0, rasterized=True)
+    handles = [Line2D([0], [0], marker='o', color='w',
+                      markerfacecolor=raw_pal[c], markersize=6,
+                      label=f'{c}  (n={(df["cell_type_raw"].astype(str)==c).sum():,})')
+               for c in raw_types]
+    ax.legend(handles=handles, loc='lower right', fontsize=6,
+              framealpha=0.85, edgecolor='0.8', handletextpad=0.3,
+              ncol=max(1, len(raw_types) // 12))
+    ax.set_title('Raw cell type (original label)', fontsize=11)
+    ax.set_xticks([]); ax.set_yticks([])
+
+    # ── BL: colour by cell_type_aligned ──────────────────────────────────────
+    ax = axes[1, 0]
+    aligned_types = sorted(df['cell_type_aligned'].astype(str).unique())
+    for ct in aligned_types:
+        m = (df['cell_type_aligned'].astype(str) == ct).values
+        ax.scatter(xy[m, 0], xy[m, 1],
+                   c=aligned_pal[ct], s=base_size, alpha=0.45, linewidths=0, rasterized=True)
+    handles = [Line2D([0], [0], marker='o', color='w',
+                      markerfacecolor=aligned_pal[c], markersize=6,
+                      label=f'{c}  (n={(df["cell_type_aligned"].astype(str)==c).sum():,})')
+               for c in aligned_types]
+    ax.legend(handles=handles, loc='lower right', fontsize=6,
+              framealpha=0.85, edgecolor='0.8', handletextpad=0.3,
+              ncol=max(1, len(aligned_types) // 12))
+    ax.set_title('Aligned cell type (after label transfer)', fontsize=11)
+    ax.set_xticks([]); ax.set_yticks([])
+
+    # ── TR: Layer 2/3 status ─────────────────────────────────────────────────
+    ax = axes[0, 1]
+    layers = [
+        (m_other,  '#CCCCCC', 0.25, base_size * 0.7,
+         f'Other Excitatory / cross-class  (n={m_other.sum():,})'),
+        (m_stayed, '#1F77B4', 0.75, base_size * 1.3,
+         f'L2/3 → L2/3 (stayed)  (n={m_stayed.sum():,})'),
+        (m_gained, '#2CA02C', 0.80, base_size * 1.4,
+         f'Other → L2/3 (gained)  (n={m_gained.sum():,})'),
+        (m_lost,   '#FF7F0E', 0.80, base_size * 1.4,
+         f'L2/3 → Other (lost)  (n={m_lost.sum():,})'),
+    ]
+    for mask_arr, color, alpha, size, label in layers:
+        idx = mask_arr.values if hasattr(mask_arr, 'values') else mask_arr
+        if idx.any():
+            ax.scatter(xy[idx, 0], xy[idx, 1],
+                       c=color, s=size, alpha=alpha, linewidths=0, rasterized=True)
+    handles = [Line2D([0], [0], marker='o', color='w',
+                      markerfacecolor=color, markersize=6, label=label)
+               for (_, color, _, _, label) in layers]
+    ax.legend(handles=handles, loc='lower right', fontsize=7,
+              framealpha=0.85, edgecolor='0.8', handletextpad=0.3)
+    ax.set_title('Layer 2/3 remapping status', fontsize=11)
+    ax.set_xticks([]); ax.set_yticks([])
+
+    # ── BR: age category ─────────────────────────────────────────────────────
+    ax = axes[1, 1]
+    for age_lbl, age_col in zip(AGE_LABELS, AGE_COLORS):
+        m = (df['age_cat'] == age_lbl).values
+        n_age = m.sum()
+        if n_age:
+            ax.scatter(xy[m, 0], xy[m, 1],
+                       c=age_col, s=base_size, alpha=0.45, linewidths=0, rasterized=True)
+    handles = [Line2D([0], [0], marker='o', color='w',
+                      markerfacecolor=c, markersize=6,
+                      label=f'{l}  (n={( df["age_cat"]==l).sum():,})')
+               for l, c in zip(AGE_LABELS, AGE_COLORS)]
+    ax.legend(handles=handles, loc='lower right', fontsize=7,
+              framealpha=0.85, edgecolor='0.8', handletextpad=0.3)
+    ax.set_title('Donor age category', fontsize=11)
+    ax.set_xticks([]); ax.set_yticks([])
+
+    fig.suptitle(
+        f'{target_source} — Excitatory cells (n={len(df):,}; '
+        f'pre- or post-remap class = Excitatory)\nGlobal UMAP embedding',
+        fontsize=13, y=0.98)
+    plt.tight_layout(rect=[0, 0, 1, 0.95])
+    path = os.path.join(out, 'umap_excitatory.png')
+    plt.savefig(path, dpi=200, bbox_inches='tight')
+    plt.close()
+    print(f"  umap_excitatory.png")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -531,7 +712,7 @@ def _make_sankey_panel(ax, tf_sub, title, within_color='#4DBEEE',
     from pipeline.label_transfer.transfer import aligned_to_class
 
     # Build flow table: cell_type_raw → cell_type_aligned
-    flows = (tf_sub.groupby(['cell_type_raw', 'cell_type_aligned'])
+    flows = (tf_sub.groupby(['cell_type_raw', 'cell_type_aligned'], observed=True)
              .size().reset_index(name='n'))
     flows = flows[flows['n'] > 0].sort_values('n', ascending=False)
 
@@ -542,13 +723,24 @@ def _make_sankey_panel(ax, tf_sub, title, within_color='#4DBEEE',
 
     # Determine if each flow is within-class or cross-class
     flows['new_class'] = flows['cell_type_aligned'].map(aligned_to_class)
-    ct_class = tf_sub.groupby('cell_type_raw')['old_cell_class'].first().to_dict()
+    ct_class = tf_sub.groupby('cell_type_raw', observed=True)['old_cell_class'].first().to_dict()
     flows['old_class'] = flows['cell_type_raw'].map(ct_class)
     flows['is_cross'] = flows['old_class'] != flows['new_class']
 
     # Filter to informative flows for readability.
     total_flows = int(flows['n'].sum())
     flows['pct_panel'] = flows['n'] / total_flows
+
+    # Restrict to dominant node labels on each side to avoid unreadable lists.
+    left_totals = flows.groupby('cell_type_raw', observed=True)['n'].sum().sort_values(ascending=False)
+    right_totals = flows.groupby('cell_type_aligned', observed=True)['n'].sum().sort_values(ascending=False)
+    keep_left = set(left_totals.head(10).index.tolist())
+    keep_right = set(right_totals.head(10).index.tolist())
+    flows = flows[
+        flows['cell_type_raw'].isin(keep_left)
+        & flows['cell_type_aligned'].isin(keep_right)
+    ].copy()
+
     min_n = max(20, int(0.01 * total_flows))
     flows = flows[flows['n'] >= min_n].copy()
     flows = flows[flows['pct_panel'] >= 0.01].copy()
@@ -567,8 +759,8 @@ def _make_sankey_panel(ax, tf_sub, title, within_color='#4DBEEE',
         return
 
     # Left side: cell_type_raw, right side: cell_type_aligned
-    left_labels = flows.groupby('cell_type_raw')['n'].sum().sort_values(ascending=True)
-    right_labels = flows.groupby('cell_type_aligned')['n'].sum().sort_values(ascending=True)
+    left_labels = flows.groupby('cell_type_raw', observed=True)['n'].sum().sort_values(ascending=True)
+    right_labels = flows.groupby('cell_type_aligned', observed=True)['n'].sum().sort_values(ascending=True)
     total_shown = left_labels.sum()
 
     gap = 0.02
@@ -649,9 +841,10 @@ def _make_sankey_panel(ax, tf_sub, title, within_color='#4DBEEE',
                 ha='right', va='center', fontsize=6)
 
     for lbl, (y0, y1) in right_pos.items():
+        cls_color = CLASS_PALETTE.get(aligned_to_class(lbl), _FALLBACK)
         ax.barh((y0 + y1) / 2, bar_width, height=y1 - y0,
                 left=x_right - bar_width,
-                color=_col(lbl), edgecolor='white', linewidth=0.5, zorder=3)
+                color=cls_color, edgecolor='white', linewidth=0.5, zorder=3)
         ax.text(x_right + 0.01, (y0 + y1) / 2, lbl,
                 ha='left', va='center', fontsize=6)
 
@@ -1028,14 +1221,11 @@ def main():
         make_age_confidence_density(tf_src, src_out)
 
         # UMAPs
-        print("\n── Global UMAP grid ──")
-        make_umap_global(all_df, src_out, target_source=src)
+        print("\n── All-cells UMAP ──")
+        make_umap_all(all_df, src_out, target_source=src)
 
-        print("\n── Target-cells UMAP ──")
-        make_umap_velmeshev(all_df, src_out, target_source=src)
-
-        print("\n── Per-class UMAP grid ──")
-        make_umap_perclass(all_df, emb, src_out, target_source=src)
+        print("\n── Excitatory-cells UMAP ──")
+        make_umap_excitatory(all_df, src_out, target_source=src)
 
         # Sankey
         print("\n── Sankey diagram ──")

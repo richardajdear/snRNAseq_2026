@@ -280,6 +280,7 @@ def main():
     make_subtype_distribution(all_df, wang_out)
 
     # ── Per-source diagnostics ────────────────────────────────────────────────
+    deprecated_outputs = ['umap_global.png', 'umap_perclass.png']
     for src in target_sources:
         tf_src = tf_df[tf_df['source'] == src].copy()
         if tf_src.empty:
@@ -288,6 +289,12 @@ def main():
 
         src_out = os.path.join(args.output_dir, src)
         os.makedirs(src_out, exist_ok=True)
+
+        # Remove stale files from previous runs now that these plots are disabled.
+        for fname in deprecated_outputs:
+            stale_path = os.path.join(src_out, fname)
+            if os.path.exists(stale_path):
+                os.remove(stale_path)
 
         sep = '=' * 60
         print(f"\n{sep}\nDiagnostics for {src}  ({len(tf_src):,} cells)\n{sep}")
@@ -310,8 +317,11 @@ def main():
         print("\n── Age vs confidence density ──")
         diag.make_age_confidence_density(tf_src, src_out)
 
-        print("\n── Target-cells UMAP ──")
-        diag.make_umap_velmeshev(all_df, src_out, target_source=src)
+        print("\n── All-cells UMAP ──")
+        diag.make_umap_all(all_df, src_out, target_source=src)
+
+        print("\n── Excitatory-cells UMAP ──")
+        diag.make_umap_excitatory(all_df, src_out, target_source=src)
 
         print("\n── Sankey diagram ──")
         diag.make_sankey(tf_src, src_out, source_label=src)
