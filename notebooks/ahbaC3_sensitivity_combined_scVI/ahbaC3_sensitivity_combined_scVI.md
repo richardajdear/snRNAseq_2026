@@ -119,10 +119,8 @@ library(ggvenn)
       library ‘/usr/lib/R/site-library’ contains no packages
 
 ``` python
-from regulons import get_ahba_GRN, project_GRN
-from gene_mapping import map_grn_symbols_to_ensembl
-from hvg_investigation import (build_conditions, run_hvg_conditions,
-                                prepare_for_r, save_cache, load_cache)
+from hvg_investigation import (load_single_scvi, setup_grn,
+                                run_projection_pipeline, load_cache)
 ```
 
 ## 2. Data & HVG Projections
@@ -135,63 +133,170 @@ CACHE_DIR = os.path.join(_repo_root, 'notebooks', 'ahbaC3_sensitivity_combined_s
 cached = load_cache(CACHE_DIR)
 ```
 
-    Loaded cache from /rds/user/rajd2/hpc-work/snRNAseq_2026/notebooks/ahbaC3_sensitivity_combined_scVI/_cache
-
 ``` python
 if cached is not None:
     scores_df, stats_df, final_df, hvg_df = cached
     print(f"scores: {len(scores_df)} rows, stats: {len(stats_df)} rows, final: {len(final_df)} rows, hvg_df: {len(hvg_df)} rows")
 else:
-    # ── Load and normalize ──
-    adata = sc.read_h5ad(DATA_FILE)
-
-    # Drop scanVI layer and all embeddings to save memory
-    for layer in ['scanvi_normalized']:
-        if layer in adata.layers:
-            del adata.layers[layer]
-    for key in list(adata.obsm.keys()):
-        del adata.obsm[key]
+    adata, adata_log = load_single_scvi(DATA_FILE, source_label='combined')
+    ahba_GRN, total_grn_genes = setup_grn(ref_dir, adata)
+    scores_df, stats_df, final_df, hvg_df = run_projection_pipeline(
+        adata, adata_log, ahba_GRN, total_grn_genes, N_VALUES, CACHE_DIR)
+    del adata, adata_log
     import gc; gc.collect()
-
-    # Use scVI normalized layer as batch-corrected counts
-    adata.layers['counts'] = adata.layers['scvi_normalized']
-
-    sc.pp.normalize_total(adata, target_sum=1e6)
-
-    if 'source' not in adata.obs.columns:
-        adata.obs['source'] = 'combined'
-    print(f"Shape: {adata.shape}")
-
-    adata_log = adata.copy()
-    sc.pp.log1p(adata_log)
-
-    # ── Load and remap GRN ──
-    grn_file = os.path.join(ref_dir, "ahba_dme_hcp_top8kgenes_weights.csv")
-    ahba_GRN = get_ahba_GRN(path_to_ahba_weights=grn_file, use_weights=True)
-    ahba_GRN = map_grn_symbols_to_ensembl(ahba_GRN, adata)
-    grn_pivot = ahba_GRN.pivot_table(index='Network', columns='Gene', values='Importance', fill_value=0)
-    total_grn_genes = len(np.intersect1d(grn_pivot.columns, adata.var_names))
-    print(f"GRN genes in adata: {total_grn_genes} / {grn_pivot.shape[1]}")
-
-    # ── Run HVG conditions ──
-    conditions = build_conditions(N_VALUES)
-    scores_df, stats_df, hvg_df = run_hvg_conditions(
-        adata, adata_log, ahba_GRN, conditions, total_grn_genes)
-    del adata_log
-
-    # ── Prepare for R ──
-    final_df = prepare_for_r(scores_df, adata, N_VALUES)
-    del adata
-    gc.collect()
-
-    # ── Save cache ──
-    save_cache(CACHE_DIR, scores_df, stats_df, final_df, hvg_df)
 
 print(f"scores: {len(scores_df)}, stats: {len(stats_df)}, final_df (excitatory): {len(final_df)}, hvg_df: {len(hvg_df)}")
 ```
 
-    scores: 8419546 rows, stats: 19 rows, final: 3101978 rows, hvg_df: 93000 rows
-    scores: 8419546, stats: 19, final_df (excitatory): 3101978, hvg_df: 93000
+    Shape: (221567, 15540)
+    WARNING: adata.X seems to be already log-transformed.
+
+    Input sequence provided is already in string format. No operation performed
+    Input sequence provided is already in string format. No operation performed
+
+    Mapped 6391/7973 symbols via adata.var
+    Querying mygene for 1582 unmapped symbols...
+
+    134 input query terms found dup hits:   [('ACTG1P4', 2), ('ADAM20P1', 2), ('AKR7A2P1', 3), ('AMZ2P1', 2), ('ANKRD18CP', 2), ('ANKRD19P', 2),
+    342 input query terms found no hit: ['AAED1', 'AARS', 'ADPRHL2', 'ADSSL1', 'ALS2CR12', 'APOPT1', 'ARMT1', 'ARNTL', 'ARNTL2', 'AZIN1-AS1'
+
+    After mygene: 6397/7973 mapped, 1576 dropped
+    GRN genes in adata: 6397 / 6397
+
+    ============================================================
+    Condition: all_genes
+    Found 6397 matching genes in var_names.
+    Aligning GRN weights to 6397 matched genes for projection...
+    Computing sparse-dense dot product...
+      HVGs: 15540, GRN genes used: 6397/6397 (100.0%)
+
+    ============================================================
+    Condition: seurat_v3_1000
+    Found 6397 matching genes in var_names.
+    Aligning GRN weights to 512 matched genes for projection...
+    Computing sparse-dense dot product...
+      HVGs: 1000, GRN genes used: 512/6397 (8.0%)
+
+    ============================================================
+    Condition: seurat_1000
+    Found 6397 matching genes in var_names.
+    Aligning GRN weights to 543 matched genes for projection...
+    Computing sparse-dense dot product...
+      HVGs: 1000, GRN genes used: 543/6397 (8.5%)
+
+    ============================================================
+    Condition: pearson_1000
+    Found 6397 matching genes in var_names.
+    Aligning GRN weights to 675 matched genes for projection...
+    Computing sparse-dense dot product...
+      HVGs: 1000, GRN genes used: 675/6397 (10.6%)
+
+    ============================================================
+    Condition: seurat_v3_2000
+    Found 6397 matching genes in var_names.
+    Aligning GRN weights to 1028 matched genes for projection...
+    Computing sparse-dense dot product...
+      HVGs: 2000, GRN genes used: 1028/6397 (16.1%)
+
+    ============================================================
+    Condition: seurat_2000
+    Found 6397 matching genes in var_names.
+    Aligning GRN weights to 1055 matched genes for projection...
+    Computing sparse-dense dot product...
+      HVGs: 2000, GRN genes used: 1055/6397 (16.5%)
+
+    ============================================================
+    Condition: pearson_2000
+    Found 6397 matching genes in var_names.
+    Aligning GRN weights to 1261 matched genes for projection...
+    Computing sparse-dense dot product...
+      HVGs: 2000, GRN genes used: 1261/6397 (19.7%)
+
+    ============================================================
+    Condition: seurat_v3_4000
+    Found 6397 matching genes in var_names.
+    Aligning GRN weights to 2028 matched genes for projection...
+    Computing sparse-dense dot product...
+      HVGs: 4000, GRN genes used: 2028/6397 (31.7%)
+
+    ============================================================
+    Condition: seurat_4000
+    Found 6397 matching genes in var_names.
+    Aligning GRN weights to 2043 matched genes for projection...
+    Computing sparse-dense dot product...
+      HVGs: 4000, GRN genes used: 2043/6397 (31.9%)
+
+    ============================================================
+    Condition: pearson_4000
+    Found 6397 matching genes in var_names.
+    Aligning GRN weights to 2347 matched genes for projection...
+    Computing sparse-dense dot product...
+      HVGs: 4000, GRN genes used: 2347/6397 (36.7%)
+
+    ============================================================
+    Condition: seurat_v3_6000
+    Found 6397 matching genes in var_names.
+    Aligning GRN weights to 2972 matched genes for projection...
+    Computing sparse-dense dot product...
+      HVGs: 6000, GRN genes used: 2972/6397 (46.5%)
+
+    ============================================================
+    Condition: seurat_6000
+    Found 6397 matching genes in var_names.
+    Aligning GRN weights to 4982 matched genes for projection...
+    Computing sparse-dense dot product...
+      HVGs: 11540, GRN genes used: 4982/6397 (77.9%)
+
+    ============================================================
+    Condition: pearson_6000
+    Found 6397 matching genes in var_names.
+    Aligning GRN weights to 3189 matched genes for projection...
+    Computing sparse-dense dot product...
+      HVGs: 6000, GRN genes used: 3189/6397 (49.9%)
+
+    ============================================================
+    Condition: seurat_v3_8000
+    Found 6397 matching genes in var_names.
+    Aligning GRN weights to 3701 matched genes for projection...
+    Computing sparse-dense dot product...
+      HVGs: 8000, GRN genes used: 3701/6397 (57.9%)
+
+    ============================================================
+    Condition: seurat_8000
+    Found 6397 matching genes in var_names.
+    Aligning GRN weights to 5700 matched genes for projection...
+    Computing sparse-dense dot product...
+      HVGs: 13540, GRN genes used: 5700/6397 (89.1%)
+
+    ============================================================
+    Condition: pearson_8000
+    Found 6397 matching genes in var_names.
+    Aligning GRN weights to 3870 matched genes for projection...
+    Computing sparse-dense dot product...
+      HVGs: 8000, GRN genes used: 3870/6397 (60.5%)
+
+    ============================================================
+    Condition: seurat_v3_10000
+    Found 6397 matching genes in var_names.
+    Aligning GRN weights to 4363 matched genes for projection...
+    Computing sparse-dense dot product...
+      HVGs: 10000, GRN genes used: 4363/6397 (68.2%)
+
+    ============================================================
+    Condition: seurat_10000
+    Found 6397 matching genes in var_names.
+    Aligning GRN weights to 6397 matched genes for projection...
+    Computing sparse-dense dot product...
+      HVGs: 15540, GRN genes used: 6397/6397 (100.0%)
+
+    ============================================================
+    Condition: pearson_10000
+    Found 6397 matching genes in var_names.
+    Aligning GRN weights to 4363 matched genes for projection...
+    Computing sparse-dense dot product...
+      HVGs: 10000, GRN genes used: 4363/6397 (68.2%)
+    Cache saved to /rds/user/rajd2/hpc-work/snRNAseq_2026/notebooks/ahbaC3_sensitivity_combined_scVI/_cache
+    scores: 8419546, stats: 19, final_df (excitatory): 3101978, hvg_df: 109620
 
 ### Gene Overlap Summary
 
@@ -202,22 +307,22 @@ print(stats_df.to_string(index=False))
           condition  n_hvg  n_grn_genes_used  pct_grn_retained
           all_genes  15540              6397             100.0
      seurat_v3_1000   1000               512               8.0
-        seurat_1000   1000               491               7.7
+        seurat_1000   1000               543               8.5
        pearson_1000   1000               675              10.6
      seurat_v3_2000   2000              1028              16.1
-        seurat_2000   2000               963              15.1
+        seurat_2000   2000              1055              16.5
        pearson_2000   2000              1261              19.7
      seurat_v3_4000   4000              2028              31.7
-        seurat_4000   4000              1767              27.6
+        seurat_4000   4000              2043              31.9
        pearson_4000   4000              2347              36.7
      seurat_v3_6000   6000              2972              46.5
-        seurat_6000   6000              2568              40.1
+        seurat_6000  11540              4982              77.9
        pearson_6000   6000              3189              49.9
      seurat_v3_8000   8000              3701              57.9
-        seurat_8000   8000              3332              52.1
+        seurat_8000  13540              5700              89.1
        pearson_8000   8000              3870              60.5
     seurat_v3_10000  10000              4363              68.2
-       seurat_10000  10000              4122              64.4
+       seurat_10000  15540              6397             100.0
       pearson_10000  10000              4363              68.2
 
 ## 3. Age Range Sensitivity (Gap Model)
@@ -261,7 +366,7 @@ cat(sprintf("Best age range (lowest p for all_genes): Childhood [%d, %d), Adoles
             CHILD_START, best_ce, best_as, best_ae, best$p_value, best$cohens_d))
 ```
 
-    Best age range (lowest p for all_genes): Childhood [1, 10), Adolescence [14, 21)  (p = 0.0000, d = 1.26)
+    Best age range (lowest p for all_genes): Childhood [1, 10), Adolescence [14, 19)  (p = 0.0745, d = 0.54)
 
 ### 3.2 Cohen’s d
 
@@ -305,7 +410,7 @@ cat(sprintf("Using: Childhood = [%d, %d), Gap = [%d, %d), Adolescence = [%d, %d)
             CHILD_START, best_ce, best_ce, best_as, best_as, best_ae))
 ```
 
-    Using: Childhood = [1, 10), Gap = [10, 14), Adolescence = [14, 21)
+    Using: Childhood = [1, 10), Gap = [10, 14), Adolescence = [14, 19)
 
 ### 4.1 GRN Gene Retention
 
@@ -349,10 +454,10 @@ p_c <- plot_gap_boxes(df_boxes, CHILD_START, best_ce, best_as, best_ae)
     R[write to console]: In addition: 
     R[write to console]: Warning messages:
 
-    R[write to console]: 1: Removed 815928 rows containing non-finite outside the scale range
+    R[write to console]: 1: Removed 813916 rows containing non-finite outside the scale range
     (`stat_smooth()`). 
 
-    R[write to console]: 2: Removed 815928 rows containing missing values or values outside the scale range
+    R[write to console]: 2: Removed 813916 rows containing missing values or values outside the scale range
     (`geom_point()`). 
 
     R[write to console]: 3: Removed 2844 rows containing non-finite outside the scale range
@@ -391,10 +496,10 @@ p_c <- plot_gap_boxes(df_boxes, CHILD_START, best_ce, best_as, best_ae, zscore =
     R[write to console]: In addition: 
     R[write to console]: Warning messages:
 
-    R[write to console]: 1: Removed 815928 rows containing non-finite outside the scale range
+    R[write to console]: 1: Removed 813916 rows containing non-finite outside the scale range
     (`stat_smooth()`). 
 
-    R[write to console]: 2: Removed 815928 rows containing missing values or values outside the scale range
+    R[write to console]: 2: Removed 813916 rows containing missing values or values outside the scale range
     (`geom_point()`). 
 
     R[write to console]: 3: Removed 2844 rows containing non-finite outside the scale range

@@ -109,6 +109,62 @@ print(f"scores: {len(scores_df)}, stats: {len(stats_df)}, final_df (excitatory):
 print(stats_df.to_string(index=False))
 ```
 
+### Diagnostic Comparison
+
+Numbers directly comparable to `diagnose_grn_batch_effect.py` (scVI condition).
+Both pipelines compute `CPM(scvi_normalized) @ C3+_weights`; `all_genes` uses the full
+gene set, matching the diagnostic script exactly.
+
+```{python}
+_AGE_BINS   = [-1, 0, 1, 3, 6, 10, 15, 20, 30, 40, 100]
+_AGE_LABELS = ["prenatal", "0-1", "1-3", "3-6", "6-10",
+               "10-15", "15-20", "20-30", "30-40", "40+"]
+_CHILDHOOD  = (1.0, 10.0)
+
+_ag = final_df[(final_df["condition"] == "all_genes") & (final_df["C"] == "C3+")].copy()
+_ag["age_bin"] = pd.cut(_ag["age_years"], bins=_AGE_BINS, labels=_AGE_LABELS, right=False)
+_sources = sorted(_ag["source"].unique())
+
+print("=" * 68)
+print("Notebook C3+ scores  (all_genes, Excitatory)  cf. diagnose_grn_*.out")
+print("=" * 68)
+
+print("\n--- All Excitatory: mean C3+ by source ---")
+print(f"  {'Source':12}  {'N cells':>8}  {'mean':>12}")
+for _src in _sources:
+    _d = _ag[_ag["source"] == _src]
+    print(f"  {_src:12}  {len(_d):>8,}  {_d['value'].mean():>12.1f}")
+
+print("\n--- Excitatory: mean C3+ by source x age bin ---")
+_pivot = _ag.groupby(["age_bin", "source"], observed=True)["value"].mean().unstack("source")
+print(_pivot.round(0).to_string())
+
+_ag_child = _ag[(_ag["age_years"] >= _CHILDHOOD[0]) & (_ag["age_years"] < _CHILDHOOD[1])]
+print(f"\n--- Childhood ({_CHILDHOOD[0]}-{_CHILDHOOD[1]}y): N cells and mean C3+ by source ---")
+print(f"  {'Source':12}  {'N cells':>8}  {'mean':>12}")
+for _src in _sources:
+    _d = _ag_child[_ag_child["source"] == _src]
+    print(f"  {_src:12}  {len(_d):>8,}  "
+          f"{_d['value'].mean() if len(_d) else float('nan'):>12.1f}")
+
+_ind_col = next((c for c in ["individual", "donor_id"] if c in _ag_child.columns), None)
+if _ind_col is not None:
+    _pb = (_ag_child.groupby([_ind_col, "source"], observed=True)["value"]
+           .mean().reset_index(name="c3_mean"))
+    _pb = _pb.dropna(subset=["c3_mean"])
+    print(f"\n--- Childhood: pseudobulk C3+ by source (per donor) ---")
+    print(f"  {'Source':12}  {'N donors':>9}  {'mean':>12}  {'sem':>8}")
+    for _src in _sources:
+        _d = _pb[_pb["source"] == _src]["c3_mean"]
+        if len(_d) == 0:
+            print(f"  {_src:12}  {'0':>9}  {'nan':>12}  {'nan':>8}")
+            continue
+        print(f"  {_src:12}  {len(_d):>9,}  {_d.mean():>12.1f}  {_d.sem():>8.1f}"
+              f"  (range {_d.min():.0f}–{_d.max():.0f})")
+else:
+    print("\n  (no donor ID column found for pseudobulk)")
+```
+
 ## 3. Age Range Sensitivity
 
 Before comparing HVG methods, we identify the age range definitions that best

@@ -15,8 +15,19 @@ def save_cache(cache_dir, scores_df, stats_df, final_df, hvg_df=None):
     print(f"Cache saved to {cache_dir}")
 
 
-def load_cache(cache_dir):
-    """Load cached results. Returns (scores_df, stats_df, final_df, hvg_df) or None."""
+def load_cache(cache_dir, use_cache=True):
+    """Load cached results. Returns (scores_df, stats_df, final_df, hvg_df) or None.
+
+    Parameters
+    ----------
+    cache_dir : str
+        Directory containing cached parquet files.
+    use_cache : bool, default True
+        If False, skip cache loading and return None immediately.
+    """
+    if not use_cache:
+        return None
+
     files = ['scores_df.parquet', 'stats_df.parquet', 'final_df.parquet', 'hvg_df.parquet']
     paths = [os.path.join(cache_dir, f) for f in files]
     if all(os.path.exists(p) for p in paths):

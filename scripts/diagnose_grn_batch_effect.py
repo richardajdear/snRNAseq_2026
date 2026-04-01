@@ -345,6 +345,10 @@ say("=" * 72)
 say(f"\n--- Cell counts in childhood (Excitatory) ---")
 say(f"  {'Source':12}  {'N cells':>8}  {'N donors':>9}")
 pb_child = pseudobulk(obs_child, individual_col)
+# Drop phantom donor rows produced by categorical groupby for sources/donors
+# that have no childhood cells (their aggregated scores are NaN).
+if pb_child is not None:
+    pb_child = pb_child.dropna(subset=["score_scvi_mean"])
 for src in sources:
     nc = (obs_child["source"] == src).sum()
     nd = len(pb_child[pb_child["source"] == src]) if pb_child is not None else "?"
