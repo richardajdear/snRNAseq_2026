@@ -48,6 +48,7 @@ scvi:
   early_stopping: true
   early_stopping_patience: 20
   num_workers: 4
+  transform_batch: WANG    # normalize all cells as WANG cells of their type (for GRN scoring)
 
 scanvi_label_transfer:
   enabled: true

@@ -37,14 +37,14 @@ num_workers: 4
 random_seed: 42
 
 # Inference
-run_scvi_inference: true
+run_scvi_inference: false
 run_scanvi: true
 run_scanvi_inference: true
 n_mc_samples: 10
 output_layer_scvi: scvi_normalized
 output_layer_scanvi: scanvi_normalized
 save_npy_backup: true
-transform_batch: VELMESHEV
+transform_batch: WANG
 
 # UMAP
 umap_n_neighbors: 30
