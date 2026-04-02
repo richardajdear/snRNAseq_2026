@@ -79,20 +79,26 @@ def prepare_for_scvi(
         with Timer(
             f"Selecting {config.n_top_genes} HVGs ({config.hvg_flavor})", logger
         ):
-            kwargs = {"n_top_genes": config.n_top_genes, "flavor": config.hvg_flavor}
-            if config.hvg_flavor == "seurat_v3":
-                kwargs["layer"] = config.counts_layer
-            elif config.hvg_flavor == "pearson_residuals":
-                kwargs["layer"] = config.counts_layer
-            elif config.hvg_flavor == "seurat":
-                logger.info("Log-normalizing .X for seurat HVG selection")
-                # Normalize .X in-place (counts layer is already safely preserved)
-                sc.pp.normalize_total(adata, target_sum=1e4)
-                sc.pp.log1p(adata)
-                
-            if config.hvg_batch_key:
-                kwargs["batch_key"] = config.hvg_batch_key
-            sc.pp.highly_variable_genes(adata, **kwargs)
+            if config.hvg_flavor == "pearson_residuals":
+                # sc.experimental.pp.highly_variable_genes handles pearson_residuals
+                kwargs = {"n_top_genes": config.n_top_genes, "layer": config.counts_layer}
+                if config.hvg_batch_key:
+                    logger.warning(
+                        "pearson_residuals does not support batch_key in this scanpy version "
+                        f"— ignoring hvg_batch_key='{config.hvg_batch_key}'"
+                    )
+                sc.experimental.pp.highly_variable_genes(adata, **kwargs)
+            else:
+                kwargs = {"n_top_genes": config.n_top_genes, "flavor": config.hvg_flavor}
+                if config.hvg_flavor == "seurat_v3":
+                    kwargs["layer"] = config.counts_layer
+                elif config.hvg_flavor == "seurat":
+                    logger.info("Log-normalizing .X for seurat HVG selection")
+                    sc.pp.normalize_total(adata, target_sum=1e4)
+                    sc.pp.log1p(adata)
+                if config.hvg_batch_key:
+                    kwargs["batch_key"] = config.hvg_batch_key
+                sc.pp.highly_variable_genes(adata, **kwargs)
     elif "highly_variable" in adata.var.columns:
         n_hvg_existing = int(adata.var["highly_variable"].sum())
         if n_hvg_existing != config.n_top_genes:
