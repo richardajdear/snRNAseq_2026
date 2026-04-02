@@ -82,6 +82,8 @@ def prepare_for_scvi(
             kwargs = {"n_top_genes": config.n_top_genes, "flavor": config.hvg_flavor}
             if config.hvg_flavor == "seurat_v3":
                 kwargs["layer"] = config.counts_layer
+            elif config.hvg_flavor == "pearson_residuals":
+                kwargs["layer"] = config.counts_layer
             elif config.hvg_flavor == "seurat":
                 logger.info("Log-normalizing .X for seurat HVG selection")
                 # Normalize .X in-place (counts layer is already safely preserved)

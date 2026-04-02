@@ -1,10 +1,17 @@
-# snRNAseq Pipeline Config — HPC (full dataset)
+# snRNAseq Pipeline Config — HPC, Pearson residuals HVG selection
 #
-# Run via SLURM:
-#   cd /home/rajd2/rds/hpc-work/snRNAseq_2026
-#   bash code/pipeline/slurm/submit_pipeline.sh code/pipeline/hpc_config.yaml
+# Identical to hpc_config.yaml except:
+#   - output_dir: VelWangPsychAD_100k_pearson
+#   - hvg_flavor: pearson_residuals (no skmisc dependency; uses raw counts layer)
+#   - hvg_batch_key: source (batch-aware, consistent with seurat run)
+#
+# combined.h5ad is symlinked from VelWangPsychAD_100k — no need to re-run step1.
+# Submit via:
+#   sbatch --job-name=snrna_scvi_pearson \
+#     --export=ALL,WORK_DIR=...,CONFIG=code/pipeline/pearson_hpc_config.yaml \
+#     .../step2_scvi.sh
 
-output_dir: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/VelWangPsychAD_100k
+output_dir: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/VelWangPsychAD_100k_pearson
 
 sources:
   - name: WANG
@@ -40,7 +47,7 @@ seed: 42
 
 scvi:
   n_top_genes: 10000
-  hvg_flavor: seurat
+  hvg_flavor: pearson_residuals
   hvg_batch_key: source
   n_latent: 30
   max_epochs_scvi: 400
@@ -56,7 +63,5 @@ scanvi_label_transfer:
   confidence_threshold: 0.5
 
 steps:
-  - downsample
-  - combine
   - scvi
 overwrite: false

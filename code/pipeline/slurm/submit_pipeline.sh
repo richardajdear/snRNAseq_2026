@@ -27,6 +27,8 @@ echo "Config: ${CONFIG}"
 echo "Work dir: ${WORK_DIR}"
 echo "========================================"
 
+mkdir -p "${WORK_DIR}/logs"
+
 # Step 1: Downsample + Combine (CPU)
 JID1=$(sbatch --parsable \
     --job-name=snrna_prep \
