@@ -152,10 +152,19 @@ def step_scvi(cfg: dict, output_dir: Path, combined_path: Path,
         scvi_cfg['predict_cell_types'] = True
         if 'max_epochs_scanvi' in slt:
             scvi_cfg['max_epochs_scanvi'] = slt['max_epochs_scanvi']
+        # scANVI is the primary inference output: it conditions expression on both
+        # batch AND cell type, giving better cell-type-aware batch correction.
+        # scVI inference is redundant when scANVI is available.
+        scvi_cfg['run_scanvi_inference'] = True
+        scvi_cfg['run_scvi_inference'] = False
+        # Default transform_batch to WANG (reference dataset) so all cells are
+        # normalized as if WANG cells of their type — ideal for cross-dataset GRN scoring.
+        scvi_cfg.setdefault('transform_batch', 'WANG')
         logger.info(
             f"  scANVI label transfer enabled: "
             f"cell_type_key={scvi_cfg['cell_type_key']}, "
-            f"max_epochs_scanvi={scvi_cfg.get('max_epochs_scanvi', 20)}"
+            f"max_epochs_scanvi={scvi_cfg.get('max_epochs_scanvi', 20)}, "
+            f"transform_batch={scvi_cfg['transform_batch']}"
         )
 
     scvi_config_path = output_dir / 'scvi_config.yaml'

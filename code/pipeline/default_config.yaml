@@ -57,6 +57,7 @@ scvi:
   batch_size: 128
   early_stopping: true
   early_stopping_patience: 10
+  transform_batch: WANG    # normalize all cells as WANG cells of their type (for GRN scoring)
 
 # ── scANVI label transfer ─────────────────────────────────────────────────────
 # Replaces kNN label transfer. scANVI trains jointly on batch correction +
