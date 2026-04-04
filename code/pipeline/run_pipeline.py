@@ -160,6 +160,8 @@ def step_scvi(cfg: dict, output_dir: Path, combined_path: Path,
         # Default transform_batch to WANG (reference dataset) so all cells are
         # normalized as if WANG cells of their type — ideal for cross-dataset GRN scoring.
         scvi_cfg.setdefault('transform_batch', 'WANG')
+        # Ensure train_scanvi is included so scANVI is trained end-to-end
+        scvi_cfg['steps'] = ['prep', 'train_scvi', 'train_scanvi', 'infer', 'umap', 'plot', 'save']
         logger.info(
             f"  scANVI label transfer enabled: "
             f"cell_type_key={scvi_cfg['cell_type_key']}, "
@@ -231,12 +233,14 @@ def step_scanvi(cfg: dict, output_dir: Path, combined_path: Path,
         'batch_key': 'source',
         'cell_type_key': 'cell_class',
         'counts_layer': 'counts',
-        'steps': ['prep', 'train_scanvi', 'infer', 'umap', 'plot', 'save'],
-        'run_scanvi': True,
-        'run_scanvi_inference': True,
-        'predict_cell_types': True,
     }
     scvi_cfg.update(cfg.get('scvi', {}))
+    # Critical flags set after user config so they cannot be accidentally overridden
+    scvi_cfg['steps'] = ['prep', 'train_scanvi', 'infer', 'umap', 'plot', 'save']
+    scvi_cfg['run_scanvi'] = True
+    scvi_cfg['run_scanvi_inference'] = True
+    scvi_cfg['run_scvi_inference'] = False
+    scvi_cfg['predict_cell_types'] = True
 
     slt = cfg.get('scanvi_label_transfer', {})
     if slt.get('enabled', True):
@@ -278,6 +282,32 @@ def step_scanvi(cfg: dict, output_dir: Path, combined_path: Path,
     return integrated_path
 
 
+def step_diagnostics(cfg: dict, output_dir: Path, logger: logging.Logger) -> None:
+    """Re-run scANVI diagnostics on an existing integrated.h5ad (no model re-run needed)."""
+    logger.info("=" * 60)
+    logger.info("STEP: DIAGNOSTICS")
+    logger.info("=" * 60)
+
+    integrated_path = output_dir / 'scvi_output' / 'integrated.h5ad'
+    if not integrated_path.exists():
+        logger.error(
+            f"integrated.h5ad not found: {integrated_path}. "
+            "Run the scvi or scanvi step first."
+        )
+        sys.exit(1)
+
+    slt = cfg.get('scanvi_label_transfer', {})
+    diag_dir = output_dir / 'scanvi_diagnostics'
+    logger.info(f"  Running scANVI diagnostics → {diag_dir}")
+    diag_cmd = [
+        sys.executable, '-m', 'pipeline.scanvi_diagnostics',
+        '--input', str(integrated_path),
+        '--output_dir', str(diag_dir),
+        '--confidence_threshold', str(slt.get('confidence_threshold', 0.5)),
+    ]
+    _run(diag_cmd, logger, required=False)
+
+
 def main():
     parser = argparse.ArgumentParser(
         description='Full snRNAseq pipeline: downsample → combine → scVI (+ scANVI label transfer)',
@@ -287,7 +317,8 @@ def main():
     parser.add_argument('--config', required=True,
                         help='Path to pipeline_config.yaml')
     parser.add_argument('--steps', nargs='+',
-                        choices=['downsample', 'combine', 'scvi', 'scanvi', 'label_transfer', 'all'],
+                        choices=['downsample', 'combine', 'scvi', 'scanvi', 'label_transfer',
+                                 'diagnostics', 'all'],
                         default=['all'],
                         help='Which steps to run (default: all)')
     parser.add_argument('--overwrite', action='store_true',
@@ -344,6 +375,9 @@ def main():
 
     if 'scanvi' in steps:
         step_scanvi(cfg, output_dir, combined_path, overwrite, logger)
+
+    if 'diagnostics' in steps:
+        step_diagnostics(cfg, output_dir, logger)
 
     logger.info("Pipeline complete.")
 
