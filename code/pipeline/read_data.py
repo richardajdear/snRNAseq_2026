@@ -153,6 +153,7 @@ def read_velmeshev_backed(h5ad_path=VELMESHEV_PATH, meta_dir=VELMESHEV_META_DIR,
         meta_df['individual'] = meta['Individual'].astype(str)
         meta_df['region']     = meta['Region'].replace(_region_map)
         meta_df['source']     = 'VELMESHEV'
+        meta_df['dataset']    = meta['Dataset'].astype(str) if 'Dataset' in meta.columns else 'VELMESHEV'
 
         # cell_type_raw: source-specific fine-grained label
         raw_col = cell_type_field if cell_type_field in meta.columns else 'Cell_Type'
@@ -236,6 +237,7 @@ def read_wang_backed(h5ad_path=WANG_PATH, cell_type_field='Type-updated'):
         meta_df['cell_type_raw'] = 'Unknown'
 
     meta_df['source']    = 'WANG'
+    meta_df['dataset']   = 'WANG'
     meta_df['chemistry'] = 'multiome'
 
     if 'donor_id' in obs.columns:
@@ -300,6 +302,7 @@ def read_psychad_backed(h5ad_path, dataset_name, cell_type_field='subclass'):
         meta_df['individual'] = obs['donor_id'].astype(str)
 
     meta_df['source']    = dataset_name
+    meta_df['dataset']   = dataset_name
     meta_df['chemistry'] = 'V3'
 
     print(f"  {dataset_name} backed: {adata_backed.shape[0]} cells")

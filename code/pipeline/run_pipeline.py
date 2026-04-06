@@ -183,6 +183,15 @@ def step_scvi(cfg: dict, output_dir: Path, combined_path: Path,
 
     _run(cmd, logger)
 
+    # Verify scVI.run_pipeline actually produced its output.  If it exited 0
+    # but produced nothing (e.g. a crash before writing any files), fail loudly.
+    if not integrated_path.exists():
+        logger.error(
+            f"  scVI.run_pipeline returned 0 but integrated.h5ad was not created: "
+            f"{integrated_path}"
+        )
+        sys.exit(1)
+
     # Diagnostics for scANVI label transfer
     if slt.get('enabled', False) and integrated_path.exists():
         diag_dir = output_dir / 'scanvi_diagnostics'

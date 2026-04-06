@@ -37,13 +37,13 @@ k=60 nearest neighbours; ASW uses sklearn on the same subsample.
 
 Usage
 -----
-    PYTHONPATH=code python -m pipeline.hvg_diagnostics \\
+    PYTHONPATH=code python -m pipeline.compare_outputs \\
         --seurat   .../VelWangPsychAD_100k/scvi_output/integrated.h5ad \\
         --pearson  .../VelWangPsychAD_100k_pearson/scvi_output/integrated.h5ad \\
-        --output_dir .../hvg_method_comparison
+        --output_dir .../compare_outputs/VelWangPsychAD_100k--VelWangPsychAD_100k_pearson
 
     # Faster (smaller subsample, skip UMAP re-plot):
-    PYTHONPATH=code python -m pipeline.hvg_diagnostics ... --n_sample 10000 --no_umap
+    PYTHONPATH=code python -m pipeline.compare_outputs ... --n_sample 10000 --no_umap
 """
 
 import argparse

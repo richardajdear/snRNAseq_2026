@@ -138,6 +138,161 @@ def _make_local_palette(labels):
     return result
 
 
+# ── EN subtype biological sort key (module level for reuse) ──────────────────
+def _en_sort_key(ct):
+    """Biological sort order for EN subtypes used in legends and palettes.
+
+    Order: Newborn → IT-Immature → Non-IT-Immature → layer types (L2→L6) → rest.
+    """
+    s = str(ct)
+    if 'Newborn' in s:                         return (0, s)
+    if 'IT-Immature' in s and 'Non' not in s:  return (1, s)
+    if 'Non-IT-Immature' in s:                 return (2, s)
+    m = re.search(r'L(\d+)', s)
+    if m:                                      return (10 + int(m.group(1)), s)
+    if s == 'Excitatory':                      return (90, s)
+    return (50, s)
+
+
+# ── IN subtype biological sort key ────────────────────────────────────────────
+def _in_sort_key(ct):
+    """Biological sort order for IN subtypes: immature first, then MGE, CGE, Mix."""
+    s = str(ct)
+    if 'Immature' in s:     return (0, s)
+    if 'MGE' in s:          return (1, s)
+    if 'CGE' in s:          return (2, s)
+    if 'Mix' in s:          return (3, s)
+    if s == 'Inhibitory':   return (90, s)
+    return (50, s)
+
+
+# ── Canonical type lists for cross-plot palette consistency ───────────────────
+# All known Wang EN/IN subtypes in biological order.  The palettes are built
+# from this fixed list so the same subtype always gets the same colour.
+_EN_CANONICAL_TYPES = [
+    'EN-Newborn', 'EN-IT-Immature', 'EN-Non-IT-Immature',
+    'EN-L2_3-IT', 'EN-L3_5-IT', 'EN-L4-IT', 'EN-L5-IT',
+    'EN-L5_6-IT', 'EN-L5_6-NP', 'EN-L5-ET',
+    'EN-L6-CT', 'EN-L6-IT', 'EN-L6b',
+    'Excitatory',
+]
+_IN_CANONICAL_TYPES = [
+    'IN-CGE-Immature', 'IN-MGE-Immature', 'IN-NCx_dGE-Immature',
+    'IN-MGE-PV', 'IN-MGE-SST',
+    'IN-CGE-VIP', 'IN-Mix-LAMP5', 'IN-CGE-SNCG',
+    'Inhibitory',
+]
+
+# Fixed palettes computed once (initialised below after the helper functions)
+_EN_FIXED_PALETTE = None
+_IN_FIXED_PALETTE = None
+
+
+def _make_excitatory_umap_palette(labels=None):
+    """Build a stable colour palette for Excitatory subtypes.
+
+    Immature types (EN-Newborn / EN-IT-Immature / EN-Non-IT-Immature) share
+    a blue-grey family so they read as related.  Layer-based types get
+    distinct colours from a qualitative palette.  The broad 'Excitatory'
+    label gets a warm amber.
+
+    When called with labels=None (or from get_en_palette()) the canonical
+    type list is used, guaranteeing the same colour for each subtype across
+    all plots in a diagnostic run.
+    """
+    IMMATURE_COLORS = ['#9DC3E6', '#4472C4', '#1F3864']   # light→dark blue-grey
+    LAYER_PALETTE   = [
+        '#E6550D', '#31A354', '#E7298A', '#FFD700', '#7570B3',
+        '#8B4513', '#00CED1', '#A0522D', '#2CA02C', '#D62728',
+        '#17BECF', '#BCBD22',
+    ]
+
+    if labels is None:
+        labels = _EN_CANONICAL_TYPES
+    all_labels = sorted(set(str(l) for l in labels), key=_en_sort_key)
+    en_labels = [l for l in all_labels
+                 if _norm_key(l).startswith('EN_') or l == 'Excitatory']
+
+    result = {}
+    imm_idx = layer_idx = 0
+    for lbl in en_labels:
+        sk = _en_sort_key(lbl)[0]
+        if sk < 3:       # immature
+            result[lbl] = IMMATURE_COLORS[min(imm_idx, len(IMMATURE_COLORS) - 1)]
+            imm_idx += 1
+        elif sk >= 90:   # broad 'Excitatory' label
+            result[lbl] = '#FF8C00'
+        else:            # layer-based types
+            result[lbl] = LAYER_PALETTE[layer_idx % len(LAYER_PALETTE)]
+            layer_idx += 1
+    for lbl in all_labels:
+        if lbl not in result:
+            c = PALETTE.get(lbl) or PALETTE.get(_norm_key(lbl))
+            result[lbl] = c if c else _FALLBACK
+    return result
+
+
+def _make_inhibitory_umap_palette(labels=None):
+    """Build a stable colour palette for Inhibitory subtypes.
+
+    Immature types share a muted-green family.
+    MGE-derived types (PV, SST) get olive/teal shades.
+    CGE-derived types (VIP, LAMP5, SNCG) get purple/magenta shades.
+    Mixed / other IN types get orange-brown shades.
+    Broad 'Inhibitory' gets a slate blue.
+    """
+    IMMATURE_COLORS = ['#A8D5A2', '#4CAF50', '#1B6B1B']   # light→dark green
+    MGE_PALETTE     = ['#8DB4B4', '#2E8B8B']
+    CGE_PALETTE     = ['#C99BD4', '#9B59B6', '#6A0080']
+    MIX_PALETTE     = ['#E59866', '#CA6F1E', '#784212']
+
+    if labels is None:
+        labels = _IN_CANONICAL_TYPES
+    all_labels = sorted(set(str(l) for l in labels), key=_in_sort_key)
+    in_labels = [l for l in all_labels
+                 if _norm_key(l).startswith('IN_') or l == 'Inhibitory']
+
+    result = {}
+    imm_i = mge_i = cge_i = mix_i = 0
+    for lbl in in_labels:
+        sk = _in_sort_key(lbl)[0]
+        if sk == 0:      # immature
+            result[lbl] = IMMATURE_COLORS[min(imm_i, len(IMMATURE_COLORS) - 1)]
+            imm_i += 1
+        elif sk == 1:    # MGE
+            result[lbl] = MGE_PALETTE[mge_i % len(MGE_PALETTE)]
+            mge_i += 1
+        elif sk == 2:    # CGE
+            result[lbl] = CGE_PALETTE[cge_i % len(CGE_PALETTE)]
+            cge_i += 1
+        elif sk == 3:    # Mix
+            result[lbl] = MIX_PALETTE[mix_i % len(MIX_PALETTE)]
+            mix_i += 1
+        elif sk >= 90:   # broad 'Inhibitory' label
+            result[lbl] = '#5B7EB5'
+    for lbl in all_labels:
+        if lbl not in result:
+            c = PALETTE.get(lbl) or PALETTE.get(_norm_key(lbl))
+            result[lbl] = c if c else _FALLBACK
+    return result
+
+
+def get_en_palette():
+    """Return the fixed canonical EN palette (computed once)."""
+    global _EN_FIXED_PALETTE
+    if _EN_FIXED_PALETTE is None:
+        _EN_FIXED_PALETTE = _make_excitatory_umap_palette()
+    return _EN_FIXED_PALETTE
+
+
+def get_in_palette():
+    """Return the fixed canonical IN palette (computed once)."""
+    global _IN_FIXED_PALETTE
+    if _IN_FIXED_PALETTE is None:
+        _IN_FIXED_PALETTE = _make_inhibitory_umap_palette()
+    return _IN_FIXED_PALETTE
+
+
 def _is_L23(label):
     """Return True if *label* refers to Layer 2/3 in any naming convention.
 
@@ -274,25 +429,69 @@ def make_class_remapping_tables(tf, out):
 # ══════════════════════════════════════════════════════════════════════════════
 
 def make_confidence_histogram(tf, out):
-    fig, axes = plt.subplots(1, 2, figsize=(12, 4))
+    import matplotlib.cm as cm
 
-    # Overall
-    axes[0].hist(tf['transfer_confidence'], bins=50, color='steelblue',
-                 edgecolor='white', linewidth=0.3)
-    axes[0].axvline(0.5, color='red', ls='--', lw=1, label='threshold=0.5')
-    axes[0].set(xlabel='Transfer confidence', ylabel='Cells',
-                title='Overall confidence')
-    axes[0].legend(fontsize=8)
+    # Layout: top row = overall + per-class; bottom = excitatory subtype (full width)
+    fig = plt.figure(figsize=(14, 9))
+    ax_overall = fig.add_subplot(2, 2, 1)
+    ax_class   = fig.add_subplot(2, 2, 2)
+    ax_exc     = fig.add_subplot(2, 1, 2)   # spans full bottom row
 
-    # Per cell_class
+    bins = np.linspace(0, 1, 51)
+
+    # Panel 1: Overall (stacked by cell_class)
     classes = sorted(tf['cell_class'].unique())
-    for cls in classes:
-        axes[1].hist(tf.loc[tf['cell_class'] == cls, 'transfer_confidence'],
-                     bins=50, alpha=0.5, label=cls)
-    axes[1].axvline(0.5, color='red', ls='--', lw=1)
-    axes[1].set(xlabel='Transfer confidence', ylabel='Cells',
-                title='Confidence by cell_class')
-    axes[1].legend(fontsize=7, ncol=2)
+    class_colors = [CLASS_PALETTE.get(c, _FALLBACK) for c in classes]
+    data_by_class = [tf.loc[tf['cell_class'] == c, 'transfer_confidence'].values
+                     for c in classes]
+    ax_overall.hist(data_by_class, bins=bins, stacked=True,
+                    color=class_colors, edgecolor='none', label=classes)
+    ax_overall.axvline(0.5, color='red', ls='--', lw=1, label='threshold=0.5')
+    ax_overall.set(xlabel='Transfer confidence', ylabel='Cells',
+                   title='Overall confidence (stacked by cell class)')
+    ax_overall.legend(fontsize=7, ncol=2)
+
+    # Panel 2: Stacked by cell_class (normalised to fraction)
+    counts = np.zeros((len(classes), len(bins) - 1))
+    for i, c in enumerate(classes):
+        counts[i], _ = np.histogram(
+            tf.loc[tf['cell_class'] == c, 'transfer_confidence'].values, bins=bins)
+    totals = counts.sum(axis=0)
+    totals[totals == 0] = 1   # avoid divide-by-zero
+    fracs = counts / totals
+    bottom = np.zeros(len(bins) - 1)
+    bin_centres = 0.5 * (bins[:-1] + bins[1:])
+    width = bins[1] - bins[0]
+    for i, (c, col) in enumerate(zip(classes, class_colors)):
+        ax_class.bar(bin_centres, fracs[i], width=width, bottom=bottom,
+                     color=col, edgecolor='none', label=c)
+        bottom += fracs[i]
+    ax_class.axvline(0.5, color='red', ls='--', lw=1)
+    ax_class.set(xlabel='Transfer confidence', ylabel='Fraction of cells',
+                 ylim=(0, 1), title='Confidence by cell class (fraction stacked)')
+    ax_class.legend(fontsize=7, ncol=2)
+
+    # Panel 3: Excitatory neurons stacked by subtype
+    exc = tf[tf['cell_class'] == 'Excitatory'].copy()
+    if not exc.empty:
+        en_pal = get_en_palette()
+        # Sort subtypes in biological order (most-informative order)
+        subtype_order = sorted(exc['cell_type_aligned'].unique(), key=_en_sort_key)
+        data_by_sub = [exc.loc[exc['cell_type_aligned'] == ct,
+                                'transfer_confidence'].values
+                       for ct in subtype_order]
+        colors_sub = [en_pal.get(ct, _FALLBACK) for ct in subtype_order]
+        ax_exc.hist(data_by_sub, bins=bins, stacked=True,
+                    color=colors_sub, edgecolor='none', label=subtype_order)
+        ax_exc.axvline(0.5, color='red', ls='--', lw=1, label='threshold=0.5')
+        ax_exc.set(xlabel='Transfer confidence', ylabel='Cells',
+                   title=f'Excitatory neurons by subtype  '
+                         f'(cell_type_aligned, n={len(exc):,})')
+        ax_exc.legend(fontsize=6.5, ncol=4, loc='upper left',
+                      framealpha=0.85, handlelength=1.2)
+    else:
+        ax_exc.set_title('Excitatory neurons (none in dataset)')
+        ax_exc.axis('off')
 
     plt.tight_layout()
     path = os.path.join(out, 'confidence_histogram.png')
@@ -483,8 +682,8 @@ def make_umap_all(all_df, out, target_source='VELMESHEV'):
     xy  = vel[['umap_1', 'umap_2']].values
     vel['is_class_remapped'] = vel['old_cell_class'] != vel['new_cell_class']
 
-    AGE_BINS   = [-np.inf, 0, 1, 5, np.inf]
-    AGE_LABELS = ['Fetal (<0y)', 'Perinatal (0-1y)', 'Childhood (1-5y)', 'Post-5y (>5y)']
+    AGE_BINS   = [-np.inf, 0, 1, 10, np.inf]
+    AGE_LABELS = ['Fetal (<0y)', 'Perinatal (0-1y)', 'Childhood (1-10y)', 'Post-10y (>10y)']
     AGE_COLORS = ['#1B9E77', '#E6AB02', '#E7298A', '#7570B3']
 
     vel['age_cat'] = pd.cut(vel['age_years'], bins=AGE_BINS, labels=AGE_LABELS)
@@ -592,8 +791,8 @@ def make_umap_excitatory(all_df, out, target_source='VELMESHEV'):
     xy = df[['umap_1', 'umap_2']].values
     base_size = _adaptive_umap_point_size(len(df), min_size=1.5, max_size=8.0, scale=500.0)
 
-    AGE_BINS   = [-np.inf, 0, 1, 5, np.inf]
-    AGE_LABELS = ['Fetal (<0y)', 'Perinatal (0-1y)', 'Childhood (1-5y)', 'Post-5y (>5y)']
+    AGE_BINS   = [-np.inf, 0, 1, 10, np.inf]
+    AGE_LABELS = ['Fetal (<0y)', 'Perinatal (0-1y)', 'Childhood (1-10y)', 'Post-10y (>10y)']
     AGE_COLORS = ['#1B9E77', '#E6AB02', '#E7298A', '#7570B3']
     df['age_cat'] = pd.cut(df['age_years'], bins=AGE_BINS, labels=AGE_LABELS)
 
@@ -606,29 +805,38 @@ def make_umap_excitatory(all_df, out, target_source='VELMESHEV'):
     m_gained = ~raw_is_L23 &  aligned_is_L23  # other → L2/3
     m_lost   =  raw_is_L23 & ~aligned_is_L23  # L2/3 → other
 
-    # Per-dataset palettes for left panels (tab20 fill for unrecognised labels)
-    raw_pal     = _make_local_palette(df['cell_type_raw'].astype(str).unique())
-    aligned_pal = _make_local_palette(df['cell_type_aligned'].astype(str).unique())
+    # Use fixed canonical palettes so every EN subtype always maps to the same
+    # colour regardless of which labels happen to appear in this dataset.
+    raw_pal     = get_en_palette()
+    aligned_pal = get_en_palette()
 
     fig, axes = plt.subplots(2, 2, figsize=(13, 11))
 
     # ── helpers for consolidated legend ──────────────────────────────────────
-    def _consolidated_handles(type_series, class_series, palette):
-        """Return scatter handles with Excitatory subtypes listed individually,
-        Inhibitory types merged, and all other classes merged."""
+    def _consolidated_handles(type_series, class_series, palette,
+                               merge_inh_into_other=False):
+        """Return scatter handles with Excitatory subtypes listed individually.
+
+        merge_inh_into_other: if True, count Inhibitory cells as Other
+        (used for the post-remapping / aligned panel).
+        """
         types = type_series.astype(str)
         classes = class_series.astype(str)
         handles_out = []
-        inh_n = (classes == 'Inhibitory').sum()
-        other_n = (~classes.isin(['Excitatory', 'Inhibitory'])).sum()
-        # Excitatory subtypes individually (sorted)
-        exc_types = sorted(types[classes == 'Excitatory'].unique())
+        if merge_inh_into_other:
+            other_n = (~classes.isin(['Excitatory'])).sum()
+        else:
+            inh_n   = (classes == 'Inhibitory').sum()
+            other_n = (~classes.isin(['Excitatory', 'Inhibitory'])).sum()
+        # Excitatory subtypes individually, in biological order
+        exc_types = sorted(types[classes == 'Excitatory'].unique(),
+                           key=_en_sort_key)
         for ct in exc_types:
             n = (types == ct).sum()
             handles_out.append(Line2D([0], [0], marker='o', color='w',
                                       markerfacecolor=palette.get(ct, '#aaaaaa'),
                                       markersize=6, label=f'{ct}  (n={n:,})'))
-        if inh_n > 0:
+        if not merge_inh_into_other and inh_n > 0:
             handles_out.append(Line2D([0], [0], marker='o', color='w',
                                       markerfacecolor='#5B7EB5', markersize=6,
                                       label=f'Inhibitory  (n={inh_n:,})'))
@@ -640,14 +848,17 @@ def make_umap_excitatory(all_df, out, target_source='VELMESHEV'):
 
     # ── TL: colour by cell_type_raw ───────────────────────────────────────────
     ax = axes[0, 0]
-    raw_types = sorted(df['cell_type_raw'].astype(str).unique())
+    # Sort raw types in biological EN order so rare-on-top scatter order is consistent
+    raw_types = sorted(df['cell_type_raw'].astype(str).unique(), key=_en_sort_key)
     for ct in raw_types:
         m = (df['cell_type_raw'].astype(str) == ct).values
-        # non-Excitatory types get a unified colour per class
-        if (df.loc[m, 'old_cell_class'] == 'Inhibitory').all():
+        ct_norm = _norm_key(ct)
+        # Colour by label name — avoids fragile .all() checks that fail when
+        # a single raw_type spans cells remapped across class boundaries.
+        if ct_norm.startswith('EN_') or ct == 'Excitatory':
+            col = raw_pal.get(ct, _FALLBACK)
+        elif ct_norm.startswith('IN_') or ct in ('Inhibitory', 'Interneurons', 'INT'):
             col = '#5B7EB5'
-        elif (df.loc[m, 'old_cell_class'] == 'Excitatory').all():
-            col = raw_pal[ct]
         else:
             col = '#999999'
         ax.scatter(xy[m, 0], xy[m, 1],
@@ -660,19 +871,22 @@ def make_umap_excitatory(all_df, out, target_source='VELMESHEV'):
     ax.set_xticks([]); ax.set_yticks([])
 
     # ── BL: colour by cell_type_aligned ──────────────────────────────────────
+    # Inhibitory cells in this panel are merged into "Other" (grey) because
+    # they are a small minority in an Excitatory-focused UMAP.
     ax = axes[1, 0]
-    aligned_types = sorted(df['cell_type_aligned'].astype(str).unique())
+    aligned_types = sorted(df['cell_type_aligned'].astype(str).unique(),
+                           key=_en_sort_key)
     for ct in aligned_types:
         m = (df['cell_type_aligned'].astype(str) == ct).values
-        if (df.loc[m, 'new_cell_class'] == 'Inhibitory').all():
-            col = '#5B7EB5'
-        elif (df.loc[m, 'new_cell_class'] == 'Excitatory').all():
-            col = aligned_pal[ct]
+        ct_norm = _norm_key(ct)
+        if ct_norm.startswith('EN_') or ct == 'Excitatory':
+            col = aligned_pal.get(ct, _FALLBACK)
         else:
-            col = '#999999'
+            col = '#999999'   # Inhibitory + other → grey "Other"
         ax.scatter(xy[m, 0], xy[m, 1],
                    c=col, s=base_size, alpha=0.45, linewidths=0, rasterized=True)
-    handles = _consolidated_handles(df['cell_type_aligned'], df['new_cell_class'], aligned_pal)
+    handles = _consolidated_handles(df['cell_type_aligned'], df['new_cell_class'],
+                                    aligned_pal, merge_inh_into_other=True)
     ax.legend(handles=handles, loc='lower right', fontsize=6,
               framealpha=0.85, edgecolor='0.8', handletextpad=0.3,
               ncol=max(1, len(handles) // 12))
@@ -739,6 +953,175 @@ def make_umap_excitatory(all_df, out, target_source='VELMESHEV'):
     plt.savefig(path, dpi=200, bbox_inches='tight')
     plt.close()
     print(f"  umap_excitatory.png")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# INHIBITORY-ONLY UMAP
+# ══════════════════════════════════════════════════════════════════════════════
+
+def make_umap_inhibitory(all_df, out, target_source='VELMESHEV'):
+    """2×2 UMAP focusing on Inhibitory cells (before OR after remapping).
+
+    Panel layout:
+      TL: colour by cell_type_raw (original label)
+      BL: colour by cell_type_aligned (scANVI prediction)
+      TR: MGE / CGE / Immature lineage highlight + cross-class overlay
+      BR: donor age category
+
+    Colours are drawn from the canonical IN palette (get_in_palette()) so
+    they match the subtype_distribution plots.
+    """
+    src = all_df[all_df['source'] == target_source].copy()
+    mask = (src['old_cell_class'] == 'Inhibitory') | (src['new_cell_class'] == 'Inhibitory')
+    df = src[mask].copy()
+
+    if len(df) < 5:
+        print(f"  umap_inhibitory.png  SKIPPED (too few Inhibitory cells: {len(df)})")
+        return
+
+    xy = df[['umap_1', 'umap_2']].values
+    base_size = _adaptive_umap_point_size(len(df), min_size=1.5, max_size=8.0, scale=500.0)
+
+    AGE_BINS   = [-np.inf, 0, 1, 10, np.inf]
+    AGE_LABELS = ['Fetal (<0y)', 'Perinatal (0-1y)', 'Childhood (1-10y)', 'Post-10y (>10y)']
+    AGE_COLORS = ['#1B9E77', '#E6AB02', '#E7298A', '#7570B3']
+    df['age_cat'] = pd.cut(df['age_years'], bins=AGE_BINS, labels=AGE_LABELS)
+
+    in_pal = get_in_palette()
+
+    # ── lineage classification helpers ────────────────────────────────────────
+    def _in_lineage(label):
+        s = str(label)
+        if 'Immature' in s:  return 'immature'
+        if 'MGE' in s:       return 'mge'
+        if 'CGE' in s or 'Mix' in s: return 'cge'
+        return 'other'
+
+    def _in_consolidated_handles(type_series, class_series, palette,
+                                  merge_exc_into_other=True):
+        types   = type_series.astype(str)
+        classes = class_series.astype(str)
+        handles_out = []
+        other_n = (~classes.isin(['Inhibitory'])).sum() if merge_exc_into_other else 0
+        in_types = sorted(
+            types[classes == 'Inhibitory'].unique(), key=_in_sort_key)
+        for ct in in_types:
+            n = (types == ct).sum()
+            handles_out.append(Line2D([0], [0], marker='o', color='w',
+                                      markerfacecolor=palette.get(ct, _FALLBACK),
+                                      markersize=6, label=f'{ct}  (n={n:,})'))
+        if other_n > 0:
+            handles_out.append(Line2D([0], [0], marker='o', color='w',
+                                      markerfacecolor='#999999', markersize=6,
+                                      label=f'Other  (n={other_n:,})'))
+        return handles_out
+
+    fig, axes = plt.subplots(2, 2, figsize=(13, 11))
+
+    # ── TL: colour by cell_type_raw ───────────────────────────────────────────
+    ax = axes[0, 0]
+    raw_types = sorted(df['cell_type_raw'].astype(str).unique(), key=_in_sort_key)
+    for ct in raw_types:
+        m = (df['cell_type_raw'].astype(str) == ct).values
+        ct_norm = _norm_key(ct)
+        if ct_norm.startswith('IN_') or ct == 'Inhibitory':
+            col = in_pal.get(ct, _FALLBACK)
+        elif ct_norm.startswith('EN_') or ct == 'Excitatory':
+            col = '#E67E22'   # warm orange for stray excitatory raw labels
+        else:
+            col = '#999999'
+        ax.scatter(xy[m, 0], xy[m, 1],
+                   c=col, s=base_size, alpha=0.45, linewidths=0, rasterized=True)
+    handles = _in_consolidated_handles(df['cell_type_raw'], df['old_cell_class'], in_pal)
+    ax.legend(handles=handles, loc='lower right', fontsize=6,
+              framealpha=0.85, edgecolor='0.8', handletextpad=0.3,
+              ncol=max(1, len(handles) // 12))
+    ax.set_title('Raw cell type (original label)', fontsize=11)
+    ax.set_xticks([]); ax.set_yticks([])
+
+    # ── BL: colour by cell_type_aligned (Excitatory → Other) ─────────────────
+    ax = axes[1, 0]
+    aligned_types = sorted(df['cell_type_aligned'].astype(str).unique(), key=_in_sort_key)
+    for ct in aligned_types:
+        m = (df['cell_type_aligned'].astype(str) == ct).values
+        ct_norm = _norm_key(ct)
+        if ct_norm.startswith('IN_') or ct == 'Inhibitory':
+            col = in_pal.get(ct, _FALLBACK)
+        else:
+            col = '#999999'
+        ax.scatter(xy[m, 0], xy[m, 1],
+                   c=col, s=base_size, alpha=0.45, linewidths=0, rasterized=True)
+    handles = _in_consolidated_handles(df['cell_type_aligned'], df['new_cell_class'],
+                                       in_pal, merge_exc_into_other=True)
+    ax.legend(handles=handles, loc='lower right', fontsize=6,
+              framealpha=0.85, edgecolor='0.8', handletextpad=0.3,
+              ncol=max(1, len(handles) // 12))
+    ax.set_title('Aligned cell type (after label transfer)', fontsize=11)
+    ax.set_xticks([]); ax.set_yticks([])
+
+    # ── TR: MGE / CGE / Immature lineage highlight ────────────────────────────
+    ax = axes[0, 1]
+    old_inh = df['old_cell_class'].astype(str) == 'Inhibitory'
+    new_inh = df['new_cell_class'].astype(str) == 'Inhibitory'
+    cross_out = old_inh & ~new_inh
+    cross_in  = ~old_inh & new_inh
+    cross_class = cross_out | cross_in
+
+    raw_lineage = df['cell_type_raw'].astype(str).apply(_in_lineage)
+    aln_lineage = df['cell_type_aligned'].astype(str).apply(_in_lineage)
+
+    lineage_layers = [
+        (cross_out,                  '#D62728', 0.85, base_size * 1.5,
+         f'Inhibitory → other class  (n={cross_out.sum():,})'),
+        (cross_in,                   '#F48CB4', 0.85, base_size * 1.5,
+         f'Other class → Inhibitory  (n={cross_in.sum():,})'),
+        ((raw_lineage == 'other') & ~cross_class, '#CCCCCC', 0.25, base_size * 0.7,
+         f'Other IN (unclassified)  (n={((raw_lineage=="other")&~cross_class).sum():,})'),
+        ((raw_lineage == 'immature') & ~cross_class, '#A8D5A2', 0.75, base_size * 1.2,
+         f'Immature  (n={((raw_lineage=="immature")&~cross_class).sum():,})'),
+        ((raw_lineage == 'mge') & ~cross_class,     '#2E8B8B', 0.80, base_size * 1.3,
+         f'MGE-derived  (n={((raw_lineage=="mge")&~cross_class).sum():,})'),
+        ((raw_lineage == 'cge') & ~cross_class,     '#9B59B6', 0.80, base_size * 1.3,
+         f'CGE/Mix-derived  (n={((raw_lineage=="cge")&~cross_class).sum():,})'),
+    ]
+    for mask_arr, color, alpha, size, label in lineage_layers:
+        idx = mask_arr.values if hasattr(mask_arr, 'values') else mask_arr
+        if idx.any():
+            ax.scatter(xy[idx, 0], xy[idx, 1],
+                       c=color, s=size, alpha=alpha, linewidths=0, rasterized=True)
+    handles = [Line2D([0], [0], marker='o', color='w',
+                      markerfacecolor=col, markersize=6, label=lbl)
+               for (_, col, _, _, lbl) in lineage_layers]
+    ax.legend(handles=handles, loc='lower right', fontsize=7,
+              framealpha=0.85, edgecolor='0.8', handletextpad=0.3)
+    ax.set_title('IN lineage (MGE / CGE / Immature)', fontsize=11)
+    ax.set_xticks([]); ax.set_yticks([])
+
+    # ── BR: age category ─────────────────────────────────────────────────────
+    ax = axes[1, 1]
+    for age_lbl, age_col in zip(AGE_LABELS, AGE_COLORS):
+        m = (df['age_cat'] == age_lbl).values
+        if m.sum():
+            ax.scatter(xy[m, 0], xy[m, 1],
+                       c=age_col, s=base_size, alpha=0.45, linewidths=0, rasterized=True)
+    handles = [Line2D([0], [0], marker='o', color='w',
+                      markerfacecolor=c, markersize=6,
+                      label=f'{l}  (n={(df["age_cat"]==l).sum():,})')
+               for l, c in zip(AGE_LABELS, AGE_COLORS)]
+    ax.legend(handles=handles, loc='lower right', fontsize=7,
+              framealpha=0.85, edgecolor='0.8', handletextpad=0.3)
+    ax.set_title('Donor age category', fontsize=11)
+    ax.set_xticks([]); ax.set_yticks([])
+
+    fig.suptitle(
+        f'{target_source} — Inhibitory cells (n={len(df):,}; '
+        f'pre- or post-remap class = Inhibitory)\nGlobal UMAP embedding',
+        fontsize=13, y=0.98)
+    plt.tight_layout(rect=[0, 0, 1, 0.95])
+    path = os.path.join(out, 'umap_inhibitory.png')
+    plt.savefig(path, dpi=200, bbox_inches='tight')
+    plt.close()
+    print(f"  umap_inhibitory.png")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -950,11 +1333,22 @@ def make_marker_validation(tf, adata, out, max_ref=5000,
         print(f"  No class-remapped cells in [{age_lo}, {age_hi}) — skipping {suffix}.")
         return
 
-    # Gene symbol → Ensembl ID
+    # Gene symbol → Ensembl ID (var.index).
+    # Some pipelines store gene_symbol as "SYMBOL_ENSGxxx" (symbol + Ensembl
+    # suffix separated by "_ENSG").  Strip that suffix so lookups like
+    # sym2ens['SLC17A7'] work even when stored as 'SLC17A7_ENSG00000104888'.
     var = adata.var
-    sym2ens = (dict(zip(var['gene_symbol'], var.index))
-               if 'gene_symbol' in var.columns
-               else {g: g for g in var.index})
+    sym2ens = {}
+    if 'gene_symbol' in var.columns:
+        for gs, ens in zip(var['gene_symbol'], var.index):
+            full = str(gs)
+            sym2ens[full] = ens                     # keep full form as fallback
+            short = full.split('_ENSG')[0]
+            if short != full:
+                sym2ens[short] = ens                # also map bare symbol
+    else:
+        # var.index may be gene symbols directly
+        sym2ens = {g: g for g in var.index}
 
     top_remaps = (remap.groupby(['old_cell_class', 'new_cell_class'])
                   .size().sort_values(ascending=False).head(3))

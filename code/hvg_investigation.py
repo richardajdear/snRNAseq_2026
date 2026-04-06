@@ -1,7 +1,29 @@
 import os
+import gc
 import scanpy as sc
 import pandas as pd
 import numpy as np
+
+
+def _rss_gb():
+    """Current process RSS in GB (reads /proc/self/status on Linux)."""
+    try:
+        with open('/proc/self/status') as _f:
+            for _line in _f:
+                if _line.startswith('VmRSS:'):
+                    return int(_line.split()[1]) / 1e6  # KB → GB
+    except Exception:
+        pass
+    try:
+        import resource, sys
+        ru = resource.getrusage(resource.RUSAGE_SELF)
+        return ru.ru_maxrss / (1e6 if sys.platform == 'linux' else 1e9)
+    except Exception:
+        return float('nan')
+
+
+def _log_mem(label):
+    print(f"[MEM] {label}: {_rss_gb():.1f} GB RSS", flush=True)
 
 
 def save_cache(cache_dir, scores_df, stats_df, final_df, hvg_df=None):
@@ -84,6 +106,7 @@ def run_hvg_conditions(adata, adata_log, ahba_GRN, conditions, total_grn_genes):
 
     for cond in conditions:
         label = cond['label']
+        _log_mem(f"run_hvg_conditions: start '{label}'")
         print(f"\n{'='*60}\nCondition: {label}")
 
         if cond['flavor'] is None:
@@ -148,7 +171,7 @@ def run_hvg_conditions(adata, adata_log, ahba_GRN, conditions, total_grn_genes):
 def prepare_for_r(scores_df, adata, n_values):
     """Merge scores with metadata, filter to excitatory, set condition ordering."""
     cols_to_keep = ['individual', 'age_years', 'cell_class', 'cell_subclass',
-                    'cell_type', 'source']
+                    'cell_type', 'cell_type_aligned', 'source']
     # Map donor_id → individual if individual is absent
     if 'individual' not in adata.obs.columns and 'donor_id' in adata.obs.columns:
         adata.obs['individual'] = adata.obs['donor_id']
@@ -246,43 +269,49 @@ def load_combo_raw(aging_file, hbcc_file):
 
 
 def load_single_scvi(data_file, source_label='combined',
-                     scvi_layer='scvi_normalized', drop_layers=None):
+                     scvi_layer='scvi_normalized'):
     """Load a single h5ad that contains scVI-normalized expression.
 
     Moves scvi_layer into adata.X *before* normalize_total so that both
     HVG selection (via layers['counts']) and the GRN projection (which reads
     adata.X directly) operate on the same batch-corrected expression.
 
-    Parameters
-    ----------
-    drop_layers : list of str, optional
-        Extra layers to drop to save memory (default: ['scanvi_normalized']).
-
     Returns
     -------
-    adata : AnnData  (CPM-scaled scvi_normalized)
-    adata_log : AnnData  (log1p of CPM-scaled scvi_normalized)
+    adata : AnnData  (CPM-scaled scvi_layer)
+    adata_log : AnnData  (log1p of CPM-scaled scvi_layer)
     """
-    import gc
-    if drop_layers is None:
-        drop_layers = ['scanvi_normalized']
+    _log_mem("load_single_scvi: start")
     adata = sc.read_h5ad(data_file)
-    for layer in drop_layers:
-        if layer in adata.layers:
+    _log_mem(f"load_single_scvi: after read_h5ad (shape {adata.shape}, "
+             f"layers: {list(adata.layers.keys())})")
+
+    # Drop every layer except the one we need, and clear obsm to save memory.
+    for layer in list(adata.layers.keys()):
+        if layer != scvi_layer:
             del adata.layers[layer]
     for key in list(adata.obsm.keys()):
         del adata.obsm[key]
     gc.collect()
-    # Replace adata.X with scvi_normalized so both HVG selection and the GRN
-    # projection (which reads adata.X directly) use batch-corrected expression.
+    _log_mem("load_single_scvi: after dropping extra layers/obsm")
+
+    # Set X from the layer then immediately remove the layer reference so we
+    # do not hold two copies of the same array.
     adata.X = adata.layers[scvi_layer]
+    del adata.layers[scvi_layer]
+    gc.collect()
+    _log_mem("load_single_scvi: after setting X and deleting source layer")
+
     adata.layers['counts'] = adata.X.copy()
     sc.pp.normalize_total(adata, target_sum=1e6)
+    _log_mem("load_single_scvi: after normalize_total")
+
     if 'source' not in adata.obs.columns:
         adata.obs['source'] = source_label
     print(f'Shape: {adata.shape}')
     adata_log = adata.copy()
     sc.pp.log1p(adata_log)
+    _log_mem("load_single_scvi: after adata_log copy")
     return adata, adata_log
 
 
@@ -297,9 +326,12 @@ def run_projection_pipeline(adata, adata_log, ahba_GRN, total_grn_genes,
     -------
     scores_df, stats_df, final_df, hvg_df
     """
+    _log_mem("run_projection_pipeline: start")
     conditions = build_conditions(N_VALUES)
     scores_df, stats_df, hvg_df = run_hvg_conditions(
         adata, adata_log, ahba_GRN, conditions, total_grn_genes)
+    _log_mem("run_projection_pipeline: after run_hvg_conditions")
     final_df = prepare_for_r(scores_df, adata, N_VALUES)
     save_cache(CACHE_DIR, scores_df, stats_df, final_df, hvg_df)
+    _log_mem("run_projection_pipeline: done")
     return scores_df, stats_df, final_df, hvg_df

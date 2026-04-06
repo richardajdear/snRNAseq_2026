@@ -98,11 +98,44 @@ def _build_dataframes(adata, umap_key='X_umap_scanvi', confidence_threshold=0.5,
 # NEW: WANG SELF-PREDICTION CONFUSION MATRIX
 # ══════════════════════════════════════════════════════════════════════════════
 
+def _ct_sort_key(label):
+    """Biological sort key: groups cell types by broad class for a readable matrix."""
+    s = str(label)
+    prefixes = [
+        ('RG-',    0), ('RG_',    0),
+        ('IPC-',   1), ('IPC_',   1), ('Tri-', 1),
+        ('EN-',    2), ('EN_',    2),
+        ('Cajal',  3), ('CR',     3),
+        ('IN-',    4), ('IN_',    4),
+        ('Astro',  5),
+        ('Oligo',  6),
+        ('OPC',    7),
+        ('Micro',  8),
+        ('Endo',   9), ('Vascular', 9), ('PC', 9), ('SMC', 9), ('VLMC', 9),
+    ]
+    for prefix, order in prefixes:
+        if s.startswith(prefix):
+            return (order, s)
+    return (99, s)
+
+
 def make_wang_confusion_matrix(adata, out):
     """Confusion matrix: cell_type_for_scanvi vs cell_type_aligned for WANG cells.
 
     This is the primary model quality check — if scANVI cannot recover the
     labels it was trained on, predictions for other datasets are unreliable.
+
+    Rows   = cell_type_for_scanvi (the training label given to scANVI).
+    Cols   = cell_type_aligned    (scANVI's prediction after self-prediction).
+    Values = fraction of cells with that training label that received each
+             predicted label (row-normalised, so each row sums to 1).
+
+    Diagonal cells (correct prediction) are greyed out so the colour scale
+    can focus on the off-diagonal errors.  Off-diagonal cells with non-zero
+    misassignment fractions are annotated with their value.
+
+    Rows and columns share the same biological ordering so the diagonal is
+    visually unambiguous.
     """
     obs = adata.obs
     wang = obs[obs['source'] == 'WANG'].copy()
@@ -123,31 +156,72 @@ def make_wang_confusion_matrix(adata, out):
     )
     ct.to_csv(os.path.join(out, 'wang_confusion_matrix.csv'))
 
-    # Sort rows/cols by frequency for readability
-    row_order = labeled['cell_type_for_scanvi'].value_counts().index
-    col_order = labeled['cell_type_aligned'].value_counts().index
-    ct = ct.reindex(index=row_order, columns=col_order, fill_value=0)
+    # Build a common label set with the same biological ordering for both axes.
+    all_labels = sorted(
+        set(labeled['cell_type_for_scanvi'].unique()) |
+        set(labeled['cell_type_aligned'].unique()),
+        key=_ct_sort_key,
+    )
+    ct = ct.reindex(index=all_labels, columns=all_labels, fill_value=0)
 
-    n_types = len(ct)
-    fig_size = max(8, n_types * 0.35)
-    fig, ax = plt.subplots(figsize=(fig_size, fig_size * 0.85))
+    mat = ct.values.astype(float)
+    n_types = len(all_labels)
 
-    im = ax.imshow(ct.values, aspect='auto', cmap='Blues', vmin=0, vmax=1)
-    plt.colorbar(im, ax=ax, label='Fraction of row (input label)')
+    # Compute diagonal accuracy (using the square matrix where row==col labels).
+    diag_vals = np.diag(mat)
+    diag_acc = diag_vals.mean()
 
-    ax.set_xticks(range(len(ct.columns)))
-    ax.set_yticks(range(len(ct.index)))
-    ax.set_xticklabels(ct.columns, rotation=90, fontsize=7)
-    ax.set_yticklabels(ct.index, fontsize=7)
-    ax.set_xlabel('cell_type_aligned (scANVI prediction)', fontsize=10)
-    ax.set_ylabel('cell_type_for_scanvi (training label)', fontsize=10)
+    # Off-diagonal matrix: set diagonal to NaN so the colormap's "bad" colour
+    # (light grey) is used there, leaving the colour scale for errors only.
+    off_diag = mat.copy()
+    np.fill_diagonal(off_diag, np.nan)
 
-    diag_acc = np.diag(ct.reindex(index=ct.index,
-                                   columns=ct.index, fill_value=0).values).mean()
+    # Cap the colour scale at the 99th percentile of non-zero off-diagonal
+    # values to prevent a single large outlier from compressing the scale.
+    nonzero_off = off_diag[~np.isnan(off_diag) & (off_diag > 0)]
+    vmax = float(np.percentile(nonzero_off, 99)) if nonzero_off.size else 0.1
+    vmax = max(vmax, 0.05)   # at least 5 % so single-cell rounding errors show
+
+    cmap = plt.cm.Oranges.copy()
+    cmap.set_bad('#D8D8D8')   # diagonal shown in light grey
+
+    # Compact figure: smaller overall size but larger fonts for readability.
+    # ~0.28" per cell gives enough room for 8pt tick labels.
+    fig_size = max(8, min(12, n_types * 0.28))
+    fig, ax = plt.subplots(figsize=(fig_size, fig_size * 0.92))
+
+    im = ax.imshow(off_diag, aspect='auto', cmap=cmap, vmin=0, vmax=vmax)
+    cbar = plt.colorbar(im, ax=ax, label='Fraction of row misassigned to this column',
+                        shrink=0.55, pad=0.02)
+    cbar.ax.tick_params(labelsize=9)
+
+    # Annotate off-diagonal cells where fraction > 1 % (shown as %)
+    annotation_threshold = 0.01
+    fontsize_annot = 8
+    for i in range(n_types):
+        for j in range(n_types):
+            if i == j:
+                continue
+            val = mat[i, j]
+            if val >= annotation_threshold:
+                normed = val / vmax
+                text_color = 'white' if normed > 0.6 else 'black'
+                ax.text(j, i, f'{val:.0%}', ha='center', va='center',
+                        fontsize=fontsize_annot, color=text_color, fontweight='bold')
+
+    ax.set_xticks(range(n_types))
+    ax.set_yticks(range(n_types))
+    ax.set_xticklabels(all_labels, rotation=90, fontsize=8)
+    ax.set_yticklabels(all_labels, fontsize=8)
+    ax.set_xlabel('cell_type_aligned (scANVI prediction)', fontsize=11)
+    ax.set_ylabel('cell_type_for_scanvi (training label)', fontsize=11)
+
     ax.set_title(
-        f'WANG self-prediction: cell_type_for_scanvi vs cell_type_aligned\n'
-        f'n={len(labeled):,} WANG cells   mean diagonal = {diag_acc:.3f}',
-        fontsize=11,
+        f'WANG self-prediction: training label vs scANVI prediction\n'
+        f'n={len(labeled):,} WANG cells   '
+        f'mean diagonal accuracy = {diag_acc:.3f}\n'
+        f'Diagonal greyed out; colour scale shows off-diagonal misassignment fractions',
+        fontsize=10,
     )
     plt.tight_layout()
     path = os.path.join(out, 'wang_confusion_matrix.png')
@@ -162,68 +236,109 @@ def make_wang_confusion_matrix(adata, out):
 # ══════════════════════════════════════════════════════════════════════════════
 
 def make_subtype_distribution(all_df, out):
-    """Stacked bar chart of cell_type_aligned proportions per dataset.
+    """Single 4-panel figure: EN and IN neuron subtype proportions per dataset.
 
-    Shown separately for Excitatory and Inhibitory neurons.
-    Quickly reveals whether EN-L2_3-IT appears in expected proportions
-    across datasets (the original kNN failure mode collapsed these to EN-L5).
+    Layout (rows = period, cols = neuron class):
+      Row 0 (top)   : postnatal (age ≥ 0) — all four datasets
+      Row 1 (bottom): prenatal  (age < 0) — WANG + VELMESHEV only
+
+    Colours match the fixed EN/IN palettes used in umap_excitatory and
+    umap_inhibitory (diag.get_en_palette() / diag.get_in_palette()), so the
+    same subtype always has the same colour across every diagnostic plot.
+
+    Each stacked bar shows what fraction of cells in a dataset are assigned
+    to each subtype by scANVI.  If the model transfers labels correctly the
+    proportions should be broadly consistent with the WANG reference.
     """
-    for broad_class, prefix in [('Excitatory', 'EN'), ('Inhibitory', 'IN')]:
-        sub = all_df[all_df['cell_class'] == broad_class].copy()
-        if sub.empty:
-            continue
+    en_pal = diag.get_en_palette()
+    in_pal = diag.get_in_palette()
 
-        # Cell-type proportions per source
-        props = (sub.groupby(['source', 'cell_type_aligned'])
-                 .size()
-                 .unstack(fill_value=0))
-        props = props.div(props.sum(axis=1), axis=0)
+    periods = [
+        ('postnatal (age ≥ 0y)',
+         all_df[all_df['age_years'] >= 0].copy(),
+         'all datasets'),
+        ('prenatal (age < 0y)',
+         all_df[(all_df['age_years'] < 0) &
+                (all_df['source'].isin(['WANG', 'VELMESHEV']))].copy(),
+         'WANG + VELMESHEV'),
+    ]
+    broad_classes = [
+        ('Excitatory', 'EN', en_pal),
+        ('Inhibitory',  'IN',  in_pal),
+    ]
 
-        # Order sources: WANG first (reference), then alphabetical
-        sources = ['WANG'] + sorted([s for s in props.index if s != 'WANG'])
-        props = props.reindex(sources).dropna()
+    fig, axes = plt.subplots(2, 2, figsize=(14, 14))
 
-        # Sort columns by WANG proportion (most common first)
-        if 'WANG' in props.index:
-            col_order = props.loc['WANG'].sort_values(ascending=False).index
-        else:
-            col_order = props.sum().sort_values(ascending=False).index
-        props = props[col_order]
+    for row, (period_label, df_period, src_note) in enumerate(periods):
+        for col, (broad_class, class_label, pal) in enumerate(broad_classes):
+            ax = axes[row, col]
+            sub = df_period[df_period['cell_class'] == broad_class].copy()
 
-        # Assign colors from diagnostics palette
-        colors = [diag.PALETTE.get(c, diag._FALLBACK) for c in props.columns]
+            if sub.empty:
+                ax.set_title(f'{class_label} — {period_label}\n(no cells)')
+                ax.axis('off')
+                continue
 
-        fig, ax = plt.subplots(figsize=(max(6, len(props.columns) * 0.35 + 2), 5))
-        bottom = np.zeros(len(props))
-        for i, (col, color) in enumerate(zip(props.columns, colors)):
-            vals = props[col].values
-            bars = ax.bar(range(len(props)), vals, bottom=bottom,
-                          color=color, edgecolor='white', linewidth=0.3,
-                          label=col, width=0.7)
-            bottom += vals
+            props = (sub.groupby(['source', 'cell_type_aligned'])
+                     .size().unstack(fill_value=0))
+            props = props.div(props.sum(axis=1), axis=0)
 
-        ax.set_xticks(range(len(props)))
-        ax.set_xticklabels(props.index, fontsize=10)
-        ax.set_ylabel('Proportion of cells', fontsize=10)
-        ax.set_ylim(0, 1)
-        ax.set_title(
-            f'{broad_class} neuron subtype distribution per dataset\n'
-            f'(cell_type_aligned from scANVI predictions)',
-            fontsize=11,
-        )
+            sources = ['WANG'] + sorted([s for s in props.index if s != 'WANG'])
+            props = props.reindex([s for s in sources if s in props.index])
 
-        # Legend outside (can be many types)
-        ncol = max(1, (len(props.columns) + 4) // 5)
-        ax.legend(bbox_to_anchor=(1.01, 1), loc='upper left',
-                  fontsize=6.5, ncol=ncol, framealpha=0.9,
-                  handlelength=1.2, handleheight=0.9)
+            # Sort columns in biological order using the appropriate sort key
+            sort_fn = diag._en_sort_key if broad_class == 'Excitatory' \
+                else diag._in_sort_key
+            col_order = sorted(props.columns.tolist(), key=sort_fn)
+            props = props[col_order]
 
-        plt.tight_layout()
-        fname = f'subtype_distribution_{prefix}.png'
-        path = os.path.join(out, fname)
-        plt.savefig(path, dpi=200, bbox_inches='tight')
-        plt.close()
-        print(f"  {fname}")
+            src_counts = sub.groupby('source').size()
+
+            bottom = np.zeros(len(props))
+            for ct in props.columns:
+                color = pal.get(ct, diag._FALLBACK)
+                vals = props[ct].values
+                ax.bar(range(len(props)), vals, bottom=bottom,
+                       color=color, edgecolor='white', linewidth=0.4,
+                       label=ct, width=0.7)
+                bottom += vals
+
+            ax.set_xticks(range(len(props)))
+            ax.set_xticklabels(
+                [f'{s}\n(n={src_counts.get(s, 0):,})' for s in props.index],
+                fontsize=9)
+            ax.set_ylabel('Proportion of cells', fontsize=10)
+            ax.set_ylim(0, 1)
+            ax.set_title(
+                f'{broad_class} ({class_label}) — {period_label}\n({src_note})',
+                fontsize=10)
+
+            # Single-column legend; skip subtypes <1 % everywhere
+            max_prop = props.max(axis=0)
+            legend_types = max_prop[max_prop >= 0.01].index.tolist()
+            legend_types = sorted(legend_types, key=sort_fn)
+            handles = [plt.Rectangle((0, 0), 1, 1,
+                                     color=pal.get(c, diag._FALLBACK), label=c)
+                       for c in legend_types]
+            n_hidden = len(props.columns) - len(legend_types)
+            if n_hidden > 0:
+                handles.append(plt.Rectangle((0, 0), 1, 1, color='#cccccc',
+                                             label=f'({n_hidden} subtypes <1%)'))
+            ax.legend(handles=handles, bbox_to_anchor=(1.01, 1), loc='upper left',
+                      fontsize=7.5, ncol=1, framealpha=0.9,
+                      handlelength=1.2, handleheight=0.9)
+
+    fig.suptitle(
+        'Neuron subtype proportions per dataset (scANVI cell_type_aligned)\n'
+        'Top: postnatal | Bottom: prenatal    —    '
+        'Colours match umap_excitatory / umap_inhibitory',
+        fontsize=12, y=1.01,
+    )
+    plt.tight_layout()
+    fname = 'subtype_distribution.png'
+    plt.savefig(os.path.join(out, fname), dpi=200, bbox_inches='tight')
+    plt.close()
+    print(f"  {fname}")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -271,7 +386,7 @@ def main():
     print(f"  tf_df:  {len(tf_df):,} target cells")
 
     # ── WANG self-check ───────────────────────────────────────────────────────
-    wang_out = os.path.join(args.output_dir, 'wang_selfcheck')
+    wang_out = os.path.join(args.output_dir, 'WANG_REFERENCE')
     os.makedirs(wang_out, exist_ok=True)
     print(f"\n{'='*60}\nWANG self-prediction check\n{'='*60}")
     make_wang_confusion_matrix(adata, wang_out)
@@ -322,6 +437,9 @@ def main():
 
         print("\n── Excitatory-cells UMAP ──")
         diag.make_umap_excitatory(all_df, src_out, target_source=src)
+
+        print("\n── Inhibitory-cells UMAP ──")
+        diag.make_umap_inhibitory(all_df, src_out, target_source=src)
 
         print("\n── Sankey diagram ──")
         diag.make_sankey(tf_src, src_out, source_label=src)

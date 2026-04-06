@@ -1,4 +1,4 @@
-# AHBA C3 Age Sensitivity (Combined, scVI) — Remapped Velmeshev Labels
+# AHBA C3 Age Sensitivity (Combined, scANVI) — Remapped Velmeshev Labels
 
 
 ## 1. Setup
