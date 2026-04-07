@@ -34,6 +34,9 @@ def _update_cell_class_from_aligned(adata, logger):
     Called after scANVI label transfer assigns new cell_type_aligned values.
     Some cells may be remapped across classes (e.g. Inhibitory → Excitatory),
     so cell_class must be updated to stay consistent with cell_type_aligned.
+
+    The original cell_class is preserved as cell_class_original so that
+    downstream diagnostics can detect which cells changed class.
     """
     new_class = adata.obs['cell_type_aligned'].map(aligned_to_class)
     if 'cell_class' in adata.obs.columns:
@@ -43,6 +46,9 @@ def _update_cell_class_from_aligned(adata, logger):
             f"cell_class: updated {n_changed} cells whose class changed after "
             "cell_type_aligned label transfer"
         )
+        # Preserve pre-transfer cell_class for diagnostics (only set once)
+        if 'cell_class_original' not in adata.obs.columns:
+            adata.obs['cell_class_original'] = adata.obs['cell_class'].copy()
     else:
         logger.info("cell_class: column not present; creating from cell_type_aligned")
     adata.obs['cell_class'] = pd.Categorical(new_class)

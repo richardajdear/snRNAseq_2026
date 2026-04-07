@@ -71,7 +71,12 @@ def _build_dataframes(adata, umap_key='X_umap_scanvi', confidence_threshold=0.5,
 
     # Derive old/new class from cell_type_aligned
     obs['new_cell_class'] = obs['cell_type_aligned'].map(aligned_to_class)
-    obs['old_cell_class'] = obs['cell_class']  # broad class from original data
+    # Use cell_class_original (pre-transfer) when available; fall back to cell_class
+    # for backwards compatibility with h5ad files created before this column was added.
+    if 'cell_class_original' in obs.columns:
+        obs['old_cell_class'] = obs['cell_class_original']
+    else:
+        obs['old_cell_class'] = obs['cell_class']  # broad class from original data
 
     obs['is_class_remapped'] = obs['old_cell_class'] != obs['new_cell_class']
     obs['is_low_confidence'] = obs['cell_type_aligned_confidence'] < confidence_threshold
