@@ -16,6 +16,7 @@ from pathlib import Path
 
 import anndata as ad
 import numpy as np
+import pandas as pd
 import torch
 
 from .config import PipelineConfig
@@ -24,6 +25,33 @@ from .inference import get_normalized_expression
 from .train import train_scanvi, train_scvi
 from .utils import Timer, get_device_info, log_memory, setup_logger
 from .visualize import compute_umaps, plot_batch_comparison
+from pipeline.label_transfer.transfer import aligned_to_class
+
+
+def _update_cell_class_from_aligned(adata, logger):
+    """Recompute cell_class from cell_type_aligned using aligned_to_class mapping.
+
+    Called after scANVI label transfer assigns new cell_type_aligned values.
+    Some cells may be remapped across classes (e.g. Inhibitory → Excitatory),
+    so cell_class must be updated to stay consistent with cell_type_aligned.
+
+    The original cell_class is preserved as cell_class_original so that
+    downstream diagnostics can detect which cells changed class.
+    """
+    new_class = adata.obs['cell_type_aligned'].map(aligned_to_class)
+    if 'cell_class' in adata.obs.columns:
+        old_class = adata.obs['cell_class'].astype(str)
+        n_changed = (old_class != new_class.astype(str)).sum()
+        logger.info(
+            f"cell_class: updated {n_changed} cells whose class changed after "
+            "cell_type_aligned label transfer"
+        )
+        # Preserve pre-transfer cell_class for diagnostics (only set once)
+        if 'cell_class_original' not in adata.obs.columns:
+            adata.obs['cell_class_original'] = adata.obs['cell_class'].copy()
+    else:
+        logger.info("cell_class: column not present; creating from cell_type_aligned")
+    adata.obs['cell_class'] = pd.Categorical(new_class)
 
 
 def _predict_scanvi_with_confidence(scanvi_model, adata_scvi, logger):
@@ -164,6 +192,7 @@ def run(config: PipelineConfig):
                 f"cell_type_aligned: {n_types} types assigned to {len(predictions)} cells "
                 f"({n_low} low-confidence <0.5)"
             )
+            _update_cell_class_from_aligned(adata, logger)
 
         save_checkpoint(adata, str(config.output_h5ad_path), logger)
 
@@ -232,6 +261,7 @@ def run(config: PipelineConfig):
                     logger.info(
                         f"cell_type_aligned: {adata.obs['cell_type_aligned'].nunique()} types"
                     )
+                    _update_cell_class_from_aligned(adata, logger)
                     save_checkpoint(adata, str(config.output_h5ad_path), logger)
 
             with Timer("scANVI inference", logger):
