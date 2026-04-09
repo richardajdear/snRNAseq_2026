@@ -42,6 +42,7 @@ from .estimator import (
 from .kernels import bin_ages, build_kernels, ensure_neighbors, run_moscot_ot
 from .plots import (
     plot_coarse_transition_matrix,
+    plot_excitatory_l23_fate_umap,
     plot_fate_probabilities,
     plot_macrostates,
     plot_obs_vars,
@@ -145,6 +146,7 @@ def run(config: CellRankConfig) -> ad.AnnData:
 
         if config.save_plots:
             plot_fate_probabilities(adata, g, config, logger)
+            plot_excitatory_l23_fate_umap(adata, g, config, logger)
 
         # Lineage subsetting
         if config.lineage_targets:

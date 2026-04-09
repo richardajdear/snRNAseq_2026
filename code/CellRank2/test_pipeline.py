@@ -73,12 +73,13 @@ def make_synthetic_adata(
     ])
     rng.shuffle(age_values)
 
-    # Cell types with realistic proportions
+    # Cell types with realistic proportions including layer-specific excitatory subtypes
     cell_types_pool = [
-        "ExcitatoryNeuron", "InhibitoryNeuron", "Astrocyte", "Oligodendrocyte"
+        "ExcitatoryNeuron_L2-3", "ExcitatoryNeuron_L4-6",
+        "InhibitoryNeuron", "Astrocyte", "Oligodendrocyte",
     ]
     cell_types = rng.choice(cell_types_pool, size=n_cells,
-                            p=[0.4, 0.2, 0.2, 0.2])
+                            p=[0.25, 0.20, 0.20, 0.20, 0.15])
 
     # Batch (source)
     sources = rng.choice(["WANG", "VELMESHEV", "AGING"], size=n_cells,
@@ -103,7 +104,8 @@ def make_synthetic_adata(
 
     # Synthetic scANVI latent: cell-type mean + age trend + noise
     type_means = {
-        "ExcitatoryNeuron": rng.randn(n_latent) * 2,
+        "ExcitatoryNeuron_L2-3": rng.randn(n_latent) * 2,
+        "ExcitatoryNeuron_L4-6": rng.randn(n_latent) * 2,
         "InhibitoryNeuron": rng.randn(n_latent) * 2,
         "Astrocyte": rng.randn(n_latent) * 2,
         "Oligodendrocyte": rng.randn(n_latent) * 2,
@@ -162,8 +164,11 @@ def main():
         help="Number of cells to subsample (default: 2000).",
     )
     parser.add_argument(
-        "--output_dir", default="/tmp/cellrank_test",
-        help="Output directory for test results.",
+        "--output_dir",
+        default=str(
+            Path(__file__).resolve().parent / "test_results"
+        ),
+        help="Output directory for test results (default: code/CellRank2/test_results/).",
     )
     parser.add_argument(
         "--synthetic", action="store_true",
@@ -225,7 +230,7 @@ def main():
         ot_epsilon=0.05,
         ot_max_iterations=500,
         rtk_weight=0.8,
-        n_macrostates=4,   # fewer states for speed on small data
+        n_macrostates=5,   # 5 states to match the 5 distinct cell types in synthetic data
         cluster_key="cell_type_aligned",
         terminal_states=[],
         initial_states=[],

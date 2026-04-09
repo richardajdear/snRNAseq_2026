@@ -205,30 +205,13 @@ def plot_coarse_transition_matrix(
 
     plots_dir = config.plots_dir
     plots_dir.mkdir(parents=True, exist_ok=True)
+    out_path = plots_dir / "coarse_T.png"
 
     with Timer("Plotting coarse transition matrix", logger):
         try:
-            import matplotlib.pyplot as plt
-            ax = g.plot_coarse_T(show=False, figsize=(6, 5))
-            if ax is not None:
-                fig = ax.get_figure()
-                out_path = plots_dir / "coarse_T.png"
-                fig.savefig(str(out_path), dpi=150, bbox_inches="tight")
-                logger.info(f"Saved: {out_path}")
-                plt.close(fig)
-        except TypeError:
-            # Some CellRank versions don't support show=False; use figure capture
-            try:
-                import matplotlib
-                matplotlib.use("Agg")
-                g.plot_coarse_T()
-                fig = plt.gcf()
-                out_path = plots_dir / "coarse_T.png"
-                fig.savefig(str(out_path), dpi=150, bbox_inches="tight")
-                logger.info(f"Saved: {out_path}")
-                plt.close("all")
-            except Exception as exc2:
-                logger.warning(f"  Could not plot coarse_T: {exc2}")
+            # CellRank 2 supports a native `save` parameter on plot_coarse_T
+            g.plot_coarse_T(save=str(out_path), figsize=(6, 5))
+            logger.info(f"Saved: {out_path}")
         except Exception as exc:
             logger.warning(f"  Could not plot coarse_T: {exc}")
 
@@ -254,3 +237,153 @@ def plot_obs_vars(
             point_size=config.point_size,
             logger=logger,
         )
+
+
+def plot_excitatory_l23_fate_umap(
+    adata: ad.AnnData,
+    g,
+    config: CellRankConfig,
+    logger: logging.Logger,
+    excitatory_pattern: str = "excit",
+    l23_pattern: str = "l2",
+) -> None:
+    """UMAP of all excitatory neurons with layer 2-3 fate cells highlighted.
+
+    Plots every excitatory neuron in the dataset on the UMAP embedding.
+    Cells whose most likely cell fate (argmax of fate probabilities) matches
+    a layer 2-3 terminal state are highlighted in red; all other excitatory
+    neurons are shown in grey.
+
+    Parameters
+    ----------
+    excitatory_pattern
+        Case-insensitive substring used to identify excitatory neurons in
+        ``config.cell_type_key`` (default ``"excit"``).
+    l23_pattern
+        Case-insensitive substring used to match layer 2-3 terminal state
+        names (default ``"l2"``).
+    """
+    if g.fate_probabilities is None:
+        logger.warning(
+            "No fate probabilities; skipping excitatory L2-3 fate UMAP plot."
+        )
+        return
+
+    if config.umap_key not in adata.obsm:
+        logger.warning(
+            f"'{config.umap_key}' not in adata.obsm; "
+            "skipping excitatory L2-3 fate UMAP plot."
+        )
+        return
+
+    if config.cell_type_key not in adata.obs.columns:
+        logger.warning(
+            f"'{config.cell_type_key}' not in adata.obs; "
+            "skipping excitatory L2-3 fate UMAP plot."
+        )
+        return
+
+    # Identify excitatory neurons
+    cell_types = adata.obs[config.cell_type_key].astype(str)
+    excit_mask = cell_types.str.lower().str.contains(
+        excitatory_pattern.lower(), na=False
+    )
+
+    if excit_mask.sum() == 0:
+        logger.warning(
+            f"No cells matching '{excitatory_pattern}' in "
+            f"'{config.cell_type_key}'; skipping excitatory L2-3 fate UMAP plot."
+        )
+        return
+
+    n_excit = int(excit_mask.sum())
+    logger.info(f"  Excitatory neurons found: {n_excit} cells")
+
+    # Fate probabilities matrix (n_cells × n_lineages)
+    probs = g.fate_probabilities.X
+    lineage_names = [str(n) for n in g.fate_probabilities.names]
+
+    # Find lineage indices that correspond to layer 2-3
+    l23_indices = [
+        i for i, name in enumerate(lineage_names)
+        if l23_pattern.lower() in name.lower()
+    ]
+
+    if l23_indices:
+        logger.info(
+            f"  L2-3 lineages matched: "
+            + ", ".join(lineage_names[i] for i in l23_indices)
+        )
+    else:
+        logger.warning(
+            f"  No lineages matching '{l23_pattern}' found in {lineage_names}. "
+            "Excitatory UMAP will be plotted without L2-3 highlighting."
+        )
+
+    # Per-cell argmax fate index
+    argmax_fate = np.argmax(probs, axis=1)
+
+    # Cells that are excitatory AND whose most likely fate is an L2-3 lineage
+    l23_fate_mask = np.isin(argmax_fate, l23_indices) if l23_indices else np.zeros(
+        adata.n_obs, dtype=bool
+    )
+    highlight_mask = excit_mask.values & l23_fate_mask
+
+    n_highlighted = int(highlight_mask.sum())
+    logger.info(
+        f"  Cells highlighted (most likely fate = L2-3): {n_highlighted}/{n_excit}"
+    )
+
+    # UMAP coordinates for excitatory neurons only
+    coords = adata.obsm[config.umap_key]
+    excit_coords = coords[excit_mask.values]
+    excit_highlight = highlight_mask[excit_mask.values]  # boolean within excit subset
+
+    # Build title
+    l23_names_str = (
+        ", ".join(lineage_names[i] for i in l23_indices)
+        if l23_indices
+        else f"(no match for '{l23_pattern}')"
+    )
+
+    fig, ax = plt.subplots(figsize=(6, 5))
+    _apply_ggplot_theme(ax)
+    ax.set_box_aspect(1)
+    ax.set_xticks([])
+    ax.set_yticks([])
+    ax.set_xlabel("UMAP1", fontsize=9)
+    ax.set_ylabel("UMAP2", fontsize=9)
+    ax.set_title(
+        f"Excitatory neurons — most-likely fate\nL2-3 lineage: {l23_names_str}",
+        fontsize=8,
+    )
+
+    # Grey background: all other excitatory neurons
+    background_coords = excit_coords[~excit_highlight]
+    ax.scatter(
+        background_coords[:, 0], background_coords[:, 1],
+        c="#CCCCCC", s=config.point_size, alpha=0.4,
+        rasterized=True, linewidths=0, label="Other fate",
+    )
+
+    # Red foreground: excitatory neurons with L2-3 most-likely fate
+    if excit_highlight.any():
+        fg_coords = excit_coords[excit_highlight]
+        ax.scatter(
+            fg_coords[:, 0], fg_coords[:, 1],
+            c="#E41A1C", s=config.point_size * 2.5, alpha=0.85,
+            rasterized=True, linewidths=0,
+            label=f"L2-3 most-likely fate (n={n_highlighted})",
+        )
+
+    ax.legend(
+        fontsize=7, frameon=True, loc="upper right",
+        title=f"Excitatory neurons (n={n_excit})", title_fontsize=7,
+    )
+
+    plots_dir = config.plots_dir
+    plots_dir.mkdir(parents=True, exist_ok=True)
+    out_path = plots_dir / "umap_excitatory_l23_fate.png"
+    fig.savefig(str(out_path), dpi=150, bbox_inches="tight")
+    logger.info(f"Saved: {out_path}")
+    plt.close(fig)
