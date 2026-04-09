@@ -1,0 +1,546 @@
+---
+title: "AHBA C3 Pseudobulk Developmental Trends (Multiple Datasets)"
+format: md
+jupyter: python3
+---
+
+## 1. Setup
+
+### 1.1 Environment
+
+```{python}
+import os
+import sys
+import warnings
+from IPython import get_ipython
+_ip = get_ipython()
+if _ip:
+    _ip.run_line_magic('load_ext', 'autoreload')
+    _ip.run_line_magic('autoreload', '2')
+```
+
+```{python}
+def _find_repo_root(marker='.git'):
+    current = os.path.abspath(os.getcwd())
+    while True:
+        if os.path.exists(os.path.join(current, marker)):
+            return current
+        parent = os.path.dirname(current)
+        if parent == current:
+            raise RuntimeError(f"Could not find '{marker}' above {os.getcwd()}")
+        current = parent
+
+_repo_root = _find_repo_root()
+if os.path.join(_repo_root, 'code') not in sys.path:
+    sys.path.insert(0, os.path.join(_repo_root, 'code'))
+
+from environment import get_environment
+_env = get_environment()
+rds_dir  = _env['rds_dir']
+code_dir = _env['code_dir']
+ref_dir  = _env['ref_dir']
+
+print(f"Environment : {_env['name']}")
+print(f"  rds_dir  : {rds_dir}")
+print(f"  code_dir : {code_dir}")
+print(f"  ref_dir  : {ref_dir}")
+```
+
+### 1.2 Libraries
+
+```{python}
+import scanpy as sc
+import pandas as pd
+import numpy as np
+
+warnings.filterwarnings('ignore')
+
+if _env['name'] == 'local':
+    os.environ['R_HOME'] = '/Users/richard/mambaforge/envs/scanpy/lib/R'
+
+%load_ext rpy2.ipython
+```
+
+```{python}
+%%R
+
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(patchwork)
+library(ggpubr)
+library(pwr)
+```
+
+```{python}
+from hvg_investigation import (
+    load_pseudobulk, setup_grn, load_cache,
+    build_conditions_pearson_only,
+    run_pseudobulk_pipeline,
+)
+```
+
+## 2. Configuration
+
+```{python}
+# ── Dataset variants to compare ───────────────────────────────────────────────
+# Each key is a short label; value is the pseudobulk_output/ directory.
+DATASETS = {
+    'VelWangPsychAD_100k':           rds_dir + '/Cam_snRNAseq/integrated/VelWangPsychAD_100k/pseudobulk_output',
+    'VelWangPsychAD_100k_chemistry': rds_dir + '/Cam_snRNAseq/integrated/VelWangPsychAD_100k_chemistry/pseudobulk_output',
+    'VelWangPsychAD_100k_dataset':   rds_dir + '/Cam_snRNAseq/integrated/VelWangPsychAD_100k_dataset/pseudobulk_output',
+    'VelWangPsychAD_100k_pearson':   rds_dir + '/Cam_snRNAseq/integrated/VelWangPsychAD_100k_pearson/pseudobulk_output',
+}
+
+# ── Analysis parameters ───────────────────────────────────────────────────────
+N_VALUES   = [2000, 8000]       # pearson_residuals n_top_genes to test
+SCVI_LAYER = 'scanvi_normalized'
+
+# Cache root: sub-folder per (integration variant, pseudobulk file type)
+CACHE_ROOT = os.path.join(_repo_root, 'notebooks', 'ahbaC3_pseudobulk_datasets', '_cache')
+
+# ── Age range (used for plots; best range also found via sensitivity grid) ────
+CHILD_START = 1
+
+print(f"Datasets : {list(DATASETS.keys())}")
+print(f"N_VALUES : {N_VALUES}")
+print(f"Cache    : {CACHE_ROOT}")
+```
+
+## 3. GRN Reference
+
+```{python}
+# Load the AHBA GRN once, using the chemistry pseudobulk as a gene-list
+# reference (gene set is identical across all integration variants).
+_ref_pb = os.path.join(
+    list(DATASETS.values())[1], 'by_cell_class.h5ad')
+_ref_adata = load_pseudobulk(_ref_pb, scvi_layer=SCVI_LAYER)
+ahba_GRN, total_grn_genes = setup_grn(ref_dir, _ref_adata)
+del _ref_adata
+import gc; gc.collect()
+print(f"GRN ready: {total_grn_genes} genes retained in pseudobulk adata")
+```
+
+## 4. Cell-Class Analysis
+
+Pseudobulk aggregated per donor × cell_class (`by_cell_class.h5ad`).
+Each sample represents one donor's mean expression profile for one cell class.
+
+### 4.1 Load and Project
+
+```{python}
+cc_results = {}   # {integration_name: (scores_df, stats_df, final_df, hvg_df)}
+
+for name, pb_dir in DATASETS.items():
+    pb_file   = os.path.join(pb_dir, 'by_cell_class.h5ad')
+    cache_dir = os.path.join(CACHE_ROOT, name, 'by_cell_class')
+    print(f"\n{'='*60}\n{name}")
+
+    cached = load_cache(cache_dir)
+    if cached is not None:
+        scores_df, stats_df, final_df, hvg_df = cached
+    else:
+        adata = load_pseudobulk(pb_file, scvi_layer=SCVI_LAYER)
+        scores_df, stats_df, final_df, hvg_df = run_pseudobulk_pipeline(
+            adata, ahba_GRN, total_grn_genes, N_VALUES, cache_dir)
+        del adata; gc.collect()
+
+    final_df['integration'] = name
+    cc_results[name] = (scores_df, stats_df, final_df, hvg_df)
+    print(f"  final_df rows: {len(final_df)}")
+
+# Combine all datasets into one dataframe
+cc_combined = pd.concat(
+    [r[2] for r in cc_results.values()], ignore_index=True)
+print(f"\nCombined cell-class df: {len(cc_combined)} rows, "
+      f"{cc_combined['integration'].nunique()} integrations, "
+      f"{cc_combined['cell_class'].nunique()} cell classes")
+print(cc_combined.groupby(['integration', 'cell_class'])['individual']
+      .nunique().unstack(fill_value=0).to_string())
+```
+
+### 4.2 Gene Overlap Summary
+
+```{python}
+for name, (_, stats_df, _, _) in cc_results.items():
+    print(f"\n{name}")
+    print(stats_df.to_string(index=False))
+```
+
+### 4.3 Sensitivity Analysis (cell-class level)
+
+We run the gap-model sensitivity on the combined Excitatory pseudobulk scores
+to find the best childhood / adolescence age range.
+
+```{python}
+%%R -i cc_combined -i code_dir -i N_VALUES
+
+source(file.path(code_dir, 'hvg_plots.r'))
+source(file.path(code_dir, 'sensitivity_gap_plots.r'))
+source(file.path(code_dir, 'pseudobulk_dev_plots.r'))
+
+# Prepare R data with pearson-only condition levels
+df_cc <- prepare_pb_r_data(cc_combined, N_VALUES)
+
+selected_conds <- c('pearson_2000', 'pearson_8000', 'all_genes')
+CHILD_START    <- 1L
+```
+
+```{python}
+%%R
+
+# Run sensitivity on Excitatory pseudobulk (all integrations combined)
+df_excit <- df_cc %>% filter(cell_class == 'Excitatory')
+
+sens_cc <- compute_sensitivity_gap(
+    df_excit, selected_conds,
+    child_start = CHILD_START,
+    child_ends  = c(7, 8, 9, 10),
+    adol_starts = c(10, 11, 12, 13, 14, 15),
+    adol_ends   = c(19, 21, 23, 25))
+
+best_cc     <- select_best_gap(sens_cc)
+best_cc_ce  <- best_cc$child_end
+best_cc_as  <- best_cc$adol_start
+best_cc_ae  <- best_cc$adol_end
+
+cat(sprintf(
+    "Best age range (cell-class, all_genes baseline):\n  Childhood [%d, %d), Adolescence [%d, %d)  (p = %.4f, d = %.2f)\n",
+    CHILD_START, best_cc_ce, best_cc_as, best_cc_ae,
+    best_cc$p_value, best_cc$cohens_d))
+```
+
+```{python}
+%%R -w 280 -h 220 -u mm -r 300
+
+plot_gap_cohens_d(sens_cc)
+```
+
+```{python}
+%%R -w 280 -h 220 -u mm -r 300
+
+plot_gap_pvalue(sens_cc)
+```
+
+### 4.4 Developmental Trajectories by Cell Class
+
+```{python}
+%%R -w 300 -h 200 -u mm -r 300
+
+plot_cellclass_trajectories(
+    df_cc, 'pearson_2000',
+    CHILD_START, best_cc_ce, best_cc_as, best_cc_ae,
+    color_var = 'integration')
+```
+
+```{python}
+%%R -w 300 -h 200 -u mm -r 300
+
+plot_cellclass_trajectories(
+    df_cc, 'pearson_8000',
+    CHILD_START, best_cc_ce, best_cc_as, best_cc_ae,
+    color_var = 'integration')
+```
+
+### 4.5 Box Plots by Age Range × Cell Class
+
+```{python}
+%%R -w 300 -h 200 -u mm -r 300
+
+plot_cellclass_boxes(
+    df_cc, 'pearson_2000',
+    CHILD_START, best_cc_ce, best_cc_as, best_cc_ae,
+    color_var = 'integration')
+```
+
+```{python}
+%%R -w 300 -h 200 -u mm -r 300
+
+plot_cellclass_boxes(
+    df_cc, 'pearson_8000',
+    CHILD_START, best_cc_ce, best_cc_as, best_cc_ae,
+    color_var = 'integration')
+```
+
+### 4.6 Cross-Integration Sensitivity Comparison
+
+```{python}
+%%R -w 220 -h 140 -u mm -r 300
+
+# Cohen's d for each integration × HVG condition at the best age range
+sens_cc_by_int <- lapply(unique(df_cc$integration), function(intg) {
+    df_sub <- df_cc %>% filter(cell_class == 'Excitatory', integration == intg)
+    compute_sensitivity_gap(
+        df_sub, selected_conds,
+        child_start = CHILD_START,
+        child_ends  = c(best_cc_ce),
+        adol_starts = c(best_cc_as),
+        adol_ends   = c(best_cc_ae)) %>%
+    mutate(integration = intg)
+})
+sens_cc_by_int <- bind_rows(sens_cc_by_int)
+
+sens_cc_by_int %>%
+    ggplot(aes(x = condition, y = cohens_d, fill = integration)) +
+    geom_col(position = position_dodge(0.8), width = 0.7) +
+    geom_hline(yintercept = 0, linewidth = 0.4) +
+    scale_fill_brewer(palette = 'Set1', name = 'Integration') +
+    scale_x_discrete(name = 'HVG condition') +
+    scale_y_continuous(name = "Cohen's d (Childhood vs Adolescence)") +
+    theme_classic(base_size = 9) +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 8),
+          legend.position = 'right') +
+    ggtitle(
+        "Cohen's d: Excitatory neurons, all integrations",
+        subtitle = sprintf(
+            "child < %dy, adol [%dy, %dy)",
+            best_cc_ce, best_cc_as, best_cc_ae))
+```
+
+## 5. Cell-Type Analysis (L2-3 Focus)
+
+Pseudobulk aggregated per donor × cell_type_aligned for Excitatory neurons
+(`excitatory_by_celltype.h5ad`).  Each sample represents one donor's mean
+expression profile for one specific excitatory cell type.
+
+### 5.1 Load and Project
+
+```{python}
+ct_results = {}   # {integration_name: (scores_df, stats_df, final_df, hvg_df)}
+
+for name, pb_dir in DATASETS.items():
+    pb_file   = os.path.join(pb_dir, 'excitatory_by_celltype.h5ad')
+    cache_dir = os.path.join(CACHE_ROOT, name, 'excitatory_by_celltype')
+    print(f"\n{'='*60}\n{name}")
+
+    cached = load_cache(cache_dir)
+    if cached is not None:
+        scores_df, stats_df, final_df, hvg_df = cached
+    else:
+        adata = load_pseudobulk(pb_file, scvi_layer=SCVI_LAYER)
+        # cell_class column not in pseudobulk obs (filter was applied upstream);
+        # add it so downstream R code can use it if needed.
+        adata.obs['cell_class'] = 'Excitatory'
+        scores_df, stats_df, final_df, hvg_df = run_pseudobulk_pipeline(
+            adata, ahba_GRN, total_grn_genes, N_VALUES, cache_dir)
+        del adata; gc.collect()
+
+    final_df['integration'] = name
+    ct_results[name] = (scores_df, stats_df, final_df, hvg_df)
+    print(f"  final_df rows: {len(final_df)}")
+
+# Combine all datasets
+ct_combined = pd.concat(
+    [r[2] for r in ct_results.values()], ignore_index=True)
+print(f"\nCombined cell-type df: {len(ct_combined)} rows")
+print(ct_combined.groupby(['integration', 'cell_type_aligned'])['individual']
+      .nunique().unstack(fill_value=0).to_string())
+```
+
+### 5.2 Sensitivity Analysis (L2-3 neurons)
+
+We restrict to L2-3 IT and related immature/newborn EN subtypes and run the
+gap-model sensitivity to find the optimal age range.
+
+```{python}
+%%R -i ct_combined -i N_VALUES
+
+df_ct <- prepare_pb_r_data(ct_combined, N_VALUES)
+
+L23_TYPES <- c('EN-L2_3-IT', 'EN-Newborn', 'EN-IT-Immature', 'EN-Non-IT-Immature')
+
+cat("Cell types present:\n")
+print(sort(unique(df_ct$cell_type_aligned)))
+```
+
+```{python}
+%%R
+
+sens_L23 <- compute_L23_sensitivity(
+    df_ct, selected_conds,
+    L23_types   = L23_TYPES,
+    child_start = CHILD_START,
+    child_ends  = c(7, 8, 9, 10),
+    adol_starts = c(10, 11, 12, 13, 14, 15),
+    adol_ends   = c(19, 21, 23, 25))
+
+best_L23     <- select_best_gap(sens_L23)
+best_L23_ce  <- best_L23$child_end
+best_L23_as  <- best_L23$adol_start
+best_L23_ae  <- best_L23$adol_end
+
+cat(sprintf(
+    "Best age range (L2-3 EN, all_genes baseline):\n  Childhood [%d, %d), Adolescence [%d, %d)  (p = %.4f, d = %.2f)\n",
+    CHILD_START, best_L23_ce, best_L23_as, best_L23_ae,
+    best_L23$p_value, best_L23$cohens_d))
+```
+
+```{python}
+%%R -w 280 -h 220 -u mm -r 300
+
+plot_gap_cohens_d(sens_L23)
+```
+
+```{python}
+%%R -w 280 -h 220 -u mm -r 300
+
+plot_gap_pvalue(sens_L23)
+```
+
+### 5.3 Developmental Trajectories: All Excitatory Cell Types
+
+```{python}
+%%R -w 320 -h 240 -u mm -r 300
+
+plot_celltype_trajectories(
+    df_ct, 'pearson_2000',
+    CHILD_START, best_L23_ce, best_L23_as, best_L23_ae,
+    color_var = 'integration')
+```
+
+```{python}
+%%R -w 320 -h 240 -u mm -r 300
+
+plot_celltype_trajectories(
+    df_ct, 'pearson_8000',
+    CHILD_START, best_L23_ce, best_L23_as, best_L23_ae,
+    color_var = 'integration')
+```
+
+### 5.4 L2-3 Focus: Trajectory
+
+```{python}
+%%R -w 320 -h 200 -u mm -r 300
+
+plot_L23_focus(
+    df_ct,
+    CHILD_START, best_L23_ce, best_L23_as, best_L23_ae,
+    L23_types = L23_TYPES,
+    color_var = 'cell_type_aligned')
+```
+
+### 5.5 L2-3 Focus: Cross-Integration Comparison
+
+```{python}
+%%R -w 320 -h 180 -u mm -r 300
+
+plot_celltype_cross_integration(
+    df_ct, 'EN-L2_3-IT', 'pearson_2000',
+    CHILD_START, best_L23_ce, best_L23_as, best_L23_ae)
+```
+
+```{python}
+%%R -w 320 -h 180 -u mm -r 300
+
+plot_celltype_cross_integration(
+    df_ct, 'EN-L2_3-IT', 'pearson_8000',
+    CHILD_START, best_L23_ce, best_L23_as, best_L23_ae)
+```
+
+### 5.6 Cross-Integration Sensitivity: L2-3
+
+```{python}
+%%R -w 220 -h 140 -u mm -r 300
+
+sens_L23_by_int <- lapply(unique(df_ct$integration), function(intg) {
+    df_sub <- df_ct %>% filter(integration == intg,
+                               cell_type_aligned %in% L23_TYPES)
+    compute_sensitivity_gap(
+        df_sub, selected_conds,
+        child_start = CHILD_START,
+        child_ends  = c(best_L23_ce),
+        adol_starts = c(best_L23_as),
+        adol_ends   = c(best_L23_ae)) %>%
+    mutate(integration = intg)
+})
+sens_L23_by_int <- bind_rows(sens_L23_by_int)
+
+sens_L23_by_int %>%
+    ggplot(aes(x = condition, y = cohens_d, fill = integration)) +
+    geom_col(position = position_dodge(0.8), width = 0.7) +
+    geom_hline(yintercept = 0, linewidth = 0.4) +
+    scale_fill_brewer(palette = 'Set1', name = 'Integration') +
+    scale_x_discrete(name = 'HVG condition') +
+    scale_y_continuous(name = "Cohen's d (Childhood vs Adolescence)") +
+    theme_classic(base_size = 9) +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 8),
+          legend.position = 'right') +
+    ggtitle(
+        "Cohen's d: L2-3 EN neurons, all integrations",
+        subtitle = sprintf(
+            "child < %dy, adol [%dy, %dy)",
+            best_L23_ce, best_L23_as, best_L23_ae))
+```
+
+### 5.7 L2-3 Box Plots by Age Range
+
+```{python}
+%%R -w 300 -h 160 -u mm -r 300
+
+df_L23_boxes <- df_ct %>%
+    filter(C == 'C3+', cell_type_aligned %in% L23_TYPES) %>%
+    group_by(condition, integration, individual, age_years, cell_type_aligned) %>%
+    summarize(value = mean(value), .groups = 'drop') %>%
+    mutate(age_range = case_when(
+        age_years <  0             ~ 'Prenatal',
+        age_years <  CHILD_START   ~ 'Infancy',
+        age_years <  best_L23_ce   ~ 'Childhood',
+        age_years <  best_L23_as   ~ 'Gap',
+        age_years <  best_L23_ae   ~ 'Adolescence',
+        TRUE                       ~ 'Adulthood'
+    )) %>%
+    mutate(age_range = factor(age_range, ordered = TRUE,
+        levels = c('Prenatal', 'Infancy', 'Childhood',
+                   'Gap', 'Adolescence', 'Adulthood')))
+
+comparisons <- list(c('Childhood', 'Adolescence'),
+                    c('Adolescence', 'Adulthood'))
+
+df_L23_boxes %>%
+    filter(condition %in% c('pearson_2000', 'pearson_8000')) %>%
+    ggplot(aes(x = age_range, y = value, fill = integration)) +
+    geom_boxplot(outlier.shape = NA, alpha = 0.5,
+                 position = position_dodge(0.8)) +
+    geom_jitter(aes(color = integration),
+                position = position_jitterdodge(jitter.width = 0.15,
+                                                dodge.width = 0.8),
+                size = 0.5, alpha = 0.5) +
+    facet_grid(cell_type_aligned ~ condition, scales = 'free_y') +
+    stat_compare_means(comparisons = comparisons,
+                       label = 'p.signif', size = 3) +
+    scale_x_discrete(name = NULL) +
+    scale_y_continuous(name = 'C3+ Score (CPM)') +
+    scale_fill_brewer(palette = 'Set1', name = 'Integration') +
+    scale_color_brewer(palette = 'Set1', guide = 'none') +
+    theme_classic(base_size = 8) +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 7),
+          strip.text = element_text(size = 7),
+          legend.position = 'bottom') +
+    ggtitle(sprintf(
+        "C3+ by age range: L2-3 EN subtypes  (child < %dy, adol [%dy, %dy))",
+        best_L23_ce, best_L23_as, best_L23_ae))
+```
+
+## 6. Summary Table
+
+```{python}
+%%R
+
+# sens_cc_by_int and sens_L23_by_int each already contain only one age range
+# (the respective best_cc / best_L23 parameters), so no further filter needed.
+summary_tbl <- bind_rows(
+    sens_cc_by_int %>%
+        mutate(analysis = sprintf(
+            'cell_class Excitatory  [child<%dy, adol[%dy,%dy))',
+            best_cc_ce, best_cc_as, best_cc_ae)),
+    sens_L23_by_int %>%
+        mutate(analysis = sprintf(
+            'cell_type L2-3 EN  [child<%dy, adol[%dy,%dy))',
+            best_L23_ce, best_L23_as, best_L23_ae))
+) %>%
+    select(analysis, integration, condition, n_child, n_adol,
+           cohens_d, p_value, p_star)
+
+cat("Summary: Cohen's d and significance across integrations and HVG methods\n\n")
+print(summary_tbl, n = 100)
+```
