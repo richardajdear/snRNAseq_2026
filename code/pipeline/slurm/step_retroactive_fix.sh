@@ -2,11 +2,10 @@
 #SBATCH --job-name=fix_cell_class
 #SBATCH --output=/home/rajd2/rds/hpc-work/snRNAseq_2026/logs/fix_cell_class_%A_%a.out
 #SBATCH --error=/home/rajd2/rds/hpc-work/snRNAseq_2026/logs/fix_cell_class_%A_%a.err
-#SBATCH --time=02:00:00
+#SBATCH --time=04:00:00
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=4
-#SBATCH --mem=64G
+#SBATCH --mem=128G
 #SBATCH --partition=icelake
 #SBATCH --account=vertes-sl3-cpu
 
@@ -42,6 +41,7 @@
 # Options forwarded to fix_cell_class_original.py via environment variables:
 #   FORCE=1            — pass --force (re-apply even if already fixed)
 #   NO_DIAGNOSTICS=1   — pass --no_diagnostics (fix h5ad only, skip plot regen)
+#   NO_PSEUDOBULK=1    — skip the pseudobulk re-aggregation step
 
 set -euo pipefail
 
@@ -57,7 +57,9 @@ mkdir -p "${WORK_DIR}/logs"
 ARRAY_IDX="${SLURM_ARRAY_TASK_ID:-1}"
 
 if [[ -n "${CONFIGS_FILE}" ]]; then
-    CONFIG=$(sed -n "${ARRAY_IDX}p" "${WORK_DIR}/${CONFIGS_FILE}")
+    # Support both absolute paths and paths relative to WORK_DIR
+    [[ "${CONFIGS_FILE}" = /* ]] && _CF="${CONFIGS_FILE}" || _CF="${WORK_DIR}/${CONFIGS_FILE}"
+    CONFIG=$(sed -n "${ARRAY_IDX}p" "${_CF}")
 elif [[ -n "${CONFIGS}" ]]; then
     # Convert space-separated string to indexed access
     read -ra _CONFIGS_ARR <<< "${CONFIGS}"
@@ -97,9 +99,57 @@ singularity exec \
         --config "${CONFIG}" \
         ${EXTRA_FLAGS}
 
+echo "Fix step complete: $(date)"
+
+# ── Pseudobulk re-run ────────────────────────────────────────────────────────
+if [[ "${NO_PSEUDOBULK:-0}" != "1" ]]; then
+    echo ""
+    echo "========================================"
+    echo "Re-running pseudobulk with corrected cell_class"
+    echo "========================================"
+
+    # Parse output_dir and pseudobulk.output_dir from the config
+    _DIRS=$(singularity exec \
+        --pwd "${WORK_DIR}" \
+        --bind "${DATA_DIR}:${DATA_DIR}" \
+        --bind "${WORK_DIR}:${WORK_DIR}" \
+        "${SIF}" \
+        micromamba run -n scvi-scgen-scmomat-unitvelo \
+        python3 -c "
+import yaml, os
+with open('${CONFIG}') as f:
+    cfg = yaml.safe_load(f)
+od = cfg['output_dir']
+pb = cfg.get('pseudobulk', {}).get('output_dir') or os.path.join(od, 'pseudobulk_output')
+print(od + '|' + pb)
+")
+
+    _PIPELINE_OUTPUT_DIR="${_DIRS%%|*}"
+    _PB_OUTPUT_DIR="${_DIRS##*|}"
+    _INTEGRATED="${_PIPELINE_OUTPUT_DIR}/scvi_output/integrated.h5ad"
+
+    echo "  Pipeline output dir: ${_PIPELINE_OUTPUT_DIR}"
+    echo "  Pseudobulk output:   ${_PB_OUTPUT_DIR}"
+    echo "  integrated.h5ad:     ${_INTEGRATED}"
+
+    singularity exec \
+        --pwd "${WORK_DIR}" \
+        --bind "${DATA_DIR}:${DATA_DIR}" \
+        --bind "${WORK_DIR}:${WORK_DIR}" \
+        "${SIF}" \
+        micromamba run -n scvi-scgen-scmomat-unitvelo \
+        env PYTHONPATH="code" python3 -m pipeline.pseudobulk \
+            --input  "${_INTEGRATED}" \
+            --output "${_PB_OUTPUT_DIR}" \
+            --config "${CONFIG}" \
+            --overwrite
+
+    echo "Pseudobulk complete: $(date)"
+fi
+
 _ELAPSED=$(( $(date +%s) - _JOB_START ))
 echo "========================================"
 echo "Resource usage:"
 echo "  Time: $(( _ELAPSED/3600 ))h $(( (_ELAPSED%3600)/60 ))m $(( _ELAPSED%60 ))s"
 echo "========================================"
-echo "Fix complete: $(date)"
+echo "All steps complete: $(date)"

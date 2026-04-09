@@ -272,46 +272,54 @@ def load_single_scvi(data_file, source_label='combined',
                      scvi_layer='scvi_normalized'):
     """Load a single h5ad that contains scVI-normalized expression.
 
-    Moves scvi_layer into adata.X *before* normalize_total so that both
-    HVG selection (via layers['counts']) and the GRN projection (which reads
-    adata.X directly) operate on the same batch-corrected expression.
+    Uses backed (memory-mapped) mode to extract only the target layer from
+    disk, avoiding loading all layers simultaneously.  Moves scvi_layer into
+    adata.X *before* normalize_total so that both HVG selection (via
+    layers['counts']) and the GRN projection (which reads adata.X directly)
+    operate on the same batch-corrected expression.
 
     Returns
     -------
     adata : AnnData  (CPM-scaled scvi_layer)
     adata_log : AnnData  (log1p of CPM-scaled scvi_layer)
     """
+    import anndata as ad
     _log_mem("load_single_scvi: start")
-    adata = sc.read_h5ad(data_file)
-    _log_mem(f"load_single_scvi: after read_h5ad (shape {adata.shape}, "
-             f"layers: {list(adata.layers.keys())})")
 
-    # Drop every layer except the one we need, and clear obsm to save memory.
-    for layer in list(adata.layers.keys()):
-        if layer != scvi_layer:
-            del adata.layers[layer]
-    for key in list(adata.obsm.keys()):
-        del adata.obsm[key]
-    gc.collect()
-    _log_mem("load_single_scvi: after dropping extra layers/obsm")
+    # Open in backed (memory-mapped) mode to inspect structure and read only
+    # the target layer — other expression layers stay on disk.
+    adata_tmp = sc.read_h5ad(data_file, backed='r')
+    _log_mem(f"load_single_scvi: backed-mode open done "
+             f"(shape={adata_tmp.shape}, layers={list(adata_tmp.layers.keys())}, "
+             f"obsm={list(adata_tmp.obsm.keys())})")
 
-    # Set X from the layer then immediately remove the layer reference so we
-    # do not hold two copies of the same array.
-    adata.X = adata.layers[scvi_layer]
-    del adata.layers[scvi_layer]
+    X = adata_tmp.layers[scvi_layer][:]   # only this layer is read from disk
+    obs = adata_tmp.obs.copy()
+    var = adata_tmp.var.copy()
+    adata_tmp.file.close()
+    del adata_tmp
     gc.collect()
-    _log_mem("load_single_scvi: after setting X and deleting source layer")
+    _log_mem("load_single_scvi: after extracting target layer; other layers never loaded")
+
+    adata = ad.AnnData(X=X, obs=obs, var=var)
+    del X
+    gc.collect()
+    _log_mem("load_single_scvi: after building AnnData")
+
+    if 'source' not in adata.obs.columns:
+        adata.obs['source'] = source_label
 
     adata.layers['counts'] = adata.X.copy()
     sc.pp.normalize_total(adata, target_sum=1e6)
     _log_mem("load_single_scvi: after normalize_total")
 
-    if 'source' not in adata.obs.columns:
-        adata.obs['source'] = source_label
     print(f'Shape: {adata.shape}')
-    adata_log = adata.copy()
+    # Build adata_log with only X — the counts layer is not needed for seurat
+    # HVG selection and copying it wastes one full matrix (~25 GB for 400k cells).
+    adata_log = ad.AnnData(X=adata.X.copy(), obs=adata.obs, var=adata.var.copy())
+    gc.collect()
     sc.pp.log1p(adata_log)
-    _log_mem("load_single_scvi: after adata_log copy")
+    _log_mem("load_single_scvi: after adata_log creation (X-only, no layers)")
     return adata, adata_log
 
 

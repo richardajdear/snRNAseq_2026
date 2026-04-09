@@ -63,6 +63,33 @@ scanvi_label_transfer:
   max_epochs_scanvi: 100
   confidence_threshold: 0.5
 
+pseudobulk:
+  layers:
+    - name: counts
+      aggregation: sum
+    - name: scvi_normalized
+      aggregation: mean
+    - name: scanvi_normalized
+      aggregation: mean
+  min_cells: 10
+  groups:
+    - name: all_cells_by_donor
+      group_cols: [individual]
+
+    - name: by_cell_class
+      group_cols: [individual, cell_class]
+
+    - name: excitatory_by_celltype
+      group_cols: [individual, cell_type_aligned]
+      filter:
+        cell_class: Excitatory
+
+    - name: inhibitory_by_celltype
+      group_cols: [individual, cell_type_aligned]
+      filter:
+        cell_class: Inhibitory
+
 steps:
   - scvi
+  - pseudobulk
 overwrite: false

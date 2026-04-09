@@ -1,10 +1,18 @@
-# snRNAseq Pipeline Config — HPC (full dataset)
+# snRNAseq Pipeline Config — HPC, Pearson residuals HVG, chemistry-level batch correction
 #
-# Run via SLURM:
+# Identical to dataset_hpc_config.yaml except:
+#   - output_dir: VelWangPsychAD_100k_chemistry
+#   - batch_key / hvg_batch_key: chemistry (instead of dataset)
+#     VELMESHEV sub-datasets have multiple chemistries (from TSV 'Chemistry' column);
+#     WANG is all 'multiome'; AGING and HBCC are both 'V3'.
+#   - transform_batch: multiome (WANG reference — same rationale as before)
+#   - steps: scvi only (combined.h5ad is symlinked from VelWangPsychAD_100k_dataset)
+#
+# Submit via:
 #   cd /home/rajd2/rds/hpc-work/snRNAseq_2026
-#   bash code/pipeline/slurm/submit_pipeline.sh code/pipeline/hpc_config.yaml
+#   bash code/pipeline/slurm/submit_pipeline.sh code/pipeline/chemistry_hpc_config.yaml
 
-output_dir: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/VelWangPsychAD_100k
+output_dir: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/VelWangPsychAD_100k_chemistry
 
 sources:
   - name: WANG
@@ -40,15 +48,17 @@ seed: 42
 
 scvi:
   n_top_genes: 10000
-  hvg_flavor: seurat
-  hvg_batch_key: source
+  hvg_flavor: pearson_residuals
+  hvg_batch_key: chemistry
+  batch_key: chemistry
   n_latent: 30
   max_epochs_scvi: 400
   batch_size: 256
   early_stopping: true
   early_stopping_patience: 20
   num_workers: 4
-  transform_batch: WANG    # normalize all cells as WANG cells of their type (for GRN scoring)
+  transform_batch: multiome    # normalize all cells as multiome (WANG chemistry) for GRN scoring
+  save_npy_backup: false       # npy files are ~6GB each and not required downstream
 
 scanvi_label_transfer:
   enabled: true
@@ -83,8 +93,6 @@ pseudobulk:
         cell_class: Inhibitory
 
 steps:
-  - downsample
-  - combine
   - scvi
   - pseudobulk
 overwrite: false

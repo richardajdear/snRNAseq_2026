@@ -44,8 +44,16 @@ JID2=$(sbatch --parsable \
     "${WORK_DIR}/code/pipeline/slurm/step2_scvi.sh")
 echo "Step 2 (scVI+scANVI)       submitted: job ${JID2}  [depends on ${JID1}]"
 
+# Step 3: Pseudobulk (CPU) — depends on step 2
+JID3=$(sbatch --parsable \
+    --dependency=afterok:${JID2} \
+    --job-name=snrna_pseudobulk \
+    --export=ALL,WORK_DIR="${WORK_DIR}",CONFIG="${CONFIG}" \
+    "${WORK_DIR}/code/pipeline/slurm/step4_pseudobulk.sh")
+echo "Step 3 (pseudobulk)        submitted: job ${JID3}  [depends on ${JID2}]"
+
 echo ""
-echo "Pipeline chain: ${JID1} → ${JID2}"
+echo "Pipeline chain: ${JID1} → ${JID2} → ${JID3}"
 echo "Optional scanvi-only rerun (after step 2):"
 echo "  sbatch --dependency=afterok:${JID2} --job-name=snrna_scanvi \
     --export=ALL,WORK_DIR=${WORK_DIR},CONFIG=${CONFIG} \

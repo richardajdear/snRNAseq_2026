@@ -5,10 +5,11 @@
 #   2. combine     — concatenate individual h5ads → combined.h5ad
 #   3. scvi        — scVI batch correction + scANVI label transfer
 #                    (scANVI trained with WANG labels, model.predict() → cell_type_aligned)
+#   4. pseudobulk  — aggregate integrated.h5ad by donor (× cell type) → pseudobulk_output/
 
 # ── Output directory ──────────────────────────────────────────────────────────
 # All intermediate and final outputs are written under output_dir.
-output_dir: rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/combined/pipeline_test
+output_dir: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/pipeline_test
 
 # ── Per-dataset sources ────────────────────────────────────────────────────────
 # Each source is processed individually by downsample.py, then combined.
@@ -16,28 +17,28 @@ output_dir: rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/combined/pipeline_test
 #                 to label transfer).
 sources:
   - name: WANG
-    path: rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/wang/wang_100k_PFC_lessOld.h5ad
+    path: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/wang/wang_100k_PFC_lessOld.h5ad
     dataset_type: Wang
     cell_type_field: "Type_updated"   # Wang's curated cell type labels
     pfc_only: true
     n_cells: 10000                    # null = no cell-level downsampling
 
   - name: VELMESHEV
-    path: rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/velmeshev/velmeshev_100k_PFC_lessOld.h5ad
+    path: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/velmeshev/velmeshev_100k_PFC_lessOld.h5ad
     dataset_type: Velmeshev
     cell_type_field: "Cell_Type"      # from Velmeshev TSV metadata
     pfc_only: true
     n_cells: 10000
 
   - name: AGING
-    path: rds-cam-psych-transc-Pb9UGUlrwWc/Cam_PsychAD/RNAseq/Aging_Cohort_100k_PFC_lessOld.h5ad
+    path: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_PsychAD/RNAseq/Aging_Cohort_100k_PFC_lessOld.h5ad
     dataset_type: Aging
     cell_type_field: "subclass"       # PsychAD fine-grained label
     pfc_only: true
     n_cells: 10000
 
   - name: HBCC
-    path: rds-cam-psych-transc-Pb9UGUlrwWc/Cam_PsychAD/RNAseq/HBCC_Cohort_100k_PFC_lessOld.h5ad
+    path: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_PsychAD/RNAseq/HBCC_Cohort_100k_PFC_lessOld.h5ad
     dataset_type: HBCC
     cell_type_field: "subclass"       # PsychAD fine-grained label
     pfc_only: true
@@ -71,9 +72,49 @@ scanvi_label_transfer:
   max_epochs_scanvi: 50   # early_stopping will cut short when converged
   confidence_threshold: 0.5
 
+# ── Pseudobulk ────────────────────────────────────────────────────────────────
+# Aggregates the integrated h5ad by donor (× optional cell type).
+# Produces one .h5ad per entry in groups, written to pseudobulk_output/.
+#
+# layers: which layers to aggregate and how.
+#   aggregation: sum  → summed raw counts (correct input for DESeq2/edgeR)
+#   aggregation: mean → per-cell average (continuous downstream analyses)
+#   Layers not present in the integrated h5ad are silently skipped.
+#
+# groups: each entry produces one output file named {name}.h5ad.
+#   group_cols: obs columns that define each pseudobulk sample.
+#               Always include 'individual'; add cell-type cols for finer splits.
+#   filter:     optional {col: val} to restrict which cells are included.
+pseudobulk:
+  layers:
+    - name: counts
+      aggregation: sum
+    - name: scvi_normalized
+      aggregation: mean
+    - name: scanvi_normalized
+      aggregation: mean
+  min_cells: 10   # drop pseudobulk samples with fewer than N contributing cells
+  groups:
+    - name: all_cells_by_donor
+      group_cols: [individual]
+
+    - name: by_cell_class
+      group_cols: [individual, cell_class]
+
+    - name: excitatory_by_celltype
+      group_cols: [individual, cell_type_aligned]
+      filter:
+        cell_class: Excitatory
+
+    - name: inhibitory_by_celltype
+      group_cols: [individual, cell_type_aligned]
+      filter:
+        cell_class: Inhibitory
+
 # ── Pipeline control ──────────────────────────────────────────────────────────
 steps:
   - downsample
   - combine
   - scvi
+  - pseudobulk
 overwrite: false

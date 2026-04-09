@@ -53,14 +53,23 @@ singularity exec \
 
 _ELAPSED=$(( $(date +%s) - _JOB_START ))
 _TIME_LIMIT=$(squeue -j "${SLURM_JOB_ID}" -h -o "%l" 2>/dev/null || echo "N/A")
-_MAX_RSS="N/A"
+_MAX_RSS_GB="N/A"
 if _tmp=$(sstat --jobs="${SLURM_JOB_ID}.batch" --format=MaxRSS --noheader 2>/dev/null); then
-    _MAX_RSS=$(echo "$_tmp" | awk 'NR==1{print $1}')
+    _MAX_RSS_GB=$(echo "$_tmp" | awk 'NR==1 && NF {
+        val = $1
+        unit = substr(val, length(val))
+        num = substr(val, 1, length(val)-1) + 0
+        if      (unit == "K") gb = num / 1048576
+        else if (unit == "M") gb = num / 1024
+        else if (unit == "G") gb = num
+        else                  gb = num / 1073741824
+        printf "%.1f G", gb
+    }')
 fi
 _ALLOC_MEM_GB=$(( ${SLURM_MEM_PER_NODE:-0} / 1024 ))
 echo "========================================"
 echo "Resource usage:"
 echo "  Time:   $(( _ELAPSED/3600 ))h $(( (_ELAPSED%3600)/60 ))m $(( _ELAPSED%60 ))s  /  ${_TIME_LIMIT} allocated"
-echo "  Memory: ${_MAX_RSS} peak RSS  /  ${_ALLOC_MEM_GB}G allocated"
+echo "  Memory: ${_MAX_RSS_GB} peak RSS  /  ${_ALLOC_MEM_GB}G allocated"
 echo "========================================"
 echo "Done: ${NOTEBOOK_FILE%.qmd} rendered successfully."

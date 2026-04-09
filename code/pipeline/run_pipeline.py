@@ -291,6 +291,36 @@ def step_scanvi(cfg: dict, output_dir: Path, combined_path: Path,
     return integrated_path
 
 
+def step_pseudobulk(cfg: dict, output_dir: Path, overwrite: bool,
+                    logger: logging.Logger) -> None:
+    """Aggregate integrated.h5ad per donor (× cell type) → pseudobulk_output/."""
+    logger.info("=" * 60)
+    logger.info("STEP: PSEUDOBULK")
+    logger.info("=" * 60)
+
+    integrated_path = output_dir / 'scvi_output' / 'integrated.h5ad'
+    if not integrated_path.exists():
+        logger.error(
+            f"integrated.h5ad not found: {integrated_path}. "
+            "Run the scvi or scanvi step first."
+        )
+        sys.exit(1)
+
+    pb_cfg = cfg.get('pseudobulk', {})
+    pb_output_dir = pb_cfg.get('output_dir') or str(output_dir / 'pseudobulk_output')
+
+    cmd = [
+        sys.executable, '-m', 'pipeline.pseudobulk',
+        '--input',  str(integrated_path),
+        '--output', pb_output_dir,
+        '--config', str(output_dir / 'pipeline_config.yaml'),
+    ]
+    if overwrite:
+        cmd += ['--overwrite']
+
+    _run(cmd, logger)
+
+
 def step_diagnostics(cfg: dict, output_dir: Path, logger: logging.Logger) -> None:
     """Re-run scANVI diagnostics on an existing integrated.h5ad (no model re-run needed)."""
     logger.info("=" * 60)
@@ -327,7 +357,7 @@ def main():
                         help='Path to pipeline_config.yaml')
     parser.add_argument('--steps', nargs='+',
                         choices=['downsample', 'combine', 'scvi', 'scanvi', 'label_transfer',
-                                 'diagnostics', 'all'],
+                                 'diagnostics', 'pseudobulk', 'all'],
                         default=['all'],
                         help='Which steps to run (default: all)')
     parser.add_argument('--overwrite', action='store_true',
@@ -387,6 +417,9 @@ def main():
 
     if 'diagnostics' in steps:
         step_diagnostics(cfg, output_dir, logger)
+
+    if 'pseudobulk' in steps:
+        step_pseudobulk(cfg, output_dir, overwrite, logger)
 
     logger.info("Pipeline complete.")
 
