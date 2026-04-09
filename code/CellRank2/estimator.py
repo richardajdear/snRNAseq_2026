@@ -86,10 +86,12 @@ def _predict_terminal_states_robust(g, logger: logging.Logger) -> None:
       1. stability (default, threshold=0.96)
       2. stability with lower threshold (0.5)
       3. top_n=1 (always succeeds)
+    ``allow_overlap=True`` is used throughout so that the same states can appear
+    as both initial and terminal (common on small / noisy datasets).
     """
     # Strategy 1: default stability threshold
     try:
-        g.predict_terminal_states(method="stability", allow_overlap=False)
+        g.predict_terminal_states(method="stability", allow_overlap=True)
         return
     except (ValueError, RuntimeError) as exc:
         logger.warning(
@@ -100,7 +102,7 @@ def _predict_terminal_states_robust(g, logger: logging.Logger) -> None:
     # Strategy 2: relaxed stability threshold
     try:
         g.predict_terminal_states(
-            method="stability", stability_threshold=0.5, allow_overlap=False
+            method="stability", stability_threshold=0.5, allow_overlap=True
         )
         return
     except (ValueError, RuntimeError) as exc:
@@ -159,7 +161,7 @@ def set_terminal_and_initial_states(
         logger.info("Auto-predicting initial states...")
         with Timer("predict_initial_states", logger):
             try:
-                g.predict_initial_states(allow_overlap=False)
+                g.predict_initial_states(allow_overlap=True)
                 if g.initial_states is not None:
                     logger.info(
                         f"  Initial states: "
