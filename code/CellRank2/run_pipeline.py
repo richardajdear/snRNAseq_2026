@@ -79,8 +79,38 @@ def run(config: CellRankConfig) -> ad.AnnData:
     logger.info(f"Loading: {config.input_h5ad}")
     with Timer("Loading h5ad", logger):
         adata = ad.read_h5ad(config.input_h5ad)
+    if adata.obs_names.duplicated().any():
+        if config.batch_key not in adata.obs.columns:
+            raise KeyError(
+                f"obs_names are not unique but batch_key '{config.batch_key}' "
+                "is not in adata.obs. Cannot construct unique cell identifiers."
+            )
+        logger.warning(
+            f"obs_names are not unique — prepending '{config.batch_key}' "
+            "column to make them unique."
+        )
+        adata.obs_names = (
+            adata.obs[config.batch_key].astype(str) + "_" + adata.obs_names
+        )
     logger.info(f"  {adata.n_obs} cells × {adata.n_vars} genes")
     log_memory("After loading", logger)
+
+    # ── FILTER TO CELLS WITH VALID AGE BINS ───────────────────────────────────
+    # Bin ages now (before neighbors) so the kNN graph is computed only on
+    # temporally-valid cells.  Cells without a valid bin (NaN age or age outside
+    # the configured edges) cannot participate in the RealTimeKernel and their
+    # inclusion causes _restich_couplings to fail.
+    bin_ages(adata, config, logger)
+    valid_mask = adata.obs[config.age_bin_key].notna()
+    if not valid_mask.all():
+        n_excl = int((~valid_mask).sum())
+        logger.warning(
+            f"  Excluding {n_excl}/{adata.n_obs} cells with no valid age bin "
+            "(NaN age or age outside bin edges). These cells are retained in "
+            "the input h5ad but excluded from CellRank analysis."
+        )
+        adata = adata[valid_mask].copy()
+        logger.info(f"  Retaining {adata.n_obs} cells for CellRank analysis.")
 
     # ── NEIGHBORS ──────────────────────────────────────────────────────────────
     if "neighbors" in steps:
@@ -94,7 +124,7 @@ def run(config: CellRankConfig) -> ad.AnnData:
     if "ot" in steps:
         logger.info("─" * 40)
         logger.info("STEP: ot (moscot optimal transport)")
-        bin_ages(adata, config, logger)
+        # Age binning and filtering already done above, before neighbors.
         moscot_problem = run_moscot_ot(adata, config, logger)
         log_memory("After OT", logger)
 
