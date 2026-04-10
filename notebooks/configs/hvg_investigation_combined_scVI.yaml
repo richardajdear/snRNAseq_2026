@@ -1,0 +1,9 @@
+# Template: sensitivity_analysis
+EXPERIMENT_NAME: hvg_investigation_combined_scVI
+DATA_FILE: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/combined/VelWangPsychad_100k_PFC_lessOld/scvi_output/integrated.h5ad
+SCVI_LAYER: scvi_normalized
+SOURCE_LABEL: combined
+N_VALUES: [1000, 2000, 4000, 6000, 8000, 10000]
+FILTER_CELL_TYPES: ['EN-L2_3-IT', 'EN-Newborn', 'EN-IT-Immature', 'EN-Non-IT-Immature']
+INCLUDE_DIAGNOSTICS: true
+CACHE_DIR: /home/rajd2/rds/hpc-work/snRNAseq_2026/notebooks/ahbaC3_hvg_investigation_combined_scVI/_cache

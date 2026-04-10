@@ -6,29 +6,47 @@
 #SBATCH --mem=200G
 #SBATCH --partition=icelake
 
-# Usage: sbatch render_notebook.sh <path/to/notebook.qmd>
-#   or for login-node testing: bash render_notebook.sh <path/to/notebook.qmd>
+# Low-level render worker: renders a single .qmd with optional params file and output dir.
+# Prefer render_single.sh for day-to-day use; this script is called by it.
 #
-# The notebook path can be absolute or relative to the repo root
-# (/home/rajd2/rds/hpc-work/snRNAseq_2026).
+# Usage:
+#   sbatch render_notebook.sh <notebook.qmd> [params.yaml] [output_dir]
+#   bash   render_notebook.sh <notebook.qmd> [params.yaml] [output_dir]
+#
+# All paths can be absolute or relative to the repo root.
 
 set -euo pipefail
 
 NOTEBOOK="${1:-}"
+PARAMS_FILE="${2:-}"
+OUTPUT_DIR="${3:-}"
+
 if [[ -z "$NOTEBOOK" ]]; then
-    echo "Usage: $0 <path/to/notebook.qmd>" >&2
+    echo "Usage: $0 <path/to/notebook.qmd> [params.yaml] [output_dir]" >&2
     exit 1
 fi
 
-# Resolve to absolute path
-if [[ "$NOTEBOOK" != /* ]]; then
-    NOTEBOOK="/home/rajd2/rds/hpc-work/snRNAseq_2026/${NOTEBOOK}"
-fi
+REPO_ROOT="/home/rajd2/rds/hpc-work/snRNAseq_2026"
+
+# Resolve to absolute paths
+[[ "$NOTEBOOK"    != /* ]] && NOTEBOOK="${REPO_ROOT}/${NOTEBOOK}"
+[[ -n "$PARAMS_FILE" && "$PARAMS_FILE" != /* ]] && PARAMS_FILE="${REPO_ROOT}/${PARAMS_FILE}"
+[[ -n "$OUTPUT_DIR"  && "$OUTPUT_DIR"  != /* ]] && OUTPUT_DIR="${REPO_ROOT}/${OUTPUT_DIR}"
 
 NOTEBOOK_DIR="$(dirname "$NOTEBOOK")"
 NOTEBOOK_FILE="$(basename "$NOTEBOOK")"
 
-REPO_ROOT="/home/rajd2/rds/hpc-work/snRNAseq_2026"
+# Build optional quarto flags
+# Note: --execute-params requires papermill; we use NOTEBOOK_PARAMS env var instead.
+PARAMS_ENV=""
+[[ -n "$PARAMS_FILE" ]] && PARAMS_ENV="NOTEBOOK_PARAMS=${PARAMS_FILE}"
+
+OUTPUT_ARG=""
+if [[ -n "$OUTPUT_DIR" ]]; then
+    mkdir -p "$OUTPUT_DIR"
+    OUTPUT_ARG="--output-dir '${OUTPUT_DIR}'"
+fi
+
 SIF="/home/rajd2/rds/hpc-work/shortcake.sif"
 QUARTO_DIR="/usr/local/Cluster-Apps/ceuadmin/quarto/1.7.13"
 CONDA_ENV="shortcake_default"
@@ -36,9 +54,10 @@ PYTHON_BIN="/opt/micromamba/envs/${CONDA_ENV}/bin/python3"
 
 echo "========================================"
 echo "Rendering: $NOTEBOOK"
+[[ -n "$PARAMS_FILE" ]] && echo "Params:    $PARAMS_FILE"
+[[ -n "$OUTPUT_DIR"  ]] && echo "Output:    $OUTPUT_DIR"
 echo "Job ID:    ${SLURM_JOB_ID:-local}"
 echo "Node:      $(hostname)"
-echo "Output:    $NOTEBOOK_DIR"
 echo "Start:     $(date)"
 echo "========================================"
 _JOB_START=$(date +%s)
@@ -47,9 +66,10 @@ singularity exec \
     --pwd "$NOTEBOOK_DIR" \
     --bind "${QUARTO_DIR}:/quarto" \
     --env "R_LIBS_USER=/home/rajd2/R/library" \
+    ${PARAMS_ENV:+--env "$PARAMS_ENV"} \
     "$SIF" \
     micromamba run -n "$CONDA_ENV" \
-    bash -c "QUARTO_PYTHON=${PYTHON_BIN} /quarto/bin/quarto render '${NOTEBOOK_FILE}'"
+    bash -c "QUARTO_PYTHON=${PYTHON_BIN} /quarto/bin/quarto render '${NOTEBOOK_FILE}' ${OUTPUT_ARG}"
 
 _ELAPSED=$(( $(date +%s) - _JOB_START ))
 _TIME_LIMIT=$(squeue -j "${SLURM_JOB_ID}" -h -o "%l" 2>/dev/null || echo "N/A")

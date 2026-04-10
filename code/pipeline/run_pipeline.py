@@ -1,4 +1,7 @@
 """
+See README.md at the repo root for full documentation, environment setup,
+and usage guidelines.
+
 Top-level orchestration script for the full snRNAseq pipeline.
 
 Steps (in order):

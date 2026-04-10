@@ -1,0 +1,285 @@
+---
+title: "AHBA C3 HVG Investigation (Combined)"
+format: md
+jupyter: python3
+---
+
+## 1. Setup
+
+### 1.1 Environment
+
+```{python}
+import os
+import sys
+import warnings
+from IPython import get_ipython
+_ip = get_ipython()
+if _ip:
+    _ip.run_line_magic('load_ext', 'autoreload')
+    _ip.run_line_magic('autoreload', '2')
+```
+
+```{python}
+def _find_repo_root(marker='.git'):
+    current = os.path.abspath(os.getcwd())
+    while True:
+        if os.path.exists(os.path.join(current, marker)):
+            return current
+        parent = os.path.dirname(current)
+        if parent == current:
+            raise RuntimeError(f"Could not find '{marker}' above {os.getcwd()}")
+        current = parent
+
+_repo_root = _find_repo_root()
+if os.path.join(_repo_root, 'code') not in sys.path:
+    sys.path.insert(0, os.path.join(_repo_root, 'code'))
+
+from environment import get_environment
+_env = get_environment()
+rds_dir  = _env['rds_dir']
+code_dir = _env['code_dir']
+ref_dir  = _env['ref_dir']
+
+print(f"Environment : {_env['name']}")
+print(f"  rds_dir  : {rds_dir}")
+print(f"  code_dir : {code_dir}")
+print(f"  ref_dir  : {ref_dir}")
+```
+
+### 1.2 Libraries
+
+```{python}
+import scanpy as sc
+import pandas as pd
+import numpy as np
+
+warnings.filterwarnings('ignore')
+
+if _env['name'] == 'local':
+    os.environ['R_HOME'] = '/Users/richard/mambaforge/envs/scanpy/lib/R'
+
+%load_ext rpy2.ipython
+```
+
+```{python}
+%%R
+
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(patchwork)
+library(ggpubr)
+library(pwr)
+library(ggvenn)
+```
+
+```{python}
+from hvg_investigation import (load_single_scvi, setup_grn,
+                                run_projection_pipeline, load_cache)
+```
+
+## 2. Data & HVG Projections
+
+```{python}
+DATA_FILE = rds_dir + "/Cam_snRNAseq/combined/VelWangPsychad_100k_PFC_lessOld/scvi_output/integrated.h5ad"
+N_VALUES = [1000, 2000, 4000, 6000, 8000, 10000]
+CACHE_DIR = os.path.join(_repo_root, 'notebooks', 'ahbaC3_hvg_investigation_combined_scVI', '_cache')
+
+cached = load_cache(CACHE_DIR)
+```
+
+```{python}
+if cached is not None:
+    scores_df, stats_df, final_df, hvg_df = cached
+    print(f"scores: {len(scores_df)} rows, stats: {len(stats_df)} rows, final: {len(final_df)} rows, hvg_df: {len(hvg_df)} rows")
+else:
+    adata, adata_log = load_single_scvi(DATA_FILE, source_label='combined')
+    ahba_GRN, total_grn_genes = setup_grn(ref_dir, adata)
+    scores_df, stats_df, final_df, hvg_df = run_projection_pipeline(
+        adata, adata_log, ahba_GRN, total_grn_genes, N_VALUES, CACHE_DIR)
+    del adata, adata_log
+    import gc; gc.collect()
+
+print(f"scores: {len(scores_df)}, stats: {len(stats_df)}, final_df (excitatory): {len(final_df)}, hvg_df: {len(hvg_df)}")
+```
+
+### Gene Overlap Summary
+
+```{python}
+print(stats_df.to_string(index=False))
+```
+
+### Diagnostic Comparison
+
+Numbers directly comparable to `diagnose_grn_batch_effect.py` (scVI condition).
+Both pipelines compute `CPM(scvi_normalized) @ C3+_weights`; `all_genes` uses the full
+gene set, matching the diagnostic script exactly.
+
+```{python}
+_AGE_BINS   = [-1, 0, 1, 3, 6, 10, 15, 20, 30, 40, 100]
+_AGE_LABELS = ["prenatal", "0-1", "1-3", "3-6", "6-10",
+               "10-15", "15-20", "20-30", "30-40", "40+"]
+_CHILDHOOD  = (1.0, 10.0)
+
+_ag = final_df[(final_df["condition"] == "all_genes") & (final_df["C"] == "C3+")].copy()
+_ag["age_bin"] = pd.cut(_ag["age_years"], bins=_AGE_BINS, labels=_AGE_LABELS, right=False)
+_sources = sorted(_ag["source"].unique())
+
+print("=" * 68)
+print("Notebook C3+ scores  (all_genes, Excitatory)  cf. diagnose_grn_*.out")
+print("=" * 68)
+
+print("\n--- All Excitatory: mean C3+ by source ---")
+print(f"  {'Source':12}  {'N cells':>8}  {'mean':>12}")
+for _src in _sources:
+    _d = _ag[_ag["source"] == _src]
+    print(f"  {_src:12}  {len(_d):>8,}  {_d['value'].mean():>12.1f}")
+
+print("\n--- Excitatory: mean C3+ by source x age bin ---")
+_pivot = _ag.groupby(["age_bin", "source"], observed=True)["value"].mean().unstack("source")
+print(_pivot.round(0).to_string())
+
+_ag_child = _ag[(_ag["age_years"] >= _CHILDHOOD[0]) & (_ag["age_years"] < _CHILDHOOD[1])]
+print(f"\n--- Childhood ({_CHILDHOOD[0]}-{_CHILDHOOD[1]}y): N cells and mean C3+ by source ---")
+print(f"  {'Source':12}  {'N cells':>8}  {'mean':>12}")
+for _src in _sources:
+    _d = _ag_child[_ag_child["source"] == _src]
+    print(f"  {_src:12}  {len(_d):>8,}  "
+          f"{_d['value'].mean() if len(_d) else float('nan'):>12.1f}")
+
+_ind_col = next((c for c in ["individual", "donor_id"] if c in _ag_child.columns), None)
+if _ind_col is not None:
+    _pb = (_ag_child.groupby([_ind_col, "source"], observed=True)["value"]
+           .mean().reset_index(name="c3_mean"))
+    _pb = _pb.dropna(subset=["c3_mean"])
+    print(f"\n--- Childhood: pseudobulk C3+ by source (per donor) ---")
+    print(f"  {'Source':12}  {'N donors':>9}  {'mean':>12}  {'sem':>8}")
+    for _src in _sources:
+        _d = _pb[_pb["source"] == _src]["c3_mean"]
+        if len(_d) == 0:
+            print(f"  {_src:12}  {'0':>9}  {'nan':>12}  {'nan':>8}")
+            continue
+        print(f"  {_src:12}  {len(_d):>9,}  {_d.mean():>12.1f}  {_d.sem():>8.1f}"
+              f"  (range {_d.min():.0f}–{_d.max():.0f})")
+else:
+    print("\n  (no donor ID column found for pseudobulk)")
+```
+
+## 3. Age Range Sensitivity
+
+Before comparing HVG methods, we identify the age range definitions that best
+capture the childhood-adolescence C3+ difference.
+
+### 3.1 Compute Sensitivity Grid
+
+```{python}
+%%R -i final_df -i code_dir -i N_VALUES
+
+source(file.path(code_dir, 'plotting', 'hvg_plots.r'))
+df <- prepare_r_data(final_df, N_VALUES)
+
+selected_conds <- c('seurat_v3_2000', 'seurat_2000', 'pearson_2000',
+                     'seurat_v3_8000', 'seurat_8000', 'pearson_8000', 'all_genes')
+
+sens_all <- compute_sensitivity(df, selected_conds)
+
+best <- select_best_age_range(sens_all)
+best_cs <- best$child_start
+best_bd <- best$boundary
+best_ae <- best$adol_end
+
+cat(sprintf("Best age range (lowest p for all_genes): childhood >= %.1fy, boundary = %dy, adolescence < %dy (p = %.4f, d = %.2f)\n",
+            best_cs, best_bd, best_ae, best$p_value, best$cohens_d))
+```
+
+### 3.2 Cohen's d
+
+```{python}
+%%R -w 260 -h 200 -u mm -r 300
+
+plot_sensitivity_cohens_d(sens_all)
+```
+
+### 3.3 P-value
+
+```{python}
+%%R -w 260 -h 200 -u mm -r 300
+
+plot_sensitivity_pvalue(sens_all)
+```
+
+### 3.4 Minimum Detectable Effect Size
+
+```{python}
+%%R -w 260 -h 200 -u mm -r 300
+
+plot_sensitivity_power(sens_all)
+```
+
+## 4. HVG Comparison (best age range)
+
+All subsequent analyses use the age range with the lowest p-value from the
+`all_genes` baseline above.
+
+```{python}
+%%R
+
+cat(sprintf("Using: Childhood = [%.1f, %d), Adolescence = [%d, %d)\n",
+            best_cs, best_bd, best_bd, best_ae))
+```
+
+### 4.1 GRN Gene Retention
+
+```{python}
+%%R -i stats_df -w 220 -h 80 -u mm -r 300
+
+plot_gene_retention(stats_df, N_VALUES)
+```
+
+### 4.1b HVG Gene Set Overlap (Euler diagrams)
+
+```{python}
+%%R -i hvg_df -w 280 -h 110 -u mm -r 300
+
+plot_hvg_euler(hvg_df)
+```
+
+### 4.2 Age Trajectories & Developmental Stage Scores
+
+```{python}
+%%R -w 360 -h 280 -u mm -r 300
+
+p_a <- plot_age_trajectories(df, best_cs, best_bd, best_ae)
+p_b <- plot_pseudobulk_trajectories(df, best_cs, best_bd, best_ae)
+df_boxes <- make_boxes_df(df, best_cs, best_bd, best_ae)
+p_c <- plot_boxes(df_boxes, best_cs, best_bd, best_ae)
+
+(p_a | p_b | p_c) +
+  plot_layout(guides = 'collect') +
+  plot_annotation(tag_levels = 'a',
+                  theme = theme(legend.position = 'right'))
+```
+
+### 4.3 Z-scored
+
+```{python}
+%%R -w 360 -h 280 -u mm -r 300
+
+p_a <- plot_age_trajectories(df, best_cs, best_bd, best_ae, zscore = TRUE)
+p_b <- plot_pseudobulk_trajectories(df, best_cs, best_bd, best_ae, zscore = TRUE)
+p_c <- plot_boxes(df_boxes, best_cs, best_bd, best_ae, zscore = TRUE)
+
+(p_a | p_b | p_c) +
+  plot_layout(guides = 'collect') +
+  plot_annotation(tag_levels = 'a',
+                  theme = theme(legend.position = 'right'))
+```
+
+### 4.4 C3+ Effect Summary
+
+```{python}
+%%R -w 300 -h 220 -u mm -r 300
+
+plot_effect_summary(df_boxes, 'Childhood', 'Adolescence') /
+plot_effect_summary(df_boxes, 'Adolescence', 'Adulthood')
+```

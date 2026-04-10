@@ -1,0 +1,9 @@
+# Template: sensitivity_analysis
+EXPERIMENT_NAME: sensitivity_combined_scANVI
+DATA_FILE: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/VelWangPsychAD_100k_pearson/scvi_output/integrated.h5ad
+SCVI_LAYER: scanvi_normalized
+SOURCE_LABEL: combined
+N_VALUES: [1000, 2000, 4000, 6000, 8000, 10000]
+FILTER_CELL_TYPES: null
+INCLUDE_DIAGNOSTICS: false
+CACHE_DIR: /home/rajd2/rds/hpc-work/snRNAseq_2026/notebooks/ahbaC3_sensitivity_combined_scANVI/_cache

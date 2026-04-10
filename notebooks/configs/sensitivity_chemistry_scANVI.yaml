@@ -1,0 +1,13 @@
+# Template: sensitivity_gap_analysis
+EXPERIMENT_NAME: sensitivity_chemistry_scANVI
+DATA_FILE: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/VelWangPsychAD_100k_chemistry/scvi_output/integrated.h5ad
+SCVI_LAYER: scanvi_normalized
+SOURCE_LABEL: combined
+N_VALUES: [1000, 2000, 4000, 6000, 8000, 10000]
+FILTER_CELL_TYPES: null
+# Points at existing cache to avoid re-running projections
+CACHE_DIR: /home/rajd2/rds/hpc-work/snRNAseq_2026/notebooks/ahbaC3_sensitivity_chemistry_scANVI/_cache
+CHILD_START: 1
+CHILD_ENDS: [7, 8, 9, 10]
+ADOL_STARTS: [10, 11, 12, 13, 14, 15]
+ADOL_ENDS: [19, 21, 23, 25]

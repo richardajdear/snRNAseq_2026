@@ -1,4 +1,7 @@
 """
+See README.md at the repo root for full documentation, environment setup,
+and usage guidelines.
+
 Main orchestration script for the scVI batch correction pipeline.
 
 Usage (from project root):
