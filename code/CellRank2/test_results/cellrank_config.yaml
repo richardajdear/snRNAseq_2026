@@ -36,6 +36,7 @@ plot_color_vars:
 - source
 umap_key: X_umap_scanvi
 point_size: 3.0
+scanvi_normalized_layer: scanvi_normalized
 steps:
 - ot
 - kernels

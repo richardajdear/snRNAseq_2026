@@ -102,6 +102,22 @@ def make_synthetic_adata(
     adata = ad.AnnData(X=X, obs=obs, var=var)
     adata.layers["counts"] = X.copy()
 
+    # Synthetic scANVI normalized expression: log1p-like, structured by cell type
+    # This mimics the batch-corrected denoised output of scANVI (model.get_normalized_expression)
+    norm_expr = np.zeros((n_cells, n_genes), dtype=np.float32)
+    type_gene_means = {
+        "ExcitatoryNeuron_L2-3": rng.exponential(1.5, n_genes).astype(np.float32),
+        "ExcitatoryNeuron_L4-6": rng.exponential(1.5, n_genes).astype(np.float32),
+        "InhibitoryNeuron": rng.exponential(1.5, n_genes).astype(np.float32),
+        "Astrocyte": rng.exponential(1.5, n_genes).astype(np.float32),
+        "Oligodendrocyte": rng.exponential(1.5, n_genes).astype(np.float32),
+    }
+    for i, ct in enumerate(cell_types):
+        age_mod = 1.0 + (age_values[i] / 80.0) * rng.randn(n_genes).astype(np.float32) * 0.2
+        noise = rng.exponential(0.1, n_genes).astype(np.float32)
+        norm_expr[i] = np.maximum(type_gene_means[ct] * np.abs(age_mod) + noise, 0)
+    adata.layers["scanvi_normalized"] = norm_expr
+
     # Synthetic scANVI latent: cell-type mean + age trend + noise
     type_means = {
         "ExcitatoryNeuron_L2-3": rng.randn(n_latent) * 2,

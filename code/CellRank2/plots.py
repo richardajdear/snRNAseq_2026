@@ -387,3 +387,186 @@ def plot_excitatory_l23_fate_umap(
     fig.savefig(str(out_path), dpi=150, bbox_inches="tight")
     logger.info(f"Saved: {out_path}")
     plt.close(fig)
+
+
+def plot_excitatory_l23_pca_fate(
+    adata: ad.AnnData,
+    g,
+    config: CellRankConfig,
+    logger: logging.Logger,
+    excitatory_pattern: str = "excit",
+    l23_pattern: str = "l2",
+    n_pca_components: int = 2,
+) -> None:
+    """PCA of excitatory neurons on ``scanvi_normalized`` with L2-3 fate highlighted.
+
+    Uses the scANVI batch-corrected, denoised normalized expression layer
+    (``scanvi_normalized``) rather than the latent embedding.  PCA is computed
+    on the excitatory neuron subset, and cells whose most-likely fate matches a
+    layer 2-3 terminal state are highlighted in red.
+
+    Falls back to a warning if the ``scanvi_normalized`` layer is absent (e.g.
+    when running on synthetic data).
+
+    Parameters
+    ----------
+    excitatory_pattern
+        Case-insensitive substring for identifying excitatory neurons in
+        ``config.cell_type_key`` (default ``"excit"``).
+    l23_pattern
+        Case-insensitive substring for matching layer 2-3 terminal state names
+        (default ``"l2"``).
+    n_pca_components
+        Number of PCA components to compute (default 2; only PC1/PC2 are
+        plotted).
+    """
+    from sklearn.decomposition import PCA
+
+    if g.fate_probabilities is None:
+        logger.warning(
+            "No fate probabilities; skipping excitatory L2-3 PCA fate plot."
+        )
+        return
+
+    layer = config.scanvi_normalized_layer
+    if layer not in adata.layers:
+        logger.warning(
+            f"Layer '{layer}' not found in adata.layers "
+            f"(available: {list(adata.layers.keys())}); "
+            "skipping excitatory L2-3 PCA fate plot."
+        )
+        return
+
+    if config.cell_type_key not in adata.obs.columns:
+        logger.warning(
+            f"'{config.cell_type_key}' not in adata.obs; "
+            "skipping excitatory L2-3 PCA fate plot."
+        )
+        return
+
+    # Identify excitatory neurons
+    cell_types = adata.obs[config.cell_type_key].astype(str)
+    excit_mask = cell_types.str.lower().str.contains(
+        excitatory_pattern.lower(), na=False
+    )
+
+    if excit_mask.sum() == 0:
+        logger.warning(
+            f"No cells matching '{excitatory_pattern}' in "
+            f"'{config.cell_type_key}'; skipping excitatory L2-3 PCA fate plot."
+        )
+        return
+
+    n_excit = int(excit_mask.sum())
+    logger.info(f"  [PCA plot] Excitatory neurons: {n_excit} cells")
+
+    # Fate probabilities matrix for excitatory neurons
+    probs = g.fate_probabilities.X
+    lineage_names = [str(n) for n in g.fate_probabilities.names]
+
+    l23_indices = [
+        i for i, name in enumerate(lineage_names)
+        if l23_pattern.lower() in name.lower()
+    ]
+    if l23_indices:
+        logger.info(
+            "  [PCA plot] L2-3 lineages: "
+            + ", ".join(lineage_names[i] for i in l23_indices)
+        )
+    else:
+        logger.warning(
+            f"  [PCA plot] No lineages matching '{l23_pattern}'; "
+            "plot will show no highlighting."
+        )
+
+    argmax_fate = np.argmax(probs, axis=1)
+    l23_fate_mask = (
+        np.isin(argmax_fate, l23_indices) if l23_indices
+        else np.zeros(adata.n_obs, dtype=bool)
+    )
+    highlight_mask = excit_mask.values & l23_fate_mask
+
+    n_highlighted = int(highlight_mask.sum())
+    logger.info(
+        f"  [PCA plot] Cells highlighted (most likely fate = L2-3): "
+        f"{n_highlighted}/{n_excit}"
+    )
+
+    # Extract scanvi_normalized for excitatory neurons and run PCA
+    X_layer = adata.layers[layer]
+    import scipy.sparse as sp_mod
+    if sp_mod.issparse(X_layer):
+        X_excit = np.asarray(X_layer[excit_mask.values].todense(), dtype=np.float32)
+    else:
+        X_excit = np.asarray(X_layer[excit_mask.values], dtype=np.float32)
+
+    # Log-transform for PCA (scanvi_normalized is mean normalised, not log)
+    X_excit = np.log1p(X_excit)
+
+    n_components = min(n_pca_components, X_excit.shape[0] - 1, X_excit.shape[1])
+    logger.info(
+        f"  [PCA plot] Running PCA (n_components={n_components}) on "
+        f"{X_excit.shape[0]} excitatory cells × {X_excit.shape[1]} genes"
+    )
+    pca = PCA(n_components=n_components, random_state=config.random_seed)
+    coords = pca.fit_transform(X_excit)
+    var_explained = pca.explained_variance_ratio_
+
+    excit_highlight = highlight_mask[excit_mask.values]
+
+    l23_names_str = (
+        ", ".join(lineage_names[i] for i in l23_indices)
+        if l23_indices
+        else f"(no match for '{l23_pattern}')"
+    )
+
+    fig, ax = plt.subplots(figsize=(6, 5))
+    _apply_ggplot_theme(ax)
+    ax.set_box_aspect(1)
+    ax.set_xticks([])
+    ax.set_yticks([])
+    ax.set_xlabel(
+        f"PC1 ({var_explained[0] * 100:.1f}% var)", fontsize=9
+    )
+    if n_components >= 2:
+        ax.set_ylabel(
+            f"PC2 ({var_explained[1] * 100:.1f}% var)", fontsize=9
+        )
+    ax.set_title(
+        f"Excitatory neurons — PCA on {layer}\nmost-likely L2-3 fate: {l23_names_str}",
+        fontsize=8,
+    )
+
+    # Grey background: other excitatory neurons
+    bg = coords[~excit_highlight]
+    x_bg = bg[:, 0]
+    y_bg = bg[:, 1] if n_components >= 2 else np.zeros(len(x_bg))
+    ax.scatter(
+        x_bg, y_bg,
+        c="#CCCCCC", s=config.point_size, alpha=0.4,
+        rasterized=True, linewidths=0, label="Other fate",
+    )
+
+    # Red foreground: L2-3 most-likely fate
+    if excit_highlight.any():
+        fg = coords[excit_highlight]
+        x_fg = fg[:, 0]
+        y_fg = fg[:, 1] if n_components >= 2 else np.zeros(len(x_fg))
+        ax.scatter(
+            x_fg, y_fg,
+            c="#E41A1C", s=config.point_size * 2.5, alpha=0.85,
+            rasterized=True, linewidths=0,
+            label=f"L2-3 most-likely fate (n={n_highlighted})",
+        )
+
+    ax.legend(
+        fontsize=7, frameon=True, loc="upper right",
+        title=f"Excitatory neurons (n={n_excit})", title_fontsize=7,
+    )
+
+    plots_dir = config.plots_dir
+    plots_dir.mkdir(parents=True, exist_ok=True)
+    out_path = plots_dir / "pca_excitatory_l23_fate.png"
+    fig.savefig(str(out_path), dpi=150, bbox_inches="tight")
+    logger.info(f"Saved: {out_path}")
+    plt.close(fig)

@@ -67,6 +67,7 @@ class CellRankConfig:
     )
     umap_key: str = "X_umap_scanvi"    # obsm key for UMAP (used in plots)
     point_size: float = 1.0
+    scanvi_normalized_layer: str = "scanvi_normalized"  # layer for PCA diagnostic plot
 
     # -- Pipeline control --
     steps: List[str] = field(
