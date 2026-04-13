@@ -14,13 +14,17 @@ source='PSYCHAD'. Configure PSYCHAD using the `paths:` key in the source entry.
 
 Steps (in order)
 ----------------
-    1. downsample  — per-dataset: read + filter + optional downsample → individual h5ads
-    2. combine     — concatenate individual h5ads → combined.h5ad
-    3. scvi        — batch correction (scVI) + label transfer (scANVI) via scVI/run_pipeline.py
-                     When scanvi_label_transfer.enabled=true in config, scANVI is trained with
-                     WANG's fine-grained labels and model.predict() assigns cell_type_aligned
-                     to all cells. Diagnostics are written to scanvi_diagnostics/.
-    4. scanvi      — scANVI-only rerun using existing scVI model (no scVI retraining)
+    1. downsample   — per-dataset: read + filter + optional downsample → individual h5ads
+    2. combine      — concatenate individual h5ads → combined.h5ad
+    3. scvi         — batch correction (scVI) + label transfer (scANVI) via scVI/run_pipeline.py
+                      When scanvi_label_transfer.enabled=true in config, scANVI is trained with
+                      WANG's fine-grained labels and model.predict() assigns cell_type_aligned
+                      to all cells.
+    4. diagnostics  — scANVI label-transfer diagnostics (reads integrated.h5ad, writes plots
+                      and tables to scanvi_diagnostics/). Must follow the scvi or scanvi step.
+                      Fails loudly if the diagnostics script exits non-zero.
+    5. scanvi       — scANVI-only rerun using existing scVI model (no scVI retraining).
+                      Run diagnostics afterwards with --steps diagnostics.
 
 Downsampling
 ------------
@@ -244,18 +248,6 @@ def step_scvi(cfg: dict, output_dir: Path, combined_path: Path,
         )
         sys.exit(1)
 
-    # Diagnostics for scANVI label transfer
-    if slt.get('enabled', False) and integrated_path.exists():
-        diag_dir = output_dir / 'scanvi_diagnostics'
-        logger.info(f"  Running scANVI diagnostics → {diag_dir}")
-        diag_cmd = [
-            sys.executable, '-m', 'pipeline.scanvi_diagnostics',
-            '--input', str(integrated_path),
-            '--output_dir', str(diag_dir),
-            '--confidence_threshold', str(slt.get('confidence_threshold', 0.5)),
-        ]
-        _run(diag_cmd, logger, required=False)
-
     return integrated_path
 
 
@@ -328,18 +320,6 @@ def step_scanvi(cfg: dict, output_dir: Path, combined_path: Path,
 
     _run(cmd, logger)
 
-    # Diagnostics for scANVI label transfer
-    if integrated_path.exists():
-        diag_dir = output_dir / 'scanvi_diagnostics'
-        logger.info(f"  Running scANVI diagnostics → {diag_dir}")
-        diag_cmd = [
-            sys.executable, '-m', 'pipeline.scanvi_diagnostics',
-            '--input', str(integrated_path),
-            '--output_dir', str(diag_dir),
-            '--confidence_threshold', str(slt.get('confidence_threshold', 0.5)),
-        ]
-        _run(diag_cmd, logger, required=False)
-
     return integrated_path
 
 
@@ -396,7 +376,7 @@ def step_diagnostics(cfg: dict, output_dir: Path, logger: logging.Logger) -> Non
         '--output_dir', str(diag_dir),
         '--confidence_threshold', str(slt.get('confidence_threshold', 0.5)),
     ]
-    _run(diag_cmd, logger, required=False)
+    _run(diag_cmd, logger)
 
 
 def main():
