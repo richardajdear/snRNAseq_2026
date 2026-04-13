@@ -9,7 +9,7 @@
 
 # ── Output directory ──────────────────────────────────────────────────────────
 # All intermediate and final outputs are written under output_dir.
-output_dir: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/pipeline_test
+output_dir: /Users/richard/Git/snRNAseq_2026/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated
 
 # ── Per-dataset sources ────────────────────────────────────────────────────────
 # Each source is processed individually by downsample.py, then combined.
@@ -17,14 +17,14 @@ output_dir: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integr
 #                 to label transfer).
 sources:
   - name: WANG
-    path: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/wang/wang.h5ad
+    path: /Users/richard/Git/snRNAseq_2026/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/wang/wang_100k_PFC_lessOld.h5ad
     dataset_type: Wang
     cell_type_field: "Type_updated"   # Wang's curated cell type labels
     pfc_only: true
     n_cells: 10000                    # set to null (or omit) to use all cells
 
   - name: VELMESHEV
-    path: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/velmeshev/velmeshev.h5ad
+    path: /Users/richard/Git/snRNAseq_2026/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/velmeshev/velmeshev_100k_PFC_lessOld.h5ad
     dataset_type: Velmeshev
     cell_type_field: "Cell_Type"      # from Velmeshev TSV metadata
     pfc_only: true
@@ -32,8 +32,8 @@ sources:
 
   - name: PSYCHAD
     paths:
-      aging: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_PsychAD/RNAseq/Aging_Cohort.h5ad
-      hbcc:  /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_PsychAD/RNAseq/HBCC_Cohort.h5ad
+      aging: /Users/richard/Git/snRNAseq_2026/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_PsychAD/RNAseq/Aging_Cohort_100k_PFC_lessOld.h5ad
+      hbcc:  /Users/richard/Git/snRNAseq_2026/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_PsychAD/RNAseq/HBCC_Cohort_100k_PFC_lessOld.h5ad
     dataset_type: PsychAD
     cell_type_field: "subclass"       # PsychAD fine-grained label
     pfc_only: true

@@ -46,20 +46,26 @@ scVI step. Use `n_cells` for testing or on memory-constrained nodes.
 
 Usage (from project root)
 --------------------------
+    Requires the 'scvi' micromamba environment (scvi-tools, scanpy, anndata).
+
     # Run all steps (uses defaults from config):
-    PYTHONPATH=code python -m pipeline.run_pipeline --config code/pipeline/hpc_config.yaml
+    micromamba run -n scvi env PYTHONPATH=code python -m pipeline.run_pipeline --config code/pipeline/test_config.yaml
 
     # Run specific steps only:
-    PYTHONPATH=code python -m pipeline.run_pipeline --config code/pipeline/hpc_config.yaml \\
+    micromamba run -n scvi env PYTHONPATH=code python -m pipeline.run_pipeline --config code/pipeline/test_config.yaml \\
         --steps downsample combine scvi
 
     # Re-run scANVI label transfer without retraining scVI:
-    PYTHONPATH=code python -m pipeline.run_pipeline --config code/pipeline/hpc_config.yaml \\
+    micromamba run -n scvi env PYTHONPATH=code python -m pipeline.run_pipeline --config code/pipeline/test_config.yaml \\
         --steps scanvi
 
     # Force overwrite of existing outputs:
-    PYTHONPATH=code python -m pipeline.run_pipeline --config code/pipeline/hpc_config.yaml \\
+    micromamba run -n scvi env PYTHONPATH=code python -m pipeline.run_pipeline --config code/pipeline/test_config.yaml \\
         --overwrite
+
+    # Re-run scVI+scANVI to regenerate integrated.h5ad (e.g. after adding cell_type_aligned):
+    micromamba run -n scvi env PYTHONPATH=code python -m pipeline.run_pipeline --config code/pipeline/test_config.yaml \\
+        --steps scvi --overwrite
 """
 
 import argparse
@@ -437,9 +443,15 @@ def main():
 
     # Validate source paths
     for src in cfg.get('sources', []):
-        if not Path(src['path']).exists():
-            logger.error(f"Source path not found: {src['path']} (source: {src['name']})")
-            sys.exit(1)
+        if 'paths' in src:
+            for key, p in src['paths'].items():
+                if not Path(p).exists():
+                    logger.error(f"Source path not found: {p} (source: {src['name']}, key: {key})")
+                    sys.exit(1)
+        else:
+            if not Path(src['path']).exists():
+                logger.error(f"Source path not found: {src['path']} (source: {src['name']})")
+                sys.exit(1)
 
     # Track intermediate paths across steps
     per_dataset_paths = [
