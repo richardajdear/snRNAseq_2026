@@ -1,0 +1,69 @@
+name: "Copilot Setup Steps"
+
+# Run setup steps automatically when changed, and allow manual trigger.
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/copilot-setup-steps.yml
+  pull_request:
+    paths:
+      - .github/workflows/copilot-setup-steps.yml
+
+jobs:
+  # This job MUST be named `copilot-setup-steps` to be picked up by Copilot.
+  copilot-setup-steps:
+    # Use a self-hosted runner with RDS access so the integrated.h5ad is
+    # reachable at the relative path used in default_config.yaml.
+    # Replace `self-hosted` with your actual runner label if needed.
+    runs-on: self-hosted
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install CellRank2 pipeline dependencies
+        run: |
+          pip install --upgrade pip
+          pip install \
+            anndata \
+            scanpy \
+            cellrank \
+            moscot \
+            scikit-learn \
+            scipy \
+            numpy \
+            pandas \
+            matplotlib \
+            seaborn \
+            h5py \
+            tqdm \
+            psutil
+
+      - name: Check data availability
+        run: |
+          DATA="rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/combined/pipeline_test/scvi_output/integrated.h5ad"
+          if [ -f "$DATA" ]; then
+            echo "✅ integrated.h5ad found: $(du -sh $DATA | cut -f1)"
+            python3 -c "
+          import anndata as ad
+          adata = ad.read_h5ad('$DATA', backed='r')
+          print(f'  Shape: {adata.n_obs} cells x {adata.n_vars} genes')
+          print(f'  obsm keys: {list(adata.obsm.keys())}')
+          print(f'  obs columns: {list(adata.obs.columns)}')
+          print(f'  layers: {list(adata.layers.keys())}')
+          print(f'  uns keys: {list(adata.uns.keys())}')
+          "
+          else
+            echo "⚠️  integrated.h5ad not found at expected path."
+            echo "   CellRank2 test pipeline will use synthetic data instead."
+          fi

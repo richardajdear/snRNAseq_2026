@@ -1,0 +1,73 @@
+# CellRank 2 Pipeline — Default Config (test / local)
+#
+# Run via (from project root):
+#   PYTHONPATH=code python -m CellRank2.run_pipeline \
+#       --config code/CellRank2/default_config.yaml
+#
+# For the full HPC dataset, copy this file and update input_h5ad + output_dir.
+
+# ── Paths ─────────────────────────────────────────────────────────────────────
+input_h5ad: rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/combined/pipeline_test/scvi_output/integrated.h5ad
+output_dir: rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/combined/pipeline_test/cellrank_output
+
+# ── Data keys ─────────────────────────────────────────────────────────────────
+latent_key: X_scANVI           # scANVI-corrected latent representation
+time_key: age_years             # donor chronological age (continuous)
+cell_type_key: cell_type_aligned
+batch_key: source
+
+# ── Neighbour graph ───────────────────────────────────────────────────────────
+n_neighbors: 30
+neighbors_key: neighbors_scanvi
+
+# ── Age binning (for RealTimeKernel OT) ──────────────────────────────────────
+# Bins: prenatal, early infancy, late infancy, child, teen, adult, older adult
+age_bin_edges: [0.0, 0.5, 2.0, 10.0, 20.0, 40.0, 100.0]
+age_bin_key: age_bin
+
+# ── Optimal transport ─────────────────────────────────────────────────────────
+ot_epsilon: 0.05
+ot_max_iterations: 1000
+
+# ── Kernel combination ────────────────────────────────────────────────────────
+rtk_weight: 0.8   # 80% RealTimeKernel (age-based directionality)
+                  # 20% ConnectivityKernel (transcriptomic similarity)
+
+# ── GPCCA ─────────────────────────────────────────────────────────────────────
+n_macrostates: 8
+use_minchi: false
+cluster_key: cell_type_aligned
+
+# Provide explicit terminal/initial states if known, or leave empty for auto.
+terminal_states: []
+initial_states: []
+
+# ── Fate probabilities ────────────────────────────────────────────────────────
+compute_drivers: false   # expensive; enable for final analysis
+
+# Subset cells to these target lineages after computing fate probabilities.
+# Set to e.g. ["ExcitatoryNeuron", "InhibitoryNeuron"] to isolate neurons.
+lineage_targets: []
+fate_prob_threshold: 0.1
+
+# ── Plots ─────────────────────────────────────────────────────────────────────
+save_plots: true
+plot_color_vars:
+  - cell_type_aligned
+  - age_years
+  - source
+umap_key: X_umap_scanvi
+point_size: 1.0
+
+# ── Pipeline control ──────────────────────────────────────────────────────────
+steps:
+  - neighbors
+  - umap
+  - ot
+  - kernels
+  - gpcca
+  - fate_probs
+  - save
+
+random_seed: 42
+overwrite: false

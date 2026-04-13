@@ -1,0 +1,36 @@
+[2026-04-13 07:24:37] INFO - ============================================================
+[2026-04-13 07:24:37] INFO - CellRank 2 Lineage Tracing Pipeline
+[2026-04-13 07:24:37] INFO - ============================================================
+[2026-04-13 07:24:37] INFO - Output dir: /home/runner/work/snRNAseq_2026/snRNAseq_2026/code/CellRank2/test_results
+[2026-04-13 07:24:37] INFO - Config saved to /home/runner/work/snRNAseq_2026/snRNAseq_2026/code/CellRank2/test_results/cellrank_config.yaml
+[2026-04-13 07:24:37] INFO - torch not available; device detection skipped.
+[2026-04-13 07:24:37] INFO - Steps: ['ot', 'kernels', 'gpcca', 'fate_probs', 'save']
+[2026-04-13 07:24:37] INFO - Loading: /home/runner/work/snRNAseq_2026/snRNAseq_2026/code/CellRank2/test_results/test_input.h5ad
+[2026-04-13 07:24:37] INFO - Starting: Loading h5ad
+[2026-04-13 07:24:38] INFO - Completed: Loading h5ad [28ms]
+[2026-04-13 07:24:38] INFO -   2000 cells × 200 genes
+[2026-04-13 07:24:38] INFO - [Memory] After loading: 0.50 GB RSS
+[2026-04-13 07:24:38] INFO - ────────────────────────────────────────
+[2026-04-13 07:24:38] INFO - Validating scANVI outputs...
+[2026-04-13 07:24:38] INFO -   scANVI validation passed: 'X_scANVI' found in adata.obsm.
+[2026-04-13 07:24:38] INFO - ────────────────────────────────────────
+[2026-04-13 07:24:38] INFO - STEP: ot (moscot optimal transport)
+[2026-04-13 07:24:38] INFO -   Age binning: 6 bins (midpoints: [0.25, 1.25, 6.0, 15.0, 30.0, 70.0])
+[2026-04-13 07:24:38] INFO -     bin 0.25: 356 cells
+[2026-04-13 07:24:38] INFO -     bin 1.25: 310 cells
+[2026-04-13 07:24:38] INFO -     bin 6.0: 333 cells
+[2026-04-13 07:24:38] INFO -     bin 15.0: 333 cells
+[2026-04-13 07:24:38] INFO -     bin 30.0: 333 cells
+[2026-04-13 07:24:38] INFO -     bin 70.0: 335 cells
+[2026-04-13 07:24:39] INFO -   Running moscot OT across 6 time points: 0.25, 1.25, 6.0, 15.0, 30.0, 70.0
+[2026-04-13 07:24:39] INFO - Starting: moscot TemporalProblem (prepare + solve)
+[2026-04-13 07:24:42] INFO - Completed: moscot TemporalProblem (prepare + solve) [0h 0m 3.2s]
+[2026-04-13 07:24:42] INFO -   moscot OT solved successfully.
+[2026-04-13 07:24:42] INFO - [Memory] After OT: 0.79 GB RSS
+[2026-04-13 07:24:42] INFO - ────────────────────────────────────────
+[2026-04-13 07:24:42] INFO - STEP: kernels
+[2026-04-13 07:24:42] INFO - Starting: ConnectivityKernel
+[2026-04-13 07:24:42] INFO - Completed: ConnectivityKernel [6ms]
+[2026-04-13 07:24:42] INFO -   ConnectivityKernel: transition matrix shape (2000, 2000)
+[2026-04-13 07:24:42] INFO - Starting: RealTimeKernel (from moscot)
+[2026-04-13 07:24:44] INFO - Completed: RealTimeKernel (from moscot) [0h 0m 1.8s]
