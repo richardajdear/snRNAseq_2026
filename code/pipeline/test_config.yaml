@@ -111,5 +111,6 @@ steps:
   - downsample
   - combine
   - scvi
+  - diagnostics
   - pseudobulk
 overwrite: false
