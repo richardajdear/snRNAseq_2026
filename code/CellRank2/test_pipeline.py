@@ -11,7 +11,7 @@ Usage (from project root):
 
     # Point at the real data (subsample to 2000 cells):
     PYTHONPATH=code python -m CellRank2.test_pipeline \\
-        --input rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/combined/pipeline_test/scvi_output/integrated.h5ad \\
+        --input rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/scvi_output/integrated.h5ad \\
         --n_cells 2000 \\
         --output_dir /tmp/cellrank_test
 """
