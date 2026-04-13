@@ -4,8 +4,17 @@ and usage guidelines.
 
 Top-level orchestration script for the full snRNAseq pipeline.
 
-Steps (in order):
-    1. downsample  — per-dataset: read + filter → individual h5ads
+Sources
+-------
+Three sources are integrated: VELMESHEV, WANG, PSYCHAD.
+PSYCHAD is read from two h5ad files (Aging_Cohort and HBCC_Cohort) that share
+899 k identical cells; duplicates are removed at ingestion (AGING cells are kept
+as primary, duplicate HBCC cells are dropped). All retained PsychAD cells receive
+source='PSYCHAD'. Configure PSYCHAD using the `paths:` key in the source entry.
+
+Steps (in order)
+----------------
+    1. downsample  — per-dataset: read + filter + optional downsample → individual h5ads
     2. combine     — concatenate individual h5ads → combined.h5ad
     3. scvi        — batch correction (scVI) + label transfer (scANVI) via scVI/run_pipeline.py
                      When scanvi_label_transfer.enabled=true in config, scANVI is trained with
@@ -13,13 +22,43 @@ Steps (in order):
                      to all cells. Diagnostics are written to scanvi_diagnostics/.
     4. scanvi      — scANVI-only rerun using existing scVI model (no scVI retraining)
 
-Usage (from project root):
-    PYTHONPATH=code python -m pipeline.run_pipeline --config code/pipeline/default_config.yaml
-    PYTHONPATH=code python -m pipeline.run_pipeline --config code/pipeline/default_config.yaml \\
+Downsampling
+------------
+Cell-count downsampling is controlled per-source via `n_cells` in the config.
+To run on ALL cells (no downsampling), omit `n_cells` or set it to null:
+
+    sources:
+      - name: PSYCHAD
+        paths:
+          aging: .../Aging_Cohort.h5ad
+          hbcc:  .../HBCC_Cohort.h5ad
+        dataset_type: PsychAD
+        pfc_only: true
+        n_cells: null        # ← omit or set null to use all cells
+
+Age-based donor thinning (`age_downsample: true`) is a separate option that
+keeps all donors under 40 and retains 20 % of donors aged 40+. This can be
+combined with, or used instead of, `n_cells` downsampling.
+
+Memory note: full PsychAD PFC cells are ~600 k after deduplication. Combined
+with VELMESHEV and WANG at full scale the pipeline requires ~200 GB RAM for the
+scVI step. Use `n_cells` for testing or on memory-constrained nodes.
+
+Usage (from project root)
+--------------------------
+    # Run all steps (uses defaults from config):
+    PYTHONPATH=code python -m pipeline.run_pipeline --config code/pipeline/hpc_config.yaml
+
+    # Run specific steps only:
+    PYTHONPATH=code python -m pipeline.run_pipeline --config code/pipeline/hpc_config.yaml \\
         --steps downsample combine scvi
-    PYTHONPATH=code python -m pipeline.run_pipeline --config code/pipeline/default_config.yaml \
+
+    # Re-run scANVI label transfer without retraining scVI:
+    PYTHONPATH=code python -m pipeline.run_pipeline --config code/pipeline/hpc_config.yaml \\
         --steps scanvi
-    PYTHONPATH=code python -m pipeline.run_pipeline --config code/pipeline/default_config.yaml \\
+
+    # Force overwrite of existing outputs:
+    PYTHONPATH=code python -m pipeline.run_pipeline --config code/pipeline/hpc_config.yaml \\
         --overwrite
 """
 
@@ -81,10 +120,14 @@ def step_downsample(cfg: dict, output_dir: Path, overwrite: bool,
         logger.info(f"  Processing {name} ...")
         cmd = [
             sys.executable, '-m', 'pipeline.downsample',
-            '--input',        str(src['path']),
             '--output',       str(out_path),
             '--dataset_type', src['dataset_type'],
         ]
+        # PsychAD takes two input files; all other types take one
+        if 'paths' in src:
+            cmd += ['--inputs', str(src['paths']['aging']), str(src['paths']['hbcc'])]
+        else:
+            cmd += ['--input', str(src['path'])]
         if src.get('cell_type_field'):
             cmd += ['--cell_type_field', src['cell_type_field']]
         if src.get('pfc_only', False):

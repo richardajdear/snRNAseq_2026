@@ -4,7 +4,7 @@
 #   - output_dir: VelWangPsychAD_100k_dataset
 #   - batch_key / hvg_batch_key: dataset (instead of source)
 #     VELMESHEV is split into its sub-datasets (U01, Ramos, Herring, Trevino);
-#     WANG, AGING, HBCC each remain a single batch (dataset == source).
+#     WANG and PSYCHAD each remain a single batch (dataset == source).
 #   - steps: downsample + combine + scvi (full run; combined.h5ad must be
 #     rebuilt to include the new 'dataset' obs column added to read_data.py)
 #
@@ -29,19 +29,14 @@ sources:
     pfc_only: true
     n_cells: 100000
 
-  - name: AGING
-    path: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_PsychAD/RNAseq/Aging_Cohort.h5ad
-    dataset_type: Aging
+  - name: PSYCHAD
+    paths:
+      aging: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_PsychAD/RNAseq/Aging_Cohort.h5ad
+      hbcc:  /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_PsychAD/RNAseq/HBCC_Cohort.h5ad
+    dataset_type: PsychAD
     cell_type_field: "subclass"
     pfc_only: true
-    n_cells: 100000
-
-  - name: HBCC
-    path: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_PsychAD/RNAseq/HBCC_Cohort.h5ad
-    dataset_type: HBCC
-    cell_type_field: "subclass"
-    pfc_only: true
-    n_cells: 100000
+    n_cells: 100000                   # set to null (or omit) to use all cells
 
 age_downsample: true
 seed: 42

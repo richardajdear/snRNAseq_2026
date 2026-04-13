@@ -2,8 +2,8 @@
 #SBATCH --job-name=run_script
 #SBATCH --output=/home/rajd2/rds/hpc-work/snRNAseq_2026/logs/run_script_%j.out
 #SBATCH --error=/home/rajd2/rds/hpc-work/snRNAseq_2026/logs/run_script_%j.err
-#SBATCH --time=02:00:00
-#SBATCH --mem=200G
+#SBATCH --time=00:10:00
+#SBATCH --mem=10G
 #SBATCH --partition=icelake
 
 # Usage: sbatch scripts/run_script.sh <path/to/script.py>

@@ -12,8 +12,11 @@ _rds = _get_env()['rds_dir']
 VELMESHEV_PATH     = os.path.join(_rds, 'Cam_snRNAseq/velmeshev/velmeshev.h5ad')
 VELMESHEV_META_DIR = os.path.join(_rds, 'Cam_snRNAseq/velmeshev/velmeshev_meta')
 WANG_PATH          = os.path.join(_rds, 'Cam_snRNAseq/wang/wang.h5ad')
-AGING_PATH         = os.path.join(_rds, 'Cam_PsychAD/RNAseq/Aging_Cohort.h5ad')
-HBCC_PATH          = os.path.join(_rds, 'Cam_PsychAD/RNAseq/HBCC_Cohort.h5ad')
+PSYCHAD_AGING_PATH = os.path.join(_rds, 'Cam_PsychAD/RNAseq/Aging_Cohort.h5ad')
+PSYCHAD_HBCC_PATH  = os.path.join(_rds, 'Cam_PsychAD/RNAseq/HBCC_Cohort.h5ad')
+# Legacy aliases (kept for any external scripts that import these names)
+AGING_PATH = PSYCHAD_AGING_PATH
+HBCC_PATH  = PSYCHAD_HBCC_PATH
 
 # --- Helpers ---
 def extract_age_psychad(age_str):
@@ -247,38 +250,27 @@ def read_wang_backed(h5ad_path=WANG_PATH, cell_type_field='Type-updated'):
     return adata_backed, meta_df
 
 
-def read_psychad_backed(h5ad_path, dataset_name, cell_type_field='subclass'):
-    """Load PsychAD (HBCC or Aging) in backed mode and return computed metadata.
+def _extract_psychad_meta(obs, cell_type_field='subclass'):
+    """Build standardised metadata from a PsychAD obs DataFrame (in memory).
 
-    Args:
-        dataset_name: 'AGING' or 'HBCC'
-        cell_type_field: obs column to use as cell_type_raw. Defaults to 'subclass'.
+    Used internally by read_psychad_backed. Takes the obs of one h5ad and
+    returns a metadata DataFrame with the pipeline's canonical column names.
+    source and dataset are both set to 'PSYCHAD'.
     """
-    print(f"Reading {dataset_name} (backed) from {h5ad_path}...")
-    if not os.path.exists(h5ad_path):
-        print(f"Error: {h5ad_path} not found.")
-        return None, None
+    meta = pd.DataFrame(index=obs.index)
 
-    adata_backed = sc.read_h5ad(h5ad_path, backed='r')
-    obs = adata_backed.obs
-
-    meta_df = pd.DataFrame(index=obs.index)
-
-    # Age
     if 'development_stage' in obs.columns:
-        meta_df['age_years'] = obs['development_stage'].astype(str).apply(extract_age_psychad)
+        meta['age_years'] = obs['development_stage'].astype(str).apply(extract_age_psychad)
     else:
-        meta_df['age_years'] = np.nan
+        meta['age_years'] = np.nan
 
-    # Sex
     if 'sex' in obs.columns:
-        meta_df['sex'] = obs['sex']
+        meta['sex'] = obs['sex']
 
-    # Region
     if 'tissue' in obs.columns:
-        meta_df['region'] = obs['tissue'].replace({'dorsolateral prefrontal cortex': 'prefrontal cortex'})
+        meta['region'] = obs['tissue'].replace(
+            {'dorsolateral prefrontal cortex': 'prefrontal cortex'})
 
-    # Cell class
     _class_map = {
         'EN': 'Excitatory', 'IN': 'Inhibitory',
         'Astro': 'Astrocytes', 'Oligo': 'Oligos',
@@ -286,27 +278,81 @@ def read_psychad_backed(h5ad_path, dataset_name, cell_type_field='subclass'):
         'Immune': 'Microglia', 'OPC': 'OPC',
     }
     if 'class' in obs.columns:
-        meta_df['cell_class'] = obs['class'].map(_class_map).fillna(obs['class'])
+        meta['cell_class'] = obs['class'].map(_class_map).fillna(obs['class'])
 
-    # cell_type_raw: source-specific fine-grained label
     if cell_type_field in obs.columns:
-        meta_df['cell_type_raw'] = obs[cell_type_field].astype(str)
+        meta['cell_type_raw'] = obs[cell_type_field].astype(str)
     else:
-        print(f"  Warning: '{cell_type_field}' not found in {dataset_name} obs. Available: {list(obs.columns)}")
-        meta_df['cell_type_raw'] = 'Unknown'
+        print(f"  Warning: '{cell_type_field}' not found in PsychAD obs. "
+              f"Available: {list(obs.columns)}")
+        meta['cell_type_raw'] = 'Unknown'
 
-    # Individual / donor
-    if 'individualID' in obs.columns:
-        meta_df['individual'] = obs['individualID'].astype(str)
-    elif 'donor_id' in obs.columns:
-        meta_df['individual'] = obs['donor_id'].astype(str)
+    for col in ('individualID', 'donor_id', 'individual'):
+        if col in obs.columns:
+            meta['individual'] = obs[col].astype(str)
+            break
 
-    meta_df['source']    = dataset_name
-    meta_df['dataset']   = dataset_name
-    meta_df['chemistry'] = 'V3'
+    meta['source']    = 'PSYCHAD'
+    meta['dataset']   = 'PSYCHAD'
+    meta['chemistry'] = 'V3'
 
-    print(f"  {dataset_name} backed: {adata_backed.shape[0]} cells")
-    return adata_backed, meta_df
+    return meta
+
+
+def read_psychad_backed(aging_path, hbcc_path, cell_type_field='subclass'):
+    """Load both PsychAD h5ads in backed mode and deduplicate at the barcode level.
+
+    AGING and HBCC were processed in the same batch and share 899,123 bit-for-bit
+    identical cells (same barcodes, same UMI counts). AGING cells are kept as
+    primary; any HBCC cell whose barcode already appears in AGING is excluded.
+    All retained cells receive source='PSYCHAD' and dataset='PSYCHAD'.
+
+    Args:
+        aging_path:       Path to Aging_Cohort.h5ad
+        hbcc_path:        Path to HBCC_Cohort.h5ad
+        cell_type_field:  obs column for cell_type_raw (default: 'subclass')
+
+    Returns:
+        aging_backed     : AnnData (backed='r')
+        hbcc_backed      : AnnData (backed='r', full HBCC file — caller must use
+                           hbcc_unique_mask to select non-duplicate cells)
+        hbcc_unique_mask : bool ndarray, length = len(hbcc_backed),
+                           True for HBCC cells whose barcode is NOT in AGING
+        meta_df          : combined metadata DataFrame indexed by barcode;
+                           AGING rows first, then HBCC-unique rows
+    """
+    print(f"Reading AGING (backed) from {aging_path}...")
+    if not os.path.exists(aging_path):
+        print(f"Error: {aging_path} not found.")
+        return None, None, None, None
+
+    aging_backed = sc.read_h5ad(aging_path, backed='r')
+    aging_meta   = _extract_psychad_meta(aging_backed.obs, cell_type_field)
+    print(f"  AGING: {len(aging_meta):,} cells, "
+          f"{aging_meta['individual'].nunique()} donors")
+
+    print(f"Reading HBCC (backed) from {hbcc_path}...")
+    if not os.path.exists(hbcc_path):
+        print(f"Error: {hbcc_path} not found.")
+        return None, None, None, None
+
+    hbcc_backed      = sc.read_h5ad(hbcc_path, backed='r')
+    aging_barcodes   = set(aging_backed.obs_names)
+    hbcc_unique_mask = ~hbcc_backed.obs_names.isin(aging_barcodes)
+    n_removed        = int((~hbcc_unique_mask).sum())
+    n_kept           = int(hbcc_unique_mask.sum())
+    print(f"  HBCC: {len(hbcc_backed):,} total cells")
+    print(f"  Dedup: removing {n_removed:,} cells whose barcodes are already in AGING")
+    print(f"  HBCC-unique cells retained: {n_kept:,}")
+
+    hbcc_meta = _extract_psychad_meta(
+        hbcc_backed.obs[hbcc_unique_mask], cell_type_field)
+
+    meta_df   = pd.concat([aging_meta, hbcc_meta])
+    print(f"  Combined PSYCHAD: {len(meta_df):,} cells, "
+          f"{meta_df['individual'].nunique()} unique donors")
+
+    return aging_backed, hbcc_backed, hbcc_unique_mask, meta_df
 
 
 # ============================================================================
