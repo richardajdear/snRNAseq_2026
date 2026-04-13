@@ -1,0 +1,56 @@
+# CellRank 2 Pipeline Config — Local Testing (pipeline_test)
+#
+# Computes cell-state transitions along developmental time (age_years) using:
+#   - RealTimeKernel  : moscot optimal transport between age timepoints
+#   - ConnectivityKernel : kNN graph on X_scANVI latent space
+#   - GPCCA estimator : macrostates and fate probabilities
+#
+# Run (from project root):
+#   PYTHONPATH=code python -m CellRank2.run_pipeline --config code/CellRank2/default_config.yaml
+
+# ── Input / output ────────────────────────────────────────────────────────────
+input_h5ad: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/pipeline_test/integrated.h5ad
+output_dir: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/combined/pipeline_test/cellrank_output
+
+# ── Data keys ─────────────────────────────────────────────────────────────────
+time_key: age_years          # obs column used for RealTimeKernel (OT)
+basis: X_scANVI              # obsm key for ConnectivityKernel neighbours
+umap_basis: X_umap           # obsm key used for plotting
+
+# ── Cell filtering ────────────────────────────────────────────────────────────
+cell_class_filter: null       # null = all cells; or e.g. "Excitatory"
+min_cells_per_timepoint: 10   # drop timepoints with too few cells
+
+# ── Kernel weights ────────────────────────────────────────────────────────────
+rtk_weight: 0.8   # RealTimeKernel (OT) weight
+ck_weight: 0.2    # ConnectivityKernel weight
+
+# ── RealTimeKernel / moscot OT ────────────────────────────────────────────────
+epsilon: 0.5                    # entropy regularisation for OT
+threshold: null                 # transition matrix sparsification (null = auto)
+self_transitions: connectivities
+
+# ── ConnectivityKernel ────────────────────────────────────────────────────────
+n_neighbors: 30
+
+# ── GPCCA estimator ───────────────────────────────────────────────────────────
+n_components: 20    # Schur decomposition components
+n_macrostates: 6    # macrostates to compute initially
+
+# ── Pipeline control ──────────────────────────────────────────────────────────
+steps:
+  - kernel
+  - estimator
+  - fate
+  - plot
+  - save
+overwrite: false
+random_seed: 42
+
+# ── Plot settings ─────────────────────────────────────────────────────────────
+plot_basis: umap
+plot_color_vars:
+  - cell_class
+  - cell_type_aligned
+  - age_years
+dpi: 150
