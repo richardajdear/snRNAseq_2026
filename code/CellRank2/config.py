@@ -67,6 +67,13 @@ class CellRankConfig:
     )
     umap_key: str = "X_umap_scanvi"    # obsm key for UMAP (used in plots)
     point_size: float = 1.0
+    # Patterns used by plot_excitatory_l23_fate_umap.
+    # excitatory_cell_type_pattern: case-insensitive regex matched against
+    #   cell_type_key to identify excitatory neurons (e.g. "EN-" or "excit|EN-").
+    # l23_lineage_pattern: case-insensitive substring matched against
+    #   terminal-state names to pick the L2-3 lineage.
+    excitatory_cell_type_pattern: str = "excit|EN-"
+    l23_lineage_pattern: str = "l2"
 
     # -- Pipeline control --
     steps: List[str] = field(

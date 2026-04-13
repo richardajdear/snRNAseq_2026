@@ -102,6 +102,7 @@ def run(config: CellRankConfig) -> ad.AnnData:
     # inclusion causes _restich_couplings to fail.
     bin_ages(adata, config, logger)
     valid_mask = adata.obs[config.age_bin_key].notna()
+    cells_removed = False
     if not valid_mask.all():
         n_excl = int((~valid_mask).sum())
         logger.warning(
@@ -110,10 +111,25 @@ def run(config: CellRankConfig) -> ad.AnnData:
             "the input h5ad but excluded from CellRank analysis."
         )
         adata = adata[valid_mask].copy()
+        cells_removed = True
         logger.info(f"  Retaining {adata.n_obs} cells for CellRank analysis.")
 
     # ── NEIGHBORS ──────────────────────────────────────────────────────────────
-    if "neighbors" in steps:
+    # Always (re)compute the kNN graph after filtering.  If cells were removed
+    # the precomputed graph is a subset of the original and some rows may be
+    # all-zero (all neighbours fell in the excluded set), making the
+    # ConnectivityKernel transition matrix non-row-stochastic.
+    nk = config.neighbors_key
+    if cells_removed and nk in adata.uns:
+        logger.info(
+            f"  Cells were removed after binning — dropping stale neighbour "
+            f"graph '{nk}' and recomputing on the filtered subset."
+        )
+        adata.uns.pop(nk, None)
+        adata.obsp.pop(f"{nk}_connectivities", None)
+        adata.obsp.pop(f"{nk}_distances", None)
+
+    if "neighbors" in steps or cells_removed:
         logger.info("─" * 40)
         logger.info("STEP: neighbors")
         ensure_neighbors(adata, config, logger)
@@ -176,7 +192,11 @@ def run(config: CellRankConfig) -> ad.AnnData:
 
         if config.save_plots:
             plot_fate_probabilities(adata, g, config, logger)
-            plot_excitatory_l23_fate_umap(adata, g, config, logger)
+            plot_excitatory_l23_fate_umap(
+                adata, g, config, logger,
+                excitatory_pattern=config.excitatory_cell_type_pattern,
+                l23_pattern=config.l23_lineage_pattern,
+            )
 
         # Lineage subsetting
         if config.lineage_targets:

@@ -1,5 +1,5 @@
-input_h5ad: /home/runner/work/snRNAseq_2026/snRNAseq_2026/code/CellRank2/test_results/test_input.h5ad
-output_dir: /home/runner/work/snRNAseq_2026/snRNAseq_2026/code/CellRank2/test_results
+input_h5ad: /Users/richard/Git/snRNAseq_2026/code/CellRank2/test_results/test_input.h5ad
+output_dir: /Users/richard/Git/snRNAseq_2026/code/CellRank2/test_results
 latent_key: X_scANVI
 time_key: age_years
 cell_type_key: cell_type_aligned
@@ -36,6 +36,8 @@ plot_color_vars:
 - source
 umap_key: X_umap_scanvi
 point_size: 3.0
+excitatory_cell_type_pattern: excit|EN-
+l23_lineage_pattern: l2
 steps:
 - ot
 - kernels

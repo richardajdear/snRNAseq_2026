@@ -58,6 +58,11 @@ plot_color_vars:
   - source
 umap_key: X_umap_scanvi
 point_size: 1.0
+# Regex / substring patterns for the excitatory L2-3 fate plot.
+# excitatory_cell_type_pattern matches cell_type_key values for excitatory neurons.
+# l23_lineage_pattern matches terminal-state names for the L2-3 lineage.
+excitatory_cell_type_pattern: "excit|EN-"
+l23_lineage_pattern: "l2"
 
 # ── Pipeline control ──────────────────────────────────────────────────────────
 steps:
