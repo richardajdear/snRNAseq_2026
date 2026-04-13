@@ -1,5 +1,5 @@
-input_h5ad: code/CellRank2/test_results/test_input.h5ad
-output_dir: code/CellRank2/test_results
+input_h5ad: /home/runner/work/snRNAseq_2026/snRNAseq_2026/code/CellRank2/test_results/test_input.h5ad
+output_dir: /home/runner/work/snRNAseq_2026/snRNAseq_2026/code/CellRank2/test_results
 latent_key: X_scANVI
 time_key: age_years
 cell_type_key: cell_type_aligned

@@ -1,102 +1,36 @@
-[2026-04-11 03:08:32] INFO - ============================================================
-[2026-04-11 03:08:32] INFO - CellRank 2 Lineage Tracing Pipeline
-[2026-04-11 03:08:32] INFO - ============================================================
-[2026-04-11 03:08:32] INFO - Output dir: code/CellRank2/test_results
-[2026-04-11 03:08:32] INFO - Config saved to code/CellRank2/test_results/cellrank_config.yaml
-[2026-04-11 03:08:32] INFO - torch not available; device detection skipped.
-[2026-04-11 03:08:32] INFO - Steps: ['ot', 'kernels', 'gpcca', 'fate_probs', 'save']
-[2026-04-11 03:08:32] INFO - Loading: code/CellRank2/test_results/test_input.h5ad
-[2026-04-11 03:08:32] INFO - Starting: Loading h5ad
-[2026-04-11 03:08:32] INFO - Completed: Loading h5ad [21ms]
-[2026-04-11 03:08:32] INFO -   1000 cells × 200 genes
-[2026-04-11 03:08:32] INFO - [Memory] After loading: 0.49 GB RSS
-[2026-04-11 03:08:32] INFO - ────────────────────────────────────────
-[2026-04-11 03:08:32] INFO - Validating scANVI outputs...
-[2026-04-11 03:08:32] INFO -   scANVI validation passed: 'X_scANVI' found in adata.obsm.
-[2026-04-11 03:08:32] INFO - ────────────────────────────────────────
-[2026-04-11 03:08:32] INFO - STEP: ot (moscot optimal transport)
-[2026-04-11 03:08:32] INFO -   Age binning: 6 bins (midpoints: [0.25, 1.25, 6.0, 15.0, 30.0, 70.0])
-[2026-04-11 03:08:32] INFO -     bin 0.25: 177 cells
-[2026-04-11 03:08:32] INFO -     bin 1.25: 155 cells
-[2026-04-11 03:08:32] INFO -     bin 6.0: 166 cells
-[2026-04-11 03:08:32] INFO -     bin 15.0: 166 cells
-[2026-04-11 03:08:32] INFO -     bin 30.0: 166 cells
-[2026-04-11 03:08:32] INFO -     bin 70.0: 170 cells
-[2026-04-11 03:08:34] INFO -   Running moscot OT across 6 time points: 0.25, 1.25, 6.0, 15.0, 30.0, 70.0
-[2026-04-11 03:08:34] INFO - Starting: moscot TemporalProblem (prepare + solve)
-[2026-04-11 03:08:37] INFO - Completed: moscot TemporalProblem (prepare + solve) [0h 0m 3.2s]
-[2026-04-11 03:08:37] INFO -   moscot OT solved successfully.
-[2026-04-11 03:08:37] INFO - [Memory] After OT: 0.79 GB RSS
-[2026-04-11 03:08:37] INFO - ────────────────────────────────────────
-[2026-04-11 03:08:37] INFO - STEP: kernels
-[2026-04-11 03:08:37] INFO - Starting: ConnectivityKernel
-[2026-04-11 03:08:37] INFO - Completed: ConnectivityKernel [5ms]
-[2026-04-11 03:08:37] INFO -   ConnectivityKernel: transition matrix shape (1000, 1000)
-[2026-04-11 03:08:37] INFO - Starting: RealTimeKernel (from moscot)
-[2026-04-11 03:08:39] WARNING - /home/runner/.local/lib/python3.12/site-packages/cellrank/kernels/_real_time_kernel.py:623: UserWarning: You’re trying to run this on 200 dimensions of `.X`, if you really want this, set `use_rep='X'`.
-         Falling back to preprocessing with `sc.pp.pca` and default params.
-  sc.pp.neighbors(adata, **kwargs)
-
-[2026-04-11 03:08:39] INFO - Completed: RealTimeKernel (from moscot) [0h 0m 2.0s]
-[2026-04-11 03:08:39] INFO -   RealTimeKernel: transition matrix shape (1000, 1000)
-[2026-04-11 03:08:39] INFO -   Combined kernel: RTK weight=0.80, CK weight=0.20
-[2026-04-11 03:08:39] INFO - [Memory] After kernel construction: 0.87 GB RSS
-[2026-04-11 03:08:39] INFO - [Memory] After kernels: 0.87 GB RSS
-[2026-04-11 03:08:39] INFO - ────────────────────────────────────────
-[2026-04-11 03:08:39] INFO - STEP: gpcca
-[2026-04-11 03:08:39] INFO - Building GPCCA estimator...
-[2026-04-11 03:08:39] INFO - Computing macrostates: n_states=5
-[2026-04-11 03:08:39] INFO - Starting: GPCCA compute_macrostates
-[2026-04-11 03:08:40] INFO - Completed: GPCCA compute_macrostates [0h 0m 1.1s]
-[2026-04-11 03:08:40] INFO -   Macrostates identified: 5
-[2026-04-11 03:08:40] INFO -     Astrocyte_1: 30 cells
-[2026-04-11 03:08:40] INFO -     Astrocyte_2: 30 cells
-[2026-04-11 03:08:40] INFO -     ExcitatoryNeuron_L2-3_1: 30 cells
-[2026-04-11 03:08:40] INFO -     ExcitatoryNeuron_L2-3_2: 30 cells
-[2026-04-11 03:08:40] INFO -     InhibitoryNeuron: 30 cells
-[2026-04-11 03:08:40] INFO - [Memory] After compute_macrostates: 0.96 GB RSS
-[2026-04-11 03:08:40] INFO - Auto-predicting terminal states...
-[2026-04-11 03:08:40] INFO - Starting: predict_terminal_states
-[2026-04-11 03:08:40] WARNING -   predict_terminal_states(stability, 0.96) failed: No macrostates have been selected.. Trying lower threshold...
-[2026-04-11 03:08:40] INFO - Completed: predict_terminal_states [6ms]
-[2026-04-11 03:08:40] INFO -   Terminal states: [np.str_('Astrocyte_1'), np.str_('Astrocyte_2'), np.str_('ExcitatoryNeuron_L2-3_1'), np.str_('ExcitatoryNeuron_L2-3_2'), np.str_('InhibitoryNeuron')]
-[2026-04-11 03:08:40] INFO - Auto-predicting initial states...
-[2026-04-11 03:08:40] INFO - Starting: predict_initial_states
-[2026-04-11 03:08:40] INFO -   Initial states: [np.str_('Astrocyte_1')]
-[2026-04-11 03:08:40] INFO - Completed: predict_initial_states [4ms]
-[2026-04-11 03:08:40] INFO - Starting: Plotting macrostates
-[2026-04-11 03:08:41] INFO - Saved: code/CellRank2/test_results/plots/macrostates.png
-[2026-04-11 03:08:41] INFO - Completed: Plotting macrostates [122ms]
-[2026-04-11 03:08:41] INFO - Starting: Plotting coarse transition matrix
-[2026-04-11 03:08:41] INFO - Saved: code/CellRank2/test_results/plots/coarse_T.png
-[2026-04-11 03:08:41] INFO - Completed: Plotting coarse transition matrix [141ms]
-[2026-04-11 03:08:41] INFO - Saved: code/CellRank2/test_results/plots/umap_cell_type_aligned.png
-[2026-04-11 03:08:41] INFO - Saved: code/CellRank2/test_results/plots/umap_age_years.png
-[2026-04-11 03:08:41] INFO - Saved: code/CellRank2/test_results/plots/umap_source.png
-[2026-04-11 03:08:41] INFO - [Memory] After GPCCA: 0.96 GB RSS
-[2026-04-11 03:08:41] INFO - ────────────────────────────────────────
-[2026-04-11 03:08:41] INFO - STEP: fate_probs
-[2026-04-11 03:08:41] INFO - Starting: compute_fate_probabilities
-[2026-04-11 03:08:41] WARNING - /usr/lib/python3.12/multiprocessing/popen_fork.py:66: RuntimeWarning: os.fork() was called. os.fork() is incompatible with multithreaded code, and JAX is multithreaded, so this will likely lead to a deadlock.
-  self.pid = os.fork()
-
-[2026-04-11 03:08:41] INFO - Completed: compute_fate_probabilities [73ms]
-[2026-04-11 03:08:41] INFO -   Fate probabilities computed for lineages: [np.str_('Astrocyte_1'), np.str_('Astrocyte_2'), np.str_('ExcitatoryNeuron_L2-3_1'), np.str_('ExcitatoryNeuron_L2-3_2'), np.str_('InhibitoryNeuron')]
-[2026-04-11 03:08:41] INFO - [Memory] After compute_fate_probabilities: 0.96 GB RSS
-[2026-04-11 03:08:41] INFO - Saved: code/CellRank2/test_results/plots/fate_probabilities.png
-[2026-04-11 03:08:41] INFO -   Excitatory neurons found: 449 cells
-[2026-04-11 03:08:41] INFO -   L2-3 lineages matched: ExcitatoryNeuron_L2-3_1, ExcitatoryNeuron_L2-3_2
-[2026-04-11 03:08:41] INFO -   Cells highlighted (most likely fate = L2-3): 126/449
-[2026-04-11 03:08:41] INFO - Saved: code/CellRank2/test_results/plots/umap_excitatory_l23_fate.png
-[2026-04-11 03:08:41] INFO -   [PCA plot] Excitatory neurons: 449 cells
-[2026-04-11 03:08:41] INFO -   [PCA plot] L2-3 lineages: ExcitatoryNeuron_L2-3_1, ExcitatoryNeuron_L2-3_2
-[2026-04-11 03:08:41] INFO -   [PCA plot] Cells highlighted (most likely fate = L2-3): 126/449
-[2026-04-11 03:08:41] INFO -   [PCA plot] Running PCA (n_components=2) on 449 excitatory cells × 200 genes
-[2026-04-11 03:08:41] INFO - Saved: code/CellRank2/test_results/plots/pca_excitatory_l23_fate.png
-[2026-04-11 03:08:41] INFO - [Memory] After fate_probs: 0.97 GB RSS
-[2026-04-11 03:08:41] INFO - ────────────────────────────────────────
-[2026-04-11 03:08:41] INFO - STEP: save
-[2026-04-11 03:08:42] INFO -   Saved: code/CellRank2/test_results/cellrank_output.h5ad
-[2026-04-11 03:08:42] INFO - ============================================================
-[2026-04-11 03:08:42] INFO - CellRank 2 pipeline complete.
-[2026-04-11 03:08:42] INFO - ============================================================
+[2026-04-13 07:24:37] INFO - ============================================================
+[2026-04-13 07:24:37] INFO - CellRank 2 Lineage Tracing Pipeline
+[2026-04-13 07:24:37] INFO - ============================================================
+[2026-04-13 07:24:37] INFO - Output dir: /home/runner/work/snRNAseq_2026/snRNAseq_2026/code/CellRank2/test_results
+[2026-04-13 07:24:37] INFO - Config saved to /home/runner/work/snRNAseq_2026/snRNAseq_2026/code/CellRank2/test_results/cellrank_config.yaml
+[2026-04-13 07:24:37] INFO - torch not available; device detection skipped.
+[2026-04-13 07:24:37] INFO - Steps: ['ot', 'kernels', 'gpcca', 'fate_probs', 'save']
+[2026-04-13 07:24:37] INFO - Loading: /home/runner/work/snRNAseq_2026/snRNAseq_2026/code/CellRank2/test_results/test_input.h5ad
+[2026-04-13 07:24:37] INFO - Starting: Loading h5ad
+[2026-04-13 07:24:38] INFO - Completed: Loading h5ad [28ms]
+[2026-04-13 07:24:38] INFO -   2000 cells × 200 genes
+[2026-04-13 07:24:38] INFO - [Memory] After loading: 0.50 GB RSS
+[2026-04-13 07:24:38] INFO - ────────────────────────────────────────
+[2026-04-13 07:24:38] INFO - Validating scANVI outputs...
+[2026-04-13 07:24:38] INFO -   scANVI validation passed: 'X_scANVI' found in adata.obsm.
+[2026-04-13 07:24:38] INFO - ────────────────────────────────────────
+[2026-04-13 07:24:38] INFO - STEP: ot (moscot optimal transport)
+[2026-04-13 07:24:38] INFO -   Age binning: 6 bins (midpoints: [0.25, 1.25, 6.0, 15.0, 30.0, 70.0])
+[2026-04-13 07:24:38] INFO -     bin 0.25: 356 cells
+[2026-04-13 07:24:38] INFO -     bin 1.25: 310 cells
+[2026-04-13 07:24:38] INFO -     bin 6.0: 333 cells
+[2026-04-13 07:24:38] INFO -     bin 15.0: 333 cells
+[2026-04-13 07:24:38] INFO -     bin 30.0: 333 cells
+[2026-04-13 07:24:38] INFO -     bin 70.0: 335 cells
+[2026-04-13 07:24:39] INFO -   Running moscot OT across 6 time points: 0.25, 1.25, 6.0, 15.0, 30.0, 70.0
+[2026-04-13 07:24:39] INFO - Starting: moscot TemporalProblem (prepare + solve)
+[2026-04-13 07:24:42] INFO - Completed: moscot TemporalProblem (prepare + solve) [0h 0m 3.2s]
+[2026-04-13 07:24:42] INFO -   moscot OT solved successfully.
+[2026-04-13 07:24:42] INFO - [Memory] After OT: 0.79 GB RSS
+[2026-04-13 07:24:42] INFO - ────────────────────────────────────────
+[2026-04-13 07:24:42] INFO - STEP: kernels
+[2026-04-13 07:24:42] INFO - Starting: ConnectivityKernel
+[2026-04-13 07:24:42] INFO - Completed: ConnectivityKernel [6ms]
+[2026-04-13 07:24:42] INFO -   ConnectivityKernel: transition matrix shape (2000, 2000)
+[2026-04-13 07:24:42] INFO - Starting: RealTimeKernel (from moscot)
+[2026-04-13 07:24:44] INFO - Completed: RealTimeKernel (from moscot) [0h 0m 1.8s]

@@ -149,16 +149,54 @@ def load_and_downsample(
     random_seed: int,
     logger: logging.Logger,
 ) -> ad.AnnData:
-    """Load the integrated h5ad and subsample to n_cells."""
+    """Load the integrated h5ad, inspect it, and subsample to n_cells.
+
+    Handles real-data quirks that would silently break the pipeline:
+    - Makes obs_names unique if duplicates are detected
+    - Logs all obsm keys, obs columns, and layers so problems are visible
+    - Raises early if mandatory keys (X_scANVI, age_years, cell_type_aligned) are absent
+    """
     logger.info(f"Loading: {path}")
     adata = ad.read_h5ad(path)
-    logger.info(f"  Loaded: {adata.n_obs} cells × {adata.n_vars} genes")
+    logger.info(f"  Loaded: {adata.n_obs:,} cells × {adata.n_vars:,} genes")
 
+    # ── Inspect data structure ──────────────────────────────────────────────────
+    logger.info(f"  obsm keys   : {sorted(adata.obsm.keys())}")
+    logger.info(f"  obs columns : {sorted(adata.obs.columns.tolist())}")
+    logger.info(f"  layers      : {sorted(adata.layers.keys())}")
+    uns_top = [k for k in adata.uns if not k.startswith("_")][:20]
+    logger.info(f"  uns (sample): {uns_top}")
+
+    # ── Fix non-unique obs_names ────────────────────────────────────────────────
+    if not adata.obs_names.is_unique:
+        n_dup = adata.n_obs - adata.obs_names.nunique()
+        logger.warning(
+            f"  obs_names are NOT unique ({n_dup:,} duplicates); "
+            "making unique by appending a counter suffix."
+        )
+        adata.obs_names_make_unique()
+        logger.info(f"  obs_names now unique: {adata.obs_names.is_unique}")
+
+    # ── Subsample ──────────────────────────────────────────────────────────────
     if adata.n_obs > n_cells:
         rng = np.random.RandomState(random_seed)
         idx = rng.choice(adata.n_obs, size=n_cells, replace=False)
         adata = adata[idx].copy()
-        logger.info(f"  Subsampled to: {adata.n_obs} cells")
+        logger.info(f"  Subsampled to: {adata.n_obs:,} cells")
+
+    # ── Age/cell-type summary ──────────────────────────────────────────────────
+    if "age_years" in adata.obs.columns:
+        age = adata.obs["age_years"]
+        logger.info(
+            f"  age_years: min={age.min():.2f}, max={age.max():.2f}, "
+            f"mean={age.mean():.2f}"
+        )
+    if "cell_type_aligned" in adata.obs.columns:
+        ct_counts = adata.obs["cell_type_aligned"].value_counts()
+        logger.info(
+            f"  cell types ({ct_counts.shape[0]}): "
+            + ", ".join(f"{ct}({n})" for ct, n in ct_counts.head(8).items())
+        )
 
     return adata
 
@@ -219,7 +257,7 @@ def main():
         using_synthetic = True
 
     logger.info(f"  Using {'synthetic' if using_synthetic else 'real'} data: "
-                f"{adata.n_obs} cells × {adata.n_vars} genes")
+                f"{adata.n_obs:,} cells × {adata.n_vars:,} genes")
 
     # Save the (down)sampled input so the pipeline can load it
     out_dir = Path(args.output_dir)
@@ -228,12 +266,18 @@ def main():
     adata.write_h5ad(str(tmp_input))
     logger.info(f"  Test input saved: {tmp_input}")
 
-    # Build config: skip neighbors/umap if already computed (synthetic path computes them)
+    # Determine which steps are needed based on what's already in the data
     steps = ["ot", "kernels", "gpcca", "fate_probs", "save"]
     if "X_umap_scanvi" not in adata.obsm:
         steps = ["umap"] + steps
+        logger.info("  X_umap_scanvi not found — 'umap' step added.")
+    else:
+        logger.info("  X_umap_scanvi already present — skipping 'umap' step.")
     if "neighbors_scanvi" not in adata.uns:
         steps = ["neighbors"] + steps
+        logger.info("  neighbors_scanvi not found — 'neighbors' step added.")
+    else:
+        logger.info("  neighbors_scanvi already present — skipping 'neighbors' step.")
 
     config = CellRankConfig(
         input_h5ad=str(tmp_input),
