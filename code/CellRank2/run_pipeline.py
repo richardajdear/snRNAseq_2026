@@ -1,9 +1,18 @@
 """
 Main orchestration script for the CellRank 2 lineage tracing pipeline.
 
+Environment setup (first time only):
+    mamba env create -f code/CellRank2/environment.yaml
+
 Usage (from project root):
-    # With YAML config:
-    PYTHONPATH=code python -m CellRank2.run_pipeline --config code/CellRank2/default_config.yaml
+    # Activate the mamba environment (provides petsc4py/slepc4py for sparse krylov solver):
+    conda activate cellrank2
+
+    # Single process:
+    KMP_DUPLICATE_LIB_OK=TRUE PYTHONPATH=code python -m CellRank2.run_pipeline --config code/CellRank2/default_config.yaml
+
+    # Parallel (recommended for large datasets — uses SLEPc Schur decomposition across N cpus):
+    KMP_DUPLICATE_LIB_OK=TRUE PYTHONPATH=code mpirun -n 4 python -m CellRank2.run_pipeline --config code/CellRank2/default_config.yaml
 
     # With CLI overrides:
     PYTHONPATH=code python -m CellRank2.run_pipeline \\
@@ -37,6 +46,7 @@ from .estimator import (
     compute_lineage_drivers,
     compute_macrostates,
     set_terminal_and_initial_states,
+    set_terminal_states_from_cell_types,
     subset_to_lineage,
 )
 from .kernels import bin_ages, build_kernels, ensure_neighbors, run_moscot_ot
@@ -165,13 +175,26 @@ def run(config: CellRankConfig) -> ad.AnnData:
         logger.info("─" * 40)
         logger.info("STEP: gpcca")
         g = build_gpcca(combined_kernel, config, logger)
-        g = compute_macrostates(g, config, logger)
-        set_terminal_and_initial_states(g, config, logger)
 
-        if config.save_plots:
-            plot_macrostates(adata, g, config, logger)
-            plot_coarse_transition_matrix(g, config, logger)
-            plot_obs_vars(adata, config, logger)
+        if config.use_cell_type_states:
+            # ── Direct cell-type assignment (bypass GPCCA Schur decomposition) ──
+            logger.info(
+                f"  use_cell_type_states=True: using '{config.cell_type_key}' "
+                "labels directly as absorbing terminal states."
+            )
+            set_terminal_states_from_cell_types(g, adata, config, logger)
+            # Coarse transition matrix / macrostate plots are not available
+            # without the Schur decomposition.
+            if config.save_plots:
+                plot_obs_vars(adata, config, logger)
+        else:
+            # ── Standard GPCCA: spectral macrostates → terminal states ──
+            g = compute_macrostates(g, config, logger)
+            set_terminal_and_initial_states(g, config, logger)
+            if config.save_plots:
+                plot_macrostates(adata, g, config, logger)
+                plot_coarse_transition_matrix(g, config, logger)
+                plot_obs_vars(adata, config, logger)
 
         log_memory("After GPCCA", logger)
 

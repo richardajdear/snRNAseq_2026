@@ -1,0 +1,35 @@
+# CellRank 2 pipeline environment
+#
+# Install:
+#   mamba env create -f code/CellRank2/environment.yaml
+#
+# Update:
+#   mamba env update -f code/CellRank2/environment.yaml --prune
+#
+# petsc4py / slepc4py enable the 'krylov' Schur solver in pyGPCCA,
+# avoiding the need to densify the transition matrix (required by 'brandts').
+# mpi4py allows parallel execution via mpirun (see slurm_submit.sh).
+# torch is installed via pip (not conda-forge) to get the MPS backend for
+# Apple Silicon GPU acceleration.
+
+name: cellrank2
+channels:
+  - conda-forge
+  - nodefaults
+dependencies:
+  - python=3.11
+  - petsc4py       # PETSc bindings — enables krylov Schur solver
+  - slepc4py       # SLEPc bindings — sparse parallel eigensolver
+  - mpi4py         # MPI bindings — parallel mpirun execution
+  - pip
+  - pip:
+    - torch
+    - torchvision
+    - cellrank==2.0.7
+    - moscot==0.5.0
+    - scanpy==1.11.5
+    - anndata==0.12.10
+    - jax==0.9.2
+    - jaxlib==0.9.2
+    - jaxopt==0.8.5
+    - ott-jax==0.6.0

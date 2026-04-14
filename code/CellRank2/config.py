@@ -44,6 +44,16 @@ class CellRankConfig:
     use_minchi: bool = False            # if True, use [min, max] range instead of fixed n
     cluster_key: str = "cell_type_aligned"   # for naming macrostates
 
+    # -- Direct cell-type state assignment (alternative to GPCCA macrostates) --
+    # When True, skip the GPCCA Schur decomposition entirely.  Each unique value
+    # in cell_type_key is treated as an absorbing terminal state using hard 0/1
+    # membership arrays.  Terminal-state names will exactly match cell_type_key
+    # categories, guaranteeing the L2-3 lineage is always present.
+    use_cell_type_states: bool = False
+    # Number of representative cells sampled per cell type when use_cell_type_states=True.
+    # The sampled cells become absorbing terminal states; the rest are transient.
+    n_terminal_cells: int = 30
+
     # -- Terminal / initial state selection --
     # Provide explicit terminal state names (matching cluster labels) when known.
     # Leave empty to rely on automatic selection after compute_macrostates.

@@ -30,6 +30,10 @@ ot_max_iterations: 2000
 rtk_weight: 0.8
 
 # ── GPCCA ─────────────────────────────────────────────────────────────────────
+# use_cell_type_states: bypass GPCCA Schur decomposition and instead assign
+# one terminal state per unique cell_type_aligned label.
+use_cell_type_states: false
+n_terminal_cells: 30      # cells sampled per type when use_cell_type_states=true
 n_macrostates: 10
 use_minchi: false
 cluster_key: cell_type_aligned

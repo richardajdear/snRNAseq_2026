@@ -315,9 +315,12 @@ def plot_excitatory_l23_fate_umap(
             + ", ".join(lineage_names[i] for i in l23_indices)
         )
     else:
-        logger.warning(
-            f"  No lineages matching '{l23_pattern}' found in {lineage_names}. "
-            "Excitatory UMAP will be plotted without L2-3 highlighting."
+        logger.error(
+            f"  No lineages matching '{l23_pattern}' found in available lineages: "
+            + ", ".join(lineage_names) + ". "
+            "Excitatory UMAP will be plotted without L2-3 highlighting. "
+            "Increase n_macrostates so that L2-3 neurons form a distinct macrostate, "
+            "or set terminal_states explicitly in the config."
         )
 
     # Per-cell argmax fate index

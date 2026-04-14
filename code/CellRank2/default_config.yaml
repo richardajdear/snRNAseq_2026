@@ -7,8 +7,8 @@
 # For the full HPC dataset, copy this file and update input_h5ad + output_dir.
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
-input_h5ad: rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/combined/pipeline_test/scvi_output/integrated.h5ad
-output_dir: rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/combined/pipeline_test/cellrank_output
+input_h5ad: rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/scvi_output/integrated.h5ad
+output_dir: rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/cellrank_output
 
 # ── Data keys ─────────────────────────────────────────────────────────────────
 latent_key: X_scANVI           # scANVI-corrected latent representation
@@ -34,6 +34,12 @@ rtk_weight: 0.8   # 80% RealTimeKernel (age-based directionality)
                   # 20% ConnectivityKernel (transcriptomic similarity)
 
 # ── GPCCA ─────────────────────────────────────────────────────────────────────
+# use_cell_type_states: bypass GPCCA Schur decomposition and instead assign
+# one terminal state per unique cell_type_aligned label.  Guarantees all cell
+# types appear as lineages (e.g. ExcitatoryNeuron_L2-3 is always present).
+# Set to false to use standard GPCCA spectral macrostates instead.
+use_cell_type_states: false
+n_terminal_cells: 30      # cells sampled per type when use_cell_type_states=true
 n_macrostates: 8
 use_minchi: false
 cluster_key: cell_type_aligned
@@ -74,4 +80,4 @@ steps:
   - save
 
 random_seed: 42
-overwrite: false
+overwrite: true

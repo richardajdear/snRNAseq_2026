@@ -18,11 +18,13 @@ age_bin_key: age_bin
 ot_epsilon: 0.05
 ot_max_iterations: 500
 rtk_weight: 0.8
-n_macrostates: 5
+n_macrostates: 8
 n_macrostates_min: 2
 n_macrostates_max: 12
 use_minchi: false
 cluster_key: cell_type_aligned
+use_cell_type_states: true
+n_terminal_cells: 30
 terminal_states: []
 initial_states: []
 compute_drivers: false

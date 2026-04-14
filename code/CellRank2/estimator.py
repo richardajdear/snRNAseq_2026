@@ -174,6 +174,56 @@ def set_terminal_and_initial_states(
                 )
 
 
+def set_terminal_states_from_cell_types(
+    g,
+    adata: ad.AnnData,
+    config: CellRankConfig,
+    logger: logging.Logger,
+) -> None:
+    """Set terminal states directly from cell_type_key, bypassing GPCCA.
+
+    Each unique value in ``config.cell_type_key`` becomes an absorbing
+    terminal state with a hard 0/1 membership array.  This guarantees that
+    every cell type in your annotation is represented as a distinct lineage
+    (e.g. 'ExcitatoryNeuron_L2-3' will always appear), at the cost of not
+    using the spectral structure of the transition matrix to infer which
+    states are truly absorbing.
+
+    Use when you trust your cell-type annotation more than GPCCA's automatic
+    macrostate detection, or when ``n_macrostates`` is too low to resolve
+    fine-grained subtypes.
+    """
+    import numpy as np
+
+    col = adata.obs[config.cell_type_key].astype(str)
+    cell_types = sorted(col.unique().tolist())
+    n_cells = config.n_terminal_cells
+
+    logger.info(
+        f"  Setting terminal states directly from '{config.cell_type_key}' "
+        f"({len(cell_types)} unique types, {n_cells} cells/type — skipping GPCCA Schur decomposition)."
+    )
+
+    # Sample n_cells representative cells per type (rest stay transient).
+    # Uses dict form which does NOT require prior compute_macrostates.
+    rng = np.random.default_rng(0)
+    states_dict = {}
+    for ct in cell_types:
+        all_names = adata.obs_names[(col == ct).values].tolist()
+        n_sample = min(n_cells, len(all_names))
+        sampled = rng.choice(all_names, size=n_sample, replace=False).tolist()
+        states_dict[ct] = sampled
+        logger.info(f"    {ct}: {n_sample} / {len(all_names)} cells sampled as terminal")
+
+    with Timer("set_terminal_states (cell-type assignment)", logger):
+        g.set_terminal_states(states=states_dict)
+
+    assigned = sorted(g.terminal_states.cat.categories.tolist())
+    logger.info(f"  Terminal states set ({len(assigned)}): {assigned}")
+
+    log_memory("After cell-type state assignment", logger)
+
+
 def compute_fate_probabilities(
     g,
     config: CellRankConfig,

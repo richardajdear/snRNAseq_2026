@@ -96,6 +96,14 @@ def get_device_info(logger: logging.Logger) -> dict:
                 f"GPU detected: {props.name} "
                 f"({props.total_memory / 1e9:.1f} GB VRAM)"
             )
+        elif torch.backends.mps.is_available():
+            import platform
+            info = {
+                "device": "mps",
+                "gpu_name": f"Apple Silicon MPS ({platform.machine()})",
+                "has_gpu": True,
+            }
+            logger.info(f"MPS (Metal) detected: Apple Silicon GPU acceleration available.")
         else:
             logger.info("No GPU detected. Using CPU.")
         return info

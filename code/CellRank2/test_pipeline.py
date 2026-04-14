@@ -6,14 +6,18 @@ it is subsampled to ``n_cells`` cells before running CellRank.  Otherwise
 a synthetic AnnData is generated so the pipeline logic can be verified
 without access to the HPC data.
 
-Usage (from project root):
-    PYTHONPATH=code python -m CellRank2.test_pipeline
+Usage (from project root) — run each command as a single line:
+    Activate the mamba environment (provides petsc4py/slepc4py for sparse krylov solver):
+    conda activate cellrank2
 
-    # Point at the real data (subsample to 2000 cells):
-    PYTHONPATH=code python -m CellRank2.test_pipeline \\
-        --input rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/scvi_output/integrated.h5ad \\
-        --n_cells 2000 \\
-        --output_dir /tmp/cellrank_test
+    # Synthetic data (fast, no real data needed):
+    KMP_DUPLICATE_LIB_OK=TRUE PYTHONPATH=code python -m CellRank2.test_pipeline --synthetic
+
+    # Real data subsampled to 2000 cells:
+    KMP_DUPLICATE_LIB_OK=TRUE PYTHONPATH=code python -m CellRank2.test_pipeline --input rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/scvi_output/integrated.h5ad --n_cells 2000
+
+    # Real data subsampled to 10000 cells:
+    KMP_DUPLICATE_LIB_OK=TRUE PYTHONPATH=code python -m CellRank2.test_pipeline --input rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/scvi_output/integrated.h5ad --n_cells 30000
 """
 
 import argparse
@@ -230,7 +234,7 @@ def main():
         ot_epsilon=0.05,
         ot_max_iterations=500,
         rtk_weight=0.8,
-        n_macrostates=5,   # 5 states to match the 5 distinct cell types in synthetic data
+        use_cell_type_states=True,  # synthetic data has 5 exact cell types; use them directly
         cluster_key="cell_type_aligned",
         terminal_states=[],
         initial_states=[],

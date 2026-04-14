@@ -1,100 +1,77 @@
-[2026-04-13 19:28:04] INFO - ============================================================
-[2026-04-13 19:28:04] INFO - CellRank 2 Lineage Tracing Pipeline
-[2026-04-13 19:28:04] INFO - ============================================================
-[2026-04-13 19:28:04] INFO - Output dir: /Users/richard/Git/snRNAseq_2026/code/CellRank2/test_results
-[2026-04-13 19:28:04] INFO - Config saved to /Users/richard/Git/snRNAseq_2026/code/CellRank2/test_results/cellrank_config.yaml
-[2026-04-13 19:28:04] INFO - torch not available; device detection skipped.
-[2026-04-13 19:28:04] INFO - Steps: ['ot', 'kernels', 'gpcca', 'fate_probs', 'save']
-[2026-04-13 19:28:04] INFO - Loading: /Users/richard/Git/snRNAseq_2026/code/CellRank2/test_results/test_input.h5ad
-[2026-04-13 19:28:04] INFO - Starting: Loading h5ad
-[2026-04-13 19:28:04] INFO - Completed: Loading h5ad [85ms]
-[2026-04-13 19:28:04] INFO -   2000 cells × 15540 genes
-[2026-04-13 19:28:04] INFO - [Memory] After loading: 3.57 GB RSS
-[2026-04-13 19:28:04] INFO -   Age binning: 6 bins (midpoints: [0.25, 1.25, 6.0, 15.0, 30.0, 70.0])
-[2026-04-13 19:28:04] INFO -     bin 0.25: 144 cells
-[2026-04-13 19:28:04] INFO -     bin 1.25: 205 cells
-[2026-04-13 19:28:04] INFO -     bin 6.0: 95 cells
-[2026-04-13 19:28:04] INFO -     bin 15.0: 436 cells
-[2026-04-13 19:28:04] INFO -     bin 30.0: 325 cells
-[2026-04-13 19:28:04] INFO -     bin 70.0: 147 cells
-[2026-04-13 19:28:04] WARNING -   Excluding 648/2000 cells with no valid age bin (NaN age or age outside bin edges). These cells are retained in the input h5ad but excluded from CellRank analysis.
-[2026-04-13 19:28:04] INFO -   Retaining 1352 cells for CellRank analysis.
-[2026-04-13 19:28:04] INFO -   Cells were removed after binning — dropping stale neighbour graph 'neighbors_scanvi' and recomputing on the filtered subset.
-[2026-04-13 19:28:04] INFO - ────────────────────────────────────────
-[2026-04-13 19:28:04] INFO - STEP: neighbors
-[2026-04-13 19:28:04] INFO - Starting: Computing kNN graph (n_neighbors=15) on 'X_scANVI'
-[2026-04-13 19:28:09] INFO - Completed: Computing kNN graph (n_neighbors=15) on 'X_scANVI' [0h 0m 5.4s]
-[2026-04-13 19:28:09] INFO -   Stored kNN graph as 'neighbors_scanvi'.
-[2026-04-13 19:28:09] INFO - [Memory] After neighbors: 2.21 GB RSS
-[2026-04-13 19:28:09] INFO - ────────────────────────────────────────
-[2026-04-13 19:28:09] INFO - STEP: ot (moscot optimal transport)
-[2026-04-13 19:28:10] INFO -   Running moscot OT across 6 time points: 0.25, 1.25, 6.0, 15.0, 30.0, 70.0
-[2026-04-13 19:28:10] INFO - Starting: moscot TemporalProblem (prepare + solve)
-[2026-04-13 19:28:13] INFO - Completed: moscot TemporalProblem (prepare + solve) [0h 0m 3.0s]
-[2026-04-13 19:28:13] INFO -   moscot OT solved successfully.
-[2026-04-13 19:28:13] INFO - [Memory] After OT: 2.50 GB RSS
-[2026-04-13 19:28:13] INFO - ────────────────────────────────────────
-[2026-04-13 19:28:13] INFO - STEP: kernels
-[2026-04-13 19:28:14] INFO - Starting: ConnectivityKernel
-[2026-04-13 19:28:14] INFO - Completed: ConnectivityKernel [2ms]
-[2026-04-13 19:28:14] INFO -   ConnectivityKernel: transition matrix shape (1352, 1352)
-[2026-04-13 19:28:14] INFO - Starting: RealTimeKernel (from moscot)
-[2026-04-13 19:28:15] WARNING - /Users/richard/Git/snRNAseq_2026/.venv/lib/python3.11/site-packages/scanpy/neighbors/__init__.py:577: UserWarning: You’re trying to run this on 15540 dimensions of `.X`, if you really want this, set `use_rep='X'`.
+[2026-04-14 16:18:35] INFO - ============================================================
+[2026-04-14 16:18:35] INFO - CellRank 2 Lineage Tracing Pipeline
+[2026-04-14 16:18:35] INFO - ============================================================
+[2026-04-14 16:18:35] INFO - Output dir: /Users/richard/Git/snRNAseq_2026/code/CellRank2/test_results
+[2026-04-14 16:18:35] INFO - Config saved to /Users/richard/Git/snRNAseq_2026/code/CellRank2/test_results/cellrank_config.yaml
+[2026-04-14 16:18:36] INFO - MPS (Metal) detected: Apple Silicon GPU acceleration available.
+[2026-04-14 16:18:36] INFO - Steps: ['ot', 'kernels', 'gpcca', 'fate_probs', 'save']
+[2026-04-14 16:18:36] INFO - Loading: /Users/richard/Git/snRNAseq_2026/code/CellRank2/test_results/test_input.h5ad
+[2026-04-14 16:18:36] INFO - Starting: Loading h5ad
+[2026-04-14 16:18:36] INFO - Completed: Loading h5ad [8ms]
+[2026-04-14 16:18:36] INFO -   2000 cells × 200 genes
+[2026-04-14 16:18:36] INFO - [Memory] After loading: 0.55 GB RSS
+[2026-04-14 16:18:36] INFO -   Age binning: 6 bins (midpoints: [0.25, 1.25, 6.0, 15.0, 30.0, 70.0])
+[2026-04-14 16:18:36] INFO -     bin 0.25: 356 cells
+[2026-04-14 16:18:36] INFO -     bin 1.25: 310 cells
+[2026-04-14 16:18:36] INFO -     bin 6.0: 333 cells
+[2026-04-14 16:18:36] INFO -     bin 15.0: 333 cells
+[2026-04-14 16:18:36] INFO -     bin 30.0: 333 cells
+[2026-04-14 16:18:36] INFO -     bin 70.0: 335 cells
+[2026-04-14 16:18:36] INFO - ────────────────────────────────────────
+[2026-04-14 16:18:36] INFO - STEP: ot (moscot optimal transport)
+[2026-04-14 16:18:37] INFO -   Running moscot OT across 6 time points: 0.25, 1.25, 6.0, 15.0, 30.0, 70.0
+[2026-04-14 16:18:37] INFO - Starting: moscot TemporalProblem (prepare + solve)
+[2026-04-14 16:18:38] INFO - Completed: moscot TemporalProblem (prepare + solve) [0h 0m 1.2s]
+[2026-04-14 16:18:38] INFO -   moscot OT solved successfully.
+[2026-04-14 16:18:38] INFO - [Memory] After OT: 0.83 GB RSS
+[2026-04-14 16:18:38] INFO - ────────────────────────────────────────
+[2026-04-14 16:18:38] INFO - STEP: kernels
+[2026-04-14 16:18:38] INFO - Starting: ConnectivityKernel
+[2026-04-14 16:18:38] INFO - Completed: ConnectivityKernel [2ms]
+[2026-04-14 16:18:38] INFO -   ConnectivityKernel: transition matrix shape (2000, 2000)
+[2026-04-14 16:18:38] INFO - Starting: RealTimeKernel (from moscot)
+[2026-04-14 16:18:40] WARNING - /Users/richard/mambaforge/envs/cellrank2/lib/python3.11/site-packages/scanpy/neighbors/__init__.py:577: UserWarning: You’re trying to run this on 200 dimensions of `.X`, if you really want this, set `use_rep='X'`.
          Falling back to preprocessing with `sc.pp.pca` and default params.
   x = _choose_representation(self._adata, use_rep=use_rep, n_pcs=n_pcs)
 
-[2026-04-13 19:28:15] INFO - Completed: RealTimeKernel (from moscot) [0h 0m 1.7s]
-[2026-04-13 19:28:15] INFO -   RealTimeKernel: transition matrix shape (1352, 1352)
-[2026-04-13 19:28:15] INFO -   Combined kernel: RTK weight=0.80, CK weight=0.20
-[2026-04-13 19:28:15] INFO - [Memory] After kernel construction: 2.57 GB RSS
-[2026-04-13 19:28:15] INFO - [Memory] After kernels: 2.57 GB RSS
-[2026-04-13 19:28:15] INFO - ────────────────────────────────────────
-[2026-04-13 19:28:15] INFO - STEP: gpcca
-[2026-04-13 19:28:15] INFO - Building GPCCA estimator...
-[2026-04-13 19:28:15] INFO - Computing macrostates: n_states=5
-[2026-04-13 19:28:15] INFO - Starting: GPCCA compute_macrostates
-[2026-04-13 19:28:16] INFO - Completed: GPCCA compute_macrostates [879ms]
-[2026-04-13 19:28:16] INFO -   Macrostates identified: 5
-[2026-04-13 19:28:16] INFO -     Astrocyte-Protoplasmic: 30 cells
-[2026-04-13 19:28:16] INFO -     IN-Mix-LAMP5: 30 cells
-[2026-04-13 19:28:16] INFO -     Oligodendrocyte: 30 cells
-[2026-04-13 19:28:16] INFO -     OPC: 30 cells
-[2026-04-13 19:28:16] INFO -     EN-L2_3-IT: 30 cells
-[2026-04-13 19:28:16] INFO - [Memory] After compute_macrostates: 2.70 GB RSS
-[2026-04-13 19:28:16] INFO - Auto-predicting terminal states...
-[2026-04-13 19:28:16] INFO - Starting: predict_terminal_states
-[2026-04-13 19:28:16] WARNING -   predict_terminal_states(stability, 0.96) failed: No macrostates have been selected.. Trying lower threshold...
-[2026-04-13 19:28:16] INFO - Completed: predict_terminal_states [2ms]
-[2026-04-13 19:28:16] INFO -   Terminal states: [np.str_('Astrocyte-Protoplasmic'), np.str_('EN-L2_3-IT'), np.str_('IN-Mix-LAMP5'), np.str_('OPC'), np.str_('Oligodendrocyte')]
-[2026-04-13 19:28:16] INFO - Auto-predicting initial states...
-[2026-04-13 19:28:16] INFO - Starting: predict_initial_states
-[2026-04-13 19:28:16] INFO -   Initial states: [np.str_('Astrocyte-Protoplasmic')]
-[2026-04-13 19:28:16] INFO - Completed: predict_initial_states [1ms]
-[2026-04-13 19:28:16] INFO - Starting: Plotting macrostates
-[2026-04-13 19:28:16] INFO - Saved: /Users/richard/Git/snRNAseq_2026/code/CellRank2/test_results/plots/macrostates.png
-[2026-04-13 19:28:16] INFO - Completed: Plotting macrostates [174ms]
-[2026-04-13 19:28:16] INFO - Starting: Plotting coarse transition matrix
-[2026-04-13 19:28:17] INFO - Saved: /Users/richard/Git/snRNAseq_2026/code/CellRank2/test_results/plots/coarse_T.png
-[2026-04-13 19:28:17] INFO - Completed: Plotting coarse transition matrix [82ms]
-[2026-04-13 19:28:17] INFO - Saved: /Users/richard/Git/snRNAseq_2026/code/CellRank2/test_results/plots/umap_cell_type_aligned.png
-[2026-04-13 19:28:17] INFO - Saved: /Users/richard/Git/snRNAseq_2026/code/CellRank2/test_results/plots/umap_age_years.png
-[2026-04-13 19:28:17] INFO - Saved: /Users/richard/Git/snRNAseq_2026/code/CellRank2/test_results/plots/umap_source.png
-[2026-04-13 19:28:17] INFO - [Memory] After GPCCA: 2.73 GB RSS
-[2026-04-13 19:28:17] INFO - ────────────────────────────────────────
-[2026-04-13 19:28:17] INFO - STEP: fate_probs
-[2026-04-13 19:28:17] INFO - Starting: compute_fate_probabilities
-[2026-04-13 19:28:18] INFO - Completed: compute_fate_probabilities [0h 0m 1.5s]
-[2026-04-13 19:28:18] INFO -   Fate probabilities computed for lineages: [np.str_('Astrocyte-Protoplasmic'), np.str_('IN-Mix-LAMP5'), np.str_('Oligodendrocyte'), np.str_('OPC'), np.str_('EN-L2_3-IT')]
-[2026-04-13 19:28:18] INFO - [Memory] After compute_fate_probabilities: 2.73 GB RSS
-[2026-04-13 19:28:18] INFO - Saved: /Users/richard/Git/snRNAseq_2026/code/CellRank2/test_results/plots/fate_probabilities.png
-[2026-04-13 19:28:18] INFO -   Excitatory neurons found: 427 cells
-[2026-04-13 19:28:18] INFO -   L2-3 lineages matched: EN-L2_3-IT
-[2026-04-13 19:28:18] INFO -   Cells highlighted (most likely fate = L2-3): 145/427
-[2026-04-13 19:28:18] INFO - Saved: /Users/richard/Git/snRNAseq_2026/code/CellRank2/test_results/plots/umap_excitatory_l23_fate.png
-[2026-04-13 19:28:18] INFO - [Memory] After fate_probs: 2.73 GB RSS
-[2026-04-13 19:28:18] INFO - ────────────────────────────────────────
-[2026-04-13 19:28:18] INFO - STEP: save
-[2026-04-13 19:28:19] INFO -   Saved: /Users/richard/Git/snRNAseq_2026/code/CellRank2/test_results/cellrank_output.h5ad
-[2026-04-13 19:28:19] INFO - ============================================================
-[2026-04-13 19:28:19] INFO - CellRank 2 pipeline complete.
-[2026-04-13 19:28:19] INFO - ============================================================
+[2026-04-14 16:18:40] INFO - Completed: RealTimeKernel (from moscot) [0h 0m 1.5s]
+[2026-04-14 16:18:40] INFO -   RealTimeKernel: transition matrix shape (2000, 2000)
+[2026-04-14 16:18:40] INFO -   Combined kernel: RTK weight=0.80, CK weight=0.20
+[2026-04-14 16:18:40] INFO - [Memory] After kernel construction: 0.88 GB RSS
+[2026-04-14 16:18:40] INFO - [Memory] After kernels: 0.88 GB RSS
+[2026-04-14 16:18:40] INFO - ────────────────────────────────────────
+[2026-04-14 16:18:40] INFO - STEP: gpcca
+[2026-04-14 16:18:40] INFO - Building GPCCA estimator...
+[2026-04-14 16:18:40] INFO -   use_cell_type_states=True: using 'cell_type_aligned' labels directly as absorbing terminal states.
+[2026-04-14 16:18:40] INFO -   Setting terminal states directly from 'cell_type_aligned' (5 unique types, 30 cells/type — skipping GPCCA Schur decomposition).
+[2026-04-14 16:18:40] INFO -     Astrocyte: 30 / 380 cells sampled as terminal
+[2026-04-14 16:18:40] INFO -     ExcitatoryNeuron_L2-3: 30 / 508 cells sampled as terminal
+[2026-04-14 16:18:40] INFO -     ExcitatoryNeuron_L4-6: 30 / 422 cells sampled as terminal
+[2026-04-14 16:18:40] INFO -     InhibitoryNeuron: 30 / 402 cells sampled as terminal
+[2026-04-14 16:18:40] INFO -     Oligodendrocyte: 30 / 288 cells sampled as terminal
+[2026-04-14 16:18:40] INFO - Starting: set_terminal_states (cell-type assignment)
+[2026-04-14 16:18:40] INFO - Completed: set_terminal_states (cell-type assignment) [3ms]
+[2026-04-14 16:18:40] INFO -   Terminal states set (5): ['Astrocyte', 'ExcitatoryNeuron_L2-3', 'ExcitatoryNeuron_L4-6', 'InhibitoryNeuron', 'Oligodendrocyte']
+[2026-04-14 16:18:40] INFO - [Memory] After cell-type state assignment: 0.88 GB RSS
+[2026-04-14 16:18:40] INFO - Saved: /Users/richard/Git/snRNAseq_2026/code/CellRank2/test_results/plots/umap_cell_type_aligned.png
+[2026-04-14 16:18:40] INFO - Saved: /Users/richard/Git/snRNAseq_2026/code/CellRank2/test_results/plots/umap_age_years.png
+[2026-04-14 16:18:40] INFO - Saved: /Users/richard/Git/snRNAseq_2026/code/CellRank2/test_results/plots/umap_source.png
+[2026-04-14 16:18:40] INFO - [Memory] After GPCCA: 0.91 GB RSS
+[2026-04-14 16:18:40] INFO - ────────────────────────────────────────
+[2026-04-14 16:18:40] INFO - STEP: fate_probs
+[2026-04-14 16:18:40] INFO - Starting: compute_fate_probabilities
+[2026-04-14 16:18:42] INFO - Completed: compute_fate_probabilities [0h 0m 1.7s]
+[2026-04-14 16:18:42] INFO -   Fate probabilities computed for lineages: [np.str_('Astrocyte'), np.str_('ExcitatoryNeuron_L2-3'), np.str_('ExcitatoryNeuron_L4-6'), np.str_('InhibitoryNeuron'), np.str_('Oligodendrocyte')]
+[2026-04-14 16:18:42] INFO - [Memory] After compute_fate_probabilities: 0.93 GB RSS
+[2026-04-14 16:18:42] INFO - Saved: /Users/richard/Git/snRNAseq_2026/code/CellRank2/test_results/plots/fate_probabilities.png
+[2026-04-14 16:18:42] INFO -   Excitatory neurons found: 930 cells
+[2026-04-14 16:18:42] INFO -   L2-3 lineages matched: ExcitatoryNeuron_L2-3
+[2026-04-14 16:18:42] INFO -   Cells highlighted (most likely fate = L2-3): 67/930
+[2026-04-14 16:18:42] INFO - Saved: /Users/richard/Git/snRNAseq_2026/code/CellRank2/test_results/plots/umap_excitatory_l23_fate.png
+[2026-04-14 16:18:42] INFO - [Memory] After fate_probs: 0.96 GB RSS
+[2026-04-14 16:18:42] INFO - ────────────────────────────────────────
+[2026-04-14 16:18:42] INFO - STEP: save
+[2026-04-14 16:18:42] INFO -   Saved: /Users/richard/Git/snRNAseq_2026/code/CellRank2/test_results/cellrank_output.h5ad
+[2026-04-14 16:18:42] INFO - ============================================================
+[2026-04-14 16:18:42] INFO - CellRank 2 pipeline complete.
+[2026-04-14 16:18:42] INFO - ============================================================
