@@ -3,24 +3,29 @@
 # Render a single notebook experiment by config name.
 #
 # Usage:
-#   sbatch render_single.sh <config_name> [template_override]
-#   bash   render_single.sh <config_name> [template_override]   # login-node testing
+#   bash render_single.sh <config_name> [template_override] [--force]
 #
 # <config_name> is the YAML filename without extension, e.g.:
 #   sensitivity_chemistry_scANVI
-#   hvg_investigation_combined_scANVI
+#   pseudobulk_gap_excitatory_postnatal
 #
 # The template is inferred from a comment on the first line of the config YAML:
 #   # Template: <template_name>
 # where <template_name> matches a file in notebooks/templates/ (without .qmd).
-# Override with a second argument, e.g.: sensitivity_gap_analysis
+# Override with a second argument (pass "" to use the inferred template).
+#
+# --force  deletes the CACHE_DIR from the config before rendering, forcing a
+#          full re-run of the projection pipeline (overwrites the cache).
+#
+# Always invoke with `bash`, not `sbatch` directly — the script submits itself
+# to SLURM with the correct per-config log paths automatically.
 #
 # Output goes to:  notebooks/results/<config_name>/
 # Logs go to:      logs/render_<config_name>_%j.{out,err}
 #
 # Examples:
-#   sbatch render_single.sh sensitivity_chemistry_scANVI
-#   bash   render_single.sh hvg_investigation_combined_scANVI
+#   bash render_single.sh sensitivity_chemistry_scANVI
+#   bash render_single.sh sensitivity_chemistry_scANVI "" --force
 
 #SBATCH --job-name=render_notebook
 #SBATCH --time=02:00:00
@@ -31,6 +36,7 @@ set -euo pipefail
 
 CONFIG_NAME="${1:-}"
 TEMPLATE_OVERRIDE="${2:-}"
+FORCE="${3:-}"
 
 if [[ -z "$CONFIG_NAME" ]]; then
     echo "Usage: $0 <config_name> [template_override]" >&2
@@ -53,10 +59,20 @@ if [[ ! -f "$CONFIG_FILE" ]]; then
     exit 1
 fi
 
-# Set SLURM log paths now that we know the config name
-# (only used when submitted via sbatch; ignored when run with bash)
-export SBATCH_OUTPUT="${LOGS_DIR}/render_${CONFIG_NAME}_%j.out"
-export SBATCH_ERROR="${LOGS_DIR}/render_${CONFIG_NAME}_%j.err"
+# If not already inside a SLURM job, re-submit via sbatch so that --output and
+# --error can be set dynamically to include the config name.  The exec replaces
+# this shell process — nothing below runs until the re-submitted job starts.
+if [[ -z "${SLURM_JOB_ID:-}" ]]; then
+    mkdir -p "$LOGS_DIR"
+    exec sbatch \
+        --job-name="render_${CONFIG_NAME}" \
+        --output="${LOGS_DIR}/render_${CONFIG_NAME}_%j.out" \
+        --error="${LOGS_DIR}/render_${CONFIG_NAME}_%j.err" \
+        --time=02:00:00 \
+        --mem=200G \
+        --partition=icelake \
+        "$0" "$@"
+fi
 
 # Infer template from first-line comment "# Template: <name>"
 if [[ -n "$TEMPLATE_OVERRIDE" ]]; then
@@ -82,14 +98,25 @@ fi
 OUTPUT_DIR="${RESULTS_DIR}/${CONFIG_NAME}"
 mkdir -p "$OUTPUT_DIR"
 
+# --force: delete the application-level CACHE_DIR so the projection pipeline re-runs
+if [[ "$FORCE" == "--force" ]]; then
+    CACHE_DIR_VAL=$(grep '^CACHE_DIR:' "$CONFIG_FILE" | awk '{print $2}')
+    if [[ -n "$CACHE_DIR_VAL" && -d "$CACHE_DIR_VAL" ]]; then
+        echo "Removing cache: $CACHE_DIR_VAL"
+        rm -rf "$CACHE_DIR_VAL"
+    fi
+fi
+
 echo "========================================"
 echo "Config:    ${CONFIG_NAME}"
 echo "Template:  ${TEMPLATE_NAME}"
 echo "Params:    ${CONFIG_FILE}"
 echo "Output:    ${OUTPUT_DIR}"
+[[ "$FORCE" == "--force" ]] && echo "Mode:      FORCE (cache cleared)"
 echo "========================================"
 
 bash "${REPO_ROOT}/notebooks/render_notebook.sh" \
     "$TEMPLATE" \
     "$CONFIG_FILE" \
-    "$OUTPUT_DIR"
+    "$OUTPUT_DIR" \
+    "$FORCE"

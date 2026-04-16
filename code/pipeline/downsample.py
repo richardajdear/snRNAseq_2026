@@ -82,6 +82,8 @@ def main():
                              "Defaults: Velmeshev='Cell_Type', Wang='Type-updated', PsychAD='subclass'.")
     parser.add_argument("--pfc_only", action='store_true', help="Keep only 'prefrontal cortex' regions.")
     parser.add_argument("--age_downsample", action='store_true', help="Keep all donors <40; keep 20%% of donors >=40.")
+    parser.add_argument("--postnatal_only", action='store_true',
+                        help="Keep only postnatal cells (age_years >= 0). Applied before age_downsample.")
     parser.add_argument("--n_cells", type=int, default=None,
                         help="Target number of cells (random downsample). "
                              "Omit or set to null in config to use all cells.")
@@ -163,6 +165,15 @@ def main():
         n_before = mask.sum()
         mask = mask & pfc_mask
         print(f"PFC filter: {n_before} -> {mask.sum()} cells")
+
+    # --- Postnatal-only filter ---
+    if args.postnatal_only:
+        if 'age_years' not in meta_df.columns:
+            print("Error: --postnatal_only requested but 'age_years' column missing.")
+            sys.exit(1)
+        n_before = mask.sum()
+        mask = mask & (meta_df['age_years'] >= 0)
+        print(f"Postnatal filter (age_years >= 0): {n_before} -> {mask.sum()} cells")
 
     # --- Age-based donor downsampling ---
     if args.age_downsample:

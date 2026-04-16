@@ -146,6 +146,8 @@ def step_downsample(cfg: dict, output_dir: Path, overwrite: bool,
             cmd += ['--n_cells', str(src['n_cells'])]
         if cfg.get('age_downsample', False):
             cmd += ['--age_downsample']
+        if cfg.get('postnatal_only', False):
+            cmd += ['--postnatal_only']
         if cfg.get('seed'):
             cmd += ['--seed', str(cfg['seed'])]
 
@@ -172,6 +174,15 @@ def step_combine(cfg: dict, output_dir: Path, input_paths: list,
     ] + [str(p) for p in input_paths]
 
     _run(cmd, logger)
+
+    # Remove per-dataset intermediates once combined.h5ad is on disk
+    if not cfg.get('keep_intermediates', False):
+        import shutil
+        per_dataset_dir = output_dir / 'per_dataset'
+        if per_dataset_dir.exists():
+            shutil.rmtree(per_dataset_dir)
+            logger.info(f"  Removed intermediate per_dataset/ ({per_dataset_dir})")
+
     return combined_path
 
 
@@ -247,6 +258,11 @@ def step_scvi(cfg: dict, output_dir: Path, combined_path: Path,
             f"{integrated_path}"
         )
         sys.exit(1)
+
+    # Remove combined.h5ad — integrated.h5ad contains everything needed downstream
+    if not cfg.get('keep_intermediates', False) and combined_path.exists():
+        combined_path.unlink()
+        logger.info(f"  Removed intermediate combined.h5ad ({combined_path})")
 
     return integrated_path
 

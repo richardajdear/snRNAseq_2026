@@ -1,10 +1,10 @@
 #!/bin/bash
 #SBATCH --output=/home/rajd2/rds/hpc-work/snRNAseq_2026/logs/step1_prep_%j.out
 #SBATCH --error=/home/rajd2/rds/hpc-work/snRNAseq_2026/logs/step1_prep_%j.err
-#SBATCH --time=04:00:00
+#SBATCH --time=00:30:00
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --mem=128G
+#SBATCH --mem=16G
 #SBATCH --partition=icelake
 #SBATCH --account=vertes-sl2-cpu
 
@@ -38,14 +38,19 @@ singularity exec \
 
 _ELAPSED=$(( $(date +%s) - _JOB_START ))
 _TIME_LIMIT=$(squeue -j "${SLURM_JOB_ID}" -h -o "%l" 2>/dev/null || echo "N/A")
-_MAX_RSS="N/A"
-if _tmp=$(sstat --jobs="${SLURM_JOB_ID}.batch" --format=MaxRSS --noheader 2>/dev/null); then
-    _MAX_RSS=$(echo "$_tmp" | awk 'NR==1{print $1}')
-fi
 _ALLOC_MEM_GB=$(( ${SLURM_MEM_PER_NODE:-0} / 1024 ))
+_rss_gb="N/A"; _rss_pct="N/A"
+if _tmp=$(sstat --jobs="${SLURM_JOB_ID}.batch" --format=MaxRSS --noheader 2>/dev/null); then
+    _rss_kb=$(echo "$_tmp" | awk 'NR==1{gsub(/[^0-9]/,"",$1); print $1+0}')
+    if [[ -n "$_rss_kb" && "$_rss_kb" -gt 0 ]]; then
+        _rss_gb=$(awk  "BEGIN{printf \"%.2f\", ${_rss_kb}/1048576}")
+        [[ ${_ALLOC_MEM_GB} -gt 0 ]] && \
+            _rss_pct=$(awk "BEGIN{printf \"%.0f\", (${_rss_kb}/1048576)/${_ALLOC_MEM_GB}*100}")
+    fi
+fi
 echo "========================================"
 echo "Resource usage:"
 echo "  Time:   $(( _ELAPSED/3600 ))h $(( (_ELAPSED%3600)/60 ))m $(( _ELAPSED%60 ))s  /  ${_TIME_LIMIT} allocated"
-echo "  Memory: ${_MAX_RSS} peak RSS  /  ${_ALLOC_MEM_GB}G allocated"
+echo "  Memory: ${_rss_gb}G peak RSS  /  ${_ALLOC_MEM_GB}G allocated (${_rss_pct}%)"
 echo "========================================"
 echo "Step 1 complete: $(date)"

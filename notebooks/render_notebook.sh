@@ -20,6 +20,7 @@ set -euo pipefail
 NOTEBOOK="${1:-}"
 PARAMS_FILE="${2:-}"
 OUTPUT_DIR="${3:-}"
+FORCE="${4:-}"
 
 if [[ -z "$NOTEBOOK" ]]; then
     echo "Usage: $0 <path/to/notebook.qmd> [params.yaml] [output_dir]" >&2
@@ -47,6 +48,9 @@ if [[ -n "$OUTPUT_DIR" ]]; then
     OUTPUT_ARG="--output-dir '${OUTPUT_DIR}'"
 fi
 
+CACHE_FLAG=""
+[[ "$FORCE" == "--force" ]] && CACHE_FLAG="--cache-refresh"
+
 SIF="/home/rajd2/rds/hpc-work/shortcake.sif"
 QUARTO_DIR="/usr/local/Cluster-Apps/ceuadmin/quarto/1.7.13"
 CONDA_ENV="shortcake_default"
@@ -69,7 +73,7 @@ singularity exec \
     ${PARAMS_ENV:+--env "$PARAMS_ENV"} \
     "$SIF" \
     micromamba run -n "$CONDA_ENV" \
-    bash -c "QUARTO_PYTHON=${PYTHON_BIN} /quarto/bin/quarto render '${NOTEBOOK_FILE}' ${OUTPUT_ARG}"
+    bash -c "QUARTO_PYTHON=${PYTHON_BIN} /quarto/bin/quarto render '${NOTEBOOK_FILE}' ${OUTPUT_ARG} ${CACHE_FLAG}"
 
 _ELAPSED=$(( $(date +%s) - _JOB_START ))
 _TIME_LIMIT=$(squeue -j "${SLURM_JOB_ID}" -h -o "%l" 2>/dev/null || echo "N/A")

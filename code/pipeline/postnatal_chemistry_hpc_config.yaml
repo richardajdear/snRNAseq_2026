@@ -1,10 +1,11 @@
-# snRNAseq Pipeline Config — HPC (full dataset)
+# snRNAseq Pipeline Config — HPC, chemistry-level batch correction, postnatal only + covariates
 #
-# Run via SLURM:
-#   cd /home/rajd2/rds/hpc-work/snRNAseq_2026
-#   bash code/pipeline/slurm/submit_pipeline.sh code/pipeline/hpc_config.yaml
+# Based on chemistry_hpc_config.yaml with:
+#   - postnatal_only: true               — restricts to age_years >= 0
+#   - continuous_covariate_keys: [age_years]
+#   - categorical_covariate_keys: [sex]
 
-output_dir: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/VelWangPsychAD_100k
+output_dir: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/VelWangPsychAD_100k_postnatal_chemistry
 
 sources:
   - name: WANG
@@ -28,25 +29,26 @@ sources:
     dataset_type: PsychAD
     cell_type_field: "subclass"
     pfc_only: true
-    n_cells: 100000                   # set to null (or omit) to use all cells
+    n_cells: 100000
 
 age_downsample: true
-postnatal_only: false   # true = keep only cells with age_years >= 0 (removes prenatal)
+postnatal_only: true
 seed: 42
 
 scvi:
   n_top_genes: 10000
-  hvg_flavor: seurat
-  hvg_batch_key: source
+  hvg_flavor: pearson_residuals
+  hvg_batch_key: chemistry
+  batch_key: chemistry
   n_latent: 30
   max_epochs_scvi: 400
   batch_size: 256
   early_stopping: true
   early_stopping_patience: 20
   num_workers: 4
-  transform_batch: WANG    # normalize all cells as WANG cells of their type (for GRN scoring)
-  # continuous_covariate_keys: [age_years]    # include age as continuous covariate in scVI/scANVI
-  # categorical_covariate_keys: [sex]         # include sex as categorical covariate
+  transform_batch: multiome
+  continuous_covariate_keys: [age_years]
+  categorical_covariate_keys: [sex]
 
 scanvi_label_transfer:
   enabled: true

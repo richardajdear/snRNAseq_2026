@@ -1,0 +1,63 @@
+# CellRank 2 Pipeline — VelWangPsychAD_100k_pearson (full dataset)
+#
+# Run via SLURM from the project root:
+#   cd /home/rajd2/rds/hpc-work/snRNAseq_2026
+#   sbatch code/CellRank2/slurm_submit_pearson.sh
+
+# ── Paths ─────────────────────────────────────────────────────────────────────
+input_h5ad: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/VelWangPsychAD_100k_pearson/scvi_output/integrated.h5ad
+output_dir: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/VelWangPsychAD_100k_pearson/cellrank_output
+
+# ── Data keys ─────────────────────────────────────────────────────────────────
+latent_key: X_scANVI
+time_key: age_years
+cell_type_key: cell_type_aligned
+batch_key: source
+
+# ── Neighbour graph ───────────────────────────────────────────────────────────
+n_neighbors: 30
+neighbors_key: neighbors_scanvi
+
+# ── Age binning ───────────────────────────────────────────────────────────────
+age_bin_edges: [0.0, 0.5, 2.0, 10.0, 20.0, 40.0, 100.0]
+age_bin_key: age_bin
+
+# ── Optimal transport ─────────────────────────────────────────────────────────
+ot_epsilon: 0.05
+ot_max_iterations: 2000
+
+# ── Kernel combination ────────────────────────────────────────────────────────
+rtk_weight: 0.8
+
+# ── GPCCA ─────────────────────────────────────────────────────────────────────
+n_macrostates: 10
+use_minchi: false
+cluster_key: cell_type_aligned
+terminal_states: []
+initial_states: []
+
+# ── Fate probabilities ────────────────────────────────────────────────────────
+compute_drivers: false
+lineage_targets: []
+fate_prob_threshold: 0.1
+
+# ── Plots ─────────────────────────────────────────────────────────────────────
+save_plots: true
+plot_color_vars:
+  - cell_type_aligned
+  - age_years
+  - source
+umap_key: X_umap_scanvi
+point_size: 0.5
+
+# ── Pipeline control ──────────────────────────────────────────────────────────
+steps:
+  - neighbors
+  - ot
+  - kernels
+  - gpcca
+  - fate_probs
+  - save
+
+random_seed: 42
+overwrite: false

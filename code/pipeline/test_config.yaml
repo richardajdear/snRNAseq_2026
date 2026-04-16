@@ -41,6 +41,7 @@ sources:
 
 # ── Downsampling ──────────────────────────────────────────────────────────────
 age_downsample: false   # true = keep all <40, 20% of donors ≥40
+postnatal_only: false   # true = keep only cells with age_years >= 0 (removes prenatal)
 seed: 42
 
 # ── scVI ──────────────────────────────────────────────────────────────────────
@@ -54,6 +55,8 @@ scvi:
   early_stopping: true
   early_stopping_patience: 10
   transform_batch: WANG    # normalize all cells as WANG cells of their type (for GRN scoring)
+  # continuous_covariate_keys: [age_years]    # include age as continuous covariate in scVI/scANVI
+  # categorical_covariate_keys: [sex]         # include sex as categorical covariate
 
 # ── scANVI label transfer ─────────────────────────────────────────────────────
 # Replaces kNN label transfer. scANVI trains jointly on batch correction +
@@ -113,4 +116,5 @@ steps:
   - scvi
   - diagnostics
   - pseudobulk
+
 overwrite: false

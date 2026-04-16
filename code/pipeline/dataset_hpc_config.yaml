@@ -39,6 +39,7 @@ sources:
     n_cells: 100000                   # set to null (or omit) to use all cells
 
 age_downsample: true
+postnatal_only: false   # true = keep only cells with age_years >= 0 (removes prenatal)
 seed: 42
 
 scvi:
@@ -53,6 +54,8 @@ scvi:
   early_stopping_patience: 20
   num_workers: 4
   transform_batch: WANG    # normalize all cells as WANG cells of their type (for GRN scoring)
+  # continuous_covariate_keys: [age_years]    # include age as continuous covariate in scVI/scANVI
+  # categorical_covariate_keys: [sex]         # include sex as categorical covariate
 
 scanvi_label_transfer:
   enabled: true
@@ -90,5 +93,6 @@ steps:
   - downsample
   - combine
   - scvi
+  - diagnostics
   - pseudobulk
-overwrite: false
+overwrite: true

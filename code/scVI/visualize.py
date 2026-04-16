@@ -46,6 +46,79 @@ def _apply_ggplot_theme(ax):
         item.set_color("#333333")
 
 
+# ── cell_type_aligned palette ─────────────────────────────────────────────────
+
+def _is_immature(label: str) -> bool:
+    return any(x in label for x in ("Immature", "Newborn")) or label.startswith("IPC-")
+
+
+def _cell_type_group(label: str) -> str:
+    if label.startswith("EN-") or label == "IPC-EN":
+        return "EN"
+    if label.startswith("IN-"):
+        return "IN"
+    if "Oligodendrocyte" in label or label == "OPC":
+        return "Oligo"
+    if label.startswith("Astrocyte"):
+        return "Astro"
+    if label == "Microglia":
+        return "Microglia"
+    if label.startswith("RG-") or label in ("Tri-IPC", "Cajal-Retzius cell"):
+        return "Progenitor"
+    return "Other"
+
+
+# Colormap and shade range (mature dark end, immature light end) per group
+_GROUP_CMAP = {
+    "EN":         ("Reds",    (0.45, 0.90), (0.25, 0.45)),   # (cmap, mature_range, immature_range)
+    "IN":         ("Blues",   (0.40, 0.88), (0.22, 0.42)),
+    "Oligo":      ("Greens",  (0.45, 0.85), (0.22, 0.38)),
+    "Astro":      ("GnBu",    (0.45, 0.80), (0.22, 0.38)),
+    "Microglia":  ("YlGn",    (0.52, 0.68), (0.30, 0.45)),
+    "Progenitor": ("Purples", (0.45, 0.85), (0.25, 0.40)),
+    "Other":      ("Greys",   (0.35, 0.65), (0.20, 0.35)),
+}
+
+
+def build_cell_type_aligned_palette(categories: list) -> dict:
+    """Build a hue+shade colour dict for cell_type_aligned.
+
+    Cell types are grouped by broad class (EN, IN, Oligo, Astro, Microglia,
+    Progenitor, Other).  Within each group, mature subtypes are assigned darker
+    shades and immature/newborn/IPC subtypes lighter shades of the same hue,
+    making the maturation axis readable at a glance.
+    """
+    from matplotlib import colormaps
+
+    # Bucket each category into (group, mature/immature)
+    groups: dict = {}
+    for cat in categories:
+        g = _cell_type_group(cat)
+        if g not in groups:
+            groups[g] = {"mature": [], "immature": []}
+        (groups[g]["immature"] if _is_immature(cat) else groups[g]["mature"]).append(cat)
+
+    for g in groups:
+        groups[g]["mature"].sort()
+        groups[g]["immature"].sort()
+
+    palette = {}
+    for g_name, buckets in groups.items():
+        cmap_name, mature_range, immature_range = _GROUP_CMAP.get(g_name, _GROUP_CMAP["Other"])
+        cmap = colormaps[cmap_name]
+
+        def _sample(labels, lo, hi):
+            n = len(labels)
+            vals = [lo] if n == 1 else [lo + (hi - lo) * i / (n - 1) for i in range(n)]
+            for lbl, v in zip(labels, vals):
+                palette[lbl] = cmap(v)[:3]
+
+        _sample(buckets["mature"],   *mature_range)
+        _sample(buckets["immature"], *immature_range)
+
+    return palette
+
+
 # ── UMAP computation ───────────────────────────────────────────────────────────
 
 def compute_umap(
@@ -151,6 +224,7 @@ def plot_umap_comparison(
     alpha: float = 0.5,
     log2_vars: Optional[List[str]] = None,
     log2_ticks: Optional[List[float]] = None,
+    palette: Optional[dict] = None,
     logger: Optional[logging.Logger] = None,
 ):
     """
@@ -185,8 +259,11 @@ def plot_umap_comparison(
     # Pre-compute colors / transformed values
     if is_categorical:
         cats = list(values.cat.categories) if hasattr(values, "cat") else sorted(values.unique())
-        palette = _set1_palette(len(cats))
-        color_map = dict(zip(cats, palette))
+        if palette is not None:
+            fallback = _set1_palette(len(cats))
+            color_map = {c: palette.get(c, fallback[i]) for i, c in enumerate(cats)}
+        else:
+            color_map = dict(zip(cats, _set1_palette(len(cats))))
         legend_handles = [
             plt.Line2D(
                 [0], [0], marker="o", color="w",
@@ -326,6 +403,11 @@ def plot_batch_comparison(
             logger.warning(f"'{var}' not in .obs, skipping")
             continue
 
+        var_palette = None
+        if var == "cell_type_aligned":
+            cats = list(adata.obs[var].unique())
+            var_palette = build_cell_type_aligned_palette(cats)
+
         plot_umap_comparison(
             adata,
             color_by=var,
@@ -336,5 +418,6 @@ def plot_batch_comparison(
             point_size=config.umap_point_size,
             log2_vars=log2_vars,
             log2_ticks=log2_ticks,
+            palette=var_palette,
             logger=logger,
         )

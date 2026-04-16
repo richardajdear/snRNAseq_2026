@@ -285,7 +285,7 @@ plot_gap_pseudobulk <- function(df, child_start, child_end, adol_start, adol_end
     facet_grid(factor(n_genes) ~ flavor, scales = scales_arg) +
     annotate('rect', xmin = child_end, xmax = adol_start,
              ymin = -Inf, ymax = Inf, fill = 'grey80', alpha = 0.3) +
-    geom_point(aes(color = source), size = .3, alpha = 0.5) +
+    geom_point(aes(color = source), size = 1.5, alpha = 0.7) +
     geom_smooth(aes(group = 1), se = FALSE, color = 'black', linewidth = 0.5) +
     geom_vline(xintercept = child_start, linetype = 'dotted',
                color = 'blue', linewidth = 0.3) +
@@ -365,7 +365,7 @@ plot_gap_boxes <- function(df_boxes, child_start, child_end, adol_start, adol_en
     ggplot(aes(x = age_range, y = value)) +
     facet_grid(factor(n_genes) ~ flavor, scales = scales_arg) +
     geom_boxplot(outlier.shape = NA, alpha = 0.4) +
-    geom_jitter(aes(color = source), width = 0.15, size = 0.5, alpha = 0.6) +
+    geom_jitter(aes(color = source), width = 0.15, size = 1.5, alpha = 0.7) +
     stat_compare_means(comparisons = comparisons, label = 'p.signif', size = 3) +
     y_scale +
     scale_color_discrete(name = 'Source',
@@ -385,4 +385,204 @@ plot_gap_boxes <- function(df_boxes, child_start, child_end, adol_start, adol_en
     ggtitle(sprintf(
       "C3+ Childhood [%d, %d) vs Adolescence [%d, %d) by HVG method",
       child_start, child_end, adol_start, adol_end))
+}
+
+# ── 4D Sensitivity (grn_development template) ─────────────────────────────────
+#
+# Extends the 3D gap model by also varying child_start (previously fixed).
+# adol_start is always derived: adol_start = gap_start + gap_length.
+#
+# New parameter names vs. 3D model:
+#   child_start  — childhood lower bound          (was a fixed scalar)
+#   gap_start    — childhood upper bound = gap start  (was child_end)
+#   gap_length   — gap duration in years          (new)
+#   adol_end     — adolescence upper bound        (unchanged)
+
+prepare_r_data_single <- function(final_df, condition_order = NULL) {
+  # Lightweight version of prepare_r_data() for use with grn_development template.
+  # Adds Age_log2 and sets condition as a factor ordered by condition_order.
+  # If condition_order is NULL, uses the order of first appearance.
+  if (is.null(condition_order)) {
+    condition_order <- unique(final_df$condition)
+  }
+  final_df %>%
+    mutate(
+      Age_log2  = log2(age_years + 1),
+      condition = factor(condition, levels = condition_order)
+    )
+}
+
+compute_sensitivity_4d <- function(df, selected_conds = c('pearson_residuals'),
+                                   child_starts = c(1, 2, 3, 4, 5),
+                                   gap_starts   = c(8, 9, 10, 11, 12),
+                                   gap_lengths  = c(1, 2, 3, 4, 5),
+                                   adol_ends    = c(21, 22, 23, 24, 25)) {
+  params <- expand.grid(
+    child_start = child_starts,
+    gap_start   = gap_starts,
+    gap_length  = gap_lengths,
+    adol_end    = adol_ends,
+    stringsAsFactors = FALSE
+  ) %>%
+    mutate(adol_start = gap_start + gap_length)
+
+  all_stats <- list()
+  for (i in seq_len(nrow(params))) {
+    cs     <- params$child_start[i]
+    ce     <- params$gap_start[i]       # childhood end = gap start
+    adol_s <- params$adol_start[i]
+    ae     <- params$adol_end[i]
+    gl     <- params$gap_length[i]
+
+    pb <- df %>%
+      filter(condition %in% selected_conds, C == 'C3+') %>%
+      mutate(age_range = case_when(
+        age_years >= cs    & age_years < ce     ~ "Childhood",
+        age_years >= adol_s & age_years < ae    ~ "Adolescence",
+        TRUE ~ NA_character_
+      )) %>%
+      filter(!is.na(age_range)) %>%
+      group_by(condition, individual, age_range) %>%
+      summarize(value = mean(value), .groups = 'drop')
+
+    tmp <- pb %>%
+      group_by(condition) %>%
+      summarize(
+        n_child    = sum(age_range == 'Childhood'),
+        n_adol     = sum(age_range == 'Adolescence'),
+        mean_child = mean(value[age_range == 'Childhood']),
+        mean_adol  = mean(value[age_range == 'Adolescence']),
+        sd_child   = sd(value[age_range == 'Childhood']),
+        sd_adol    = sd(value[age_range == 'Adolescence']),
+        p_value = tryCatch(
+          wilcox.test(value[age_range == 'Childhood'],
+                      value[age_range == 'Adolescence'])$p.value,
+          error = function(e) NA_real_
+        ),
+        .groups = 'drop'
+      ) %>%
+      mutate(
+        pooled_sd = sqrt(((pmax(n_child, 1) - 1) * sd_child^2 +
+                          (pmax(n_adol,  1) - 1) * sd_adol^2) /
+                         pmax(n_child + n_adol - 2, 1)),
+        cohens_d = ifelse(pooled_sd > 0,
+                          (mean_child - mean_adol) / pooled_sd, NA_real_),
+        min_detectable_d = mapply(function(n1, n2) {
+          if (n1 < 2 || n2 < 2) return(NA_real_)
+          tryCatch(
+            pwr.t2n.test(n1 = n1, n2 = n2, power = 0.80, sig.level = 0.05)$d,
+            error = function(e) NA_real_
+          )
+        }, n_child, n_adol),
+        child_start = cs,
+        gap_start   = ce,
+        gap_length  = gl,
+        adol_start  = adol_s,
+        adol_end    = ae
+      )
+    all_stats[[i]] <- tmp
+  }
+
+  bind_rows(all_stats) %>%
+    mutate(
+      condition = factor(condition, levels = selected_conds),
+      log10p    = -log10(p_value),
+      signif    = p_value < 0.05,
+      p_star    = case_when(
+        p_value < 0.001 ~ '***',
+        p_value < 0.01  ~ '**',
+        p_value < 0.05  ~ '*',
+        TRUE ~ 'ns'
+      ),
+      d_label = sprintf("%.2f", cohens_d),
+      p_label = ifelse(signif,
+                       paste0(p_star, '\n', sprintf("%.3f", round(p_value, 3))),
+                       ''),
+      n_label = paste0(n_child, '/', n_adol)
+    )
+}
+
+select_best_4d <- function(sens_4d, baseline = 'pearson_residuals') {
+  best <- sens_4d %>%
+    filter(condition == baseline) %>%
+    arrange(p_value) %>%
+    slice(1)
+  list(
+    child_start = best$child_start,
+    gap_start   = best$gap_start,
+    adol_start  = best$adol_start,
+    adol_end    = best$adol_end,
+    gap_length  = best$gap_length,
+    p_value     = best$p_value,
+    cohens_d    = best$cohens_d
+  )
+}
+
+# ── 4D Heatmap Plots ─────────────────────────────────────────────────────────
+#
+# Layout: x = gap_length, y = child_start
+#         facet columns = gap_start (childhood end)
+#         facet rows    = adol_end  (adolescence upper bound)
+# → 25 panels of 5×5 tiles = 625 combinations in one figure.
+
+.make_4d_tile_base <- function(sens_4d, fill_var, fill_scale) {
+  ggplot(sens_4d,
+         aes(x = factor(gap_length), y = factor(child_start),
+             fill = .data[[fill_var]])) +
+    facet_grid(
+      paste0("adol<", adol_end, "y") ~ paste0("gap_start=", gap_start),
+      switch = 'y'
+    ) +
+    geom_tile(color = 'white', linewidth = 0.25) +
+    fill_scale +
+    scale_x_discrete(name = 'Gap length (years)') +
+    scale_y_discrete(name = 'Childhood start (years)') +
+    theme_minimal(base_size = 8) +
+    theme(
+      strip.text    = element_text(size = 7),
+      panel.spacing = unit(0.3, 'lines'),
+      legend.title  = element_text(size = 7),
+      legend.key.height = unit(0.5, 'cm')
+    )
+}
+
+plot_4d_cohens_d <- function(sens_4d) {
+  .make_4d_tile_base(
+    sens_4d, 'cohens_d',
+    scale_fill_gradient2(low = '#2166AC', mid = 'white', high = '#B2182B',
+                         midpoint = 0, name = "Cohen's d")
+  ) +
+    geom_text(aes(label = d_label), size = 1.6) +
+    labs(
+      title    = "C3+ effect size (Cohen's d): Childhood vs Adolescence [4D grid]",
+      subtitle = "x=gap_length, y=child_start; cols=gap_start; rows=adol_end"
+    )
+}
+
+plot_4d_pvalue <- function(sens_4d) {
+  .make_4d_tile_base(
+    sens_4d, 'log10p',
+    scale_fill_gradient(low = 'grey92', high = '#B2182B',
+                        name = expression(-log[10](p)))
+  ) +
+    geom_text(aes(label = p_label,
+                  fontface = ifelse(signif, 'bold', 'plain')),
+              size = 1.6, color = 'white') +
+    labs(
+      title    = 'C3+ Wilcoxon p-value sensitivity [4D grid]',
+      subtitle = 'Bold = p < 0.05. x=gap_length, y=child_start; cols=gap_start; rows=adol_end'
+    )
+}
+
+plot_4d_power <- function(sens_4d) {
+  .make_4d_tile_base(
+    sens_4d, 'min_detectable_d',
+    scale_fill_gradient(low = '#1A9850', high = 'grey95',
+                        name = 'Min. detectable d')
+  ) +
+    geom_text(aes(label = n_label), size = 1.5) +
+    labs(
+      title    = "Minimum detectable effect size at 80% power [4D grid]",
+      subtitle = "Labels: n_childhood/n_adolescence. Lower fill = more sensitive."
+    )
 }
