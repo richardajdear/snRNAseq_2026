@@ -498,16 +498,30 @@ compute_sensitivity_4d <- function(df, selected_conds = c('pearson_residuals'),
       p_label = ifelse(signif,
                        paste0(p_star, '\n', sprintf("%.3f", round(p_value, 3))),
                        ''),
-      n_label = paste0(n_child, '/', n_adol)
+      n_label = paste0(sprintf("%.2f", min_detectable_d), '\n', n_child, '/', n_adol)
     )
 }
 
-select_best_4d <- function(sens_4d, baseline = 'pearson_residuals') {
+select_best_hvg <- function(sens_4d) {
+  # Returns the condition with the lowest p-value across all age boundary combinations.
+  sens_4d %>%
+    group_by(condition) %>%
+    summarize(min_p = min(p_value, na.rm = TRUE), .groups = 'drop') %>%
+    arrange(min_p) %>%
+    slice(1) %>%
+    pull(condition) %>%
+    as.character()
+}
+
+select_best_4d <- function(sens_4d, baseline = NULL) {
+  # If baseline is NULL, auto-selects the HVG condition with the lowest p-value.
+  if (is.null(baseline)) baseline <- select_best_hvg(sens_4d)
   best <- sens_4d %>%
     filter(condition == baseline) %>%
     arrange(p_value) %>%
     slice(1)
   list(
+    condition   = as.character(baseline),
     child_start = best$child_start,
     gap_start   = best$gap_start,
     adol_start  = best$adol_start,
@@ -525,13 +539,50 @@ select_best_4d <- function(sens_4d, baseline = 'pearson_residuals') {
 #         facet rows    = adol_end  (adolescence upper bound)
 # → 25 panels of 5×5 tiles = 625 combinations in one figure.
 
-.make_4d_tile_base <- function(sens_4d, fill_var, fill_scale) {
-  ggplot(sens_4d,
+.make_4d_tile_base <- function(sens_4d, fill_var, fill_scale,
+                               filter_cond = 'pearson_all') {
+  # Filter to one condition to avoid tile/text stacking from multiple conditions.
+  # The sensitivity heatmaps show age-boundary robustness; HVG sensitivity
+  # is shown separately in the effect summary table.
+  plot_df <- if (!is.null(filter_cond)) {
+    filter(sens_4d, condition == filter_cond)
+  } else {
+    sens_4d
+  }
+
+  # Guard: return a blank placeholder if there is no plottable data.
+  # This can happen when the dataset lacks enough donors in the childhood/adolescence
+  # age windows (e.g. adult-only cohorts) so all cohens_d / p-values are NA.
+  n_valid <- if (nrow(plot_df) == 0) 0L else sum(!is.na(plot_df[[fill_var]]))
+  if (n_valid == 0L) {
+    warning(sprintf(
+      ".make_4d_tile_base: no valid '%s' values (nrow=%d, condition='%s'). Returning blank plot.",
+      fill_var, nrow(plot_df), filter_cond %||% 'all'))
+    return(
+      ggplot() +
+        annotate('text', x = 0.5, y = 0.5, size = 4, color = 'grey40',
+                 label = sprintf('No valid data\n(%s: all NA)', fill_var)) +
+        theme_void()
+    )
+  }
+
+  # Factor the facet variables so panels order numerically (not lexicographically)
+  plot_df <- plot_df %>%
+    mutate(
+      gap_start_f = factor(gap_start, levels = sort(unique(gap_start))),
+      adol_end_f  = factor(adol_end,  levels = sort(unique(adol_end)))
+    )
+
+  ggplot(plot_df,
          aes(x = factor(gap_length), y = factor(child_start),
              fill = .data[[fill_var]])) +
     facet_grid(
-      paste0("adol<", adol_end, "y") ~ paste0("gap_start=", gap_start),
-      switch = 'y'
+      adol_end_f ~ gap_start_f,
+      switch = 'y',
+      labeller = labeller(
+        gap_start_f = function(x) paste0("gap_start=", x),
+        adol_end_f  = function(x) paste0("adol<", x, "y")
+      )
     ) +
     geom_tile(color = 'white', linewidth = 0.25) +
     fill_scale +
@@ -546,43 +597,49 @@ select_best_4d <- function(sens_4d, baseline = 'pearson_residuals') {
     )
 }
 
-plot_4d_cohens_d <- function(sens_4d) {
+plot_4d_cohens_d <- function(sens_4d, filter_cond = NULL) {
   .make_4d_tile_base(
     sens_4d, 'cohens_d',
     scale_fill_gradient2(low = '#2166AC', mid = 'white', high = '#B2182B',
-                         midpoint = 0, name = "Cohen's d")
+                         midpoint = 0, name = "Cohen's d"),
+    filter_cond = filter_cond
   ) +
     geom_text(aes(label = d_label), size = 1.6) +
     labs(
-      title    = "C3+ effect size (Cohen's d): Childhood vs Adolescence [4D grid]",
+      title    = sprintf("C3+ Cohen's d: Childhood vs Adolescence [HVG: %s]",
+                         filter_cond %||% 'all'),
       subtitle = "x=gap_length, y=child_start; cols=gap_start; rows=adol_end"
     )
 }
 
-plot_4d_pvalue <- function(sens_4d) {
+plot_4d_pvalue <- function(sens_4d, filter_cond = NULL) {
   .make_4d_tile_base(
     sens_4d, 'log10p',
     scale_fill_gradient(low = 'grey92', high = '#B2182B',
-                        name = expression(-log[10](p)))
+                        name = expression(-log[10](p))),
+    filter_cond = filter_cond
   ) +
     geom_text(aes(label = p_label,
                   fontface = ifelse(signif, 'bold', 'plain')),
-              size = 1.6, color = 'white') +
+              size = 1.6, color = 'black') +
     labs(
-      title    = 'C3+ Wilcoxon p-value sensitivity [4D grid]',
+      title    = sprintf('C3+ Wilcoxon p-value sensitivity [HVG: %s]',
+                         filter_cond %||% 'all'),
       subtitle = 'Bold = p < 0.05. x=gap_length, y=child_start; cols=gap_start; rows=adol_end'
     )
 }
 
-plot_4d_power <- function(sens_4d) {
+plot_4d_power <- function(sens_4d, filter_cond = NULL) {
   .make_4d_tile_base(
     sens_4d, 'min_detectable_d',
     scale_fill_gradient(low = '#1A9850', high = 'grey95',
-                        name = 'Min. detectable d')
+                        name = 'Min. detectable d'),
+    filter_cond = filter_cond
   ) +
     geom_text(aes(label = n_label), size = 1.5) +
     labs(
-      title    = "Minimum detectable effect size at 80% power [4D grid]",
-      subtitle = "Labels: n_childhood/n_adolescence. Lower fill = more sensitive."
+      title    = sprintf("Min. detectable effect size at 80%% power [HVG: %s]",
+                         filter_cond %||% 'all'),
+      subtitle = "Labels: min_d / n_child/n_adol. Lower fill = more sensitive."
     )
 }

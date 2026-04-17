@@ -1,17 +1,10 @@
-# snRNAseq Pipeline Config — HPC, Pearson residuals HVG selection
+# snRNAseq Pipeline Config — HPC, Pearson residuals HVG, postnatal only + age covariate
 #
-# Identical to hpc_config.yaml except:
-#   - output_dir: VelWangPsychAD_100k_pearson
-#   - hvg_flavor: pearson_residuals (no skmisc dependency; uses raw counts layer)
-#   - hvg_batch_key: source (batch-aware, consistent with seurat run)
-#
-# combined.h5ad is symlinked from VelWangPsychAD_100k — no need to re-run step1.
-# Submit via:
-#   sbatch --job-name=snrna_scvi_pearson \
-#     --export=ALL,WORK_DIR=...,CONFIG=code/pipeline/pearson_hpc_config.yaml \
-#     .../step2_scvi.sh
+# Based on pearson_hpc_config.yaml with two additions:
+#   - postnatal_only: true  — restricts to age_years >= 0 (removes prenatal cells)
+#   - continuous_covariate_keys: [age_years]  — conditions scVI/scANVI on age
 
-output_dir: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/VelWangPsychAD_100k_pearson
+output_dir: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/VelWangPsychAD_100k_source
 
 sources:
   - name: WANG
@@ -35,10 +28,10 @@ sources:
     dataset_type: PsychAD
     cell_type_field: "subclass"
     pfc_only: true
-    n_cells: 100000                   # set to null (or omit) to use all cells
+    n_cells: 100000
 
 age_downsample: true
-postnatal_only: false   # true = keep only cells with age_years >= 0 (removes prenatal)
+postnatal_only: false    # keep only cells with age_years >= 0 (removes prenatal)
 seed: 42
 
 scvi:
@@ -51,9 +44,10 @@ scvi:
   early_stopping: true
   early_stopping_patience: 20
   num_workers: 4
-  transform_batch: WANG    # normalize all cells as WANG cells of their type (for GRN scoring)
-  # continuous_covariate_keys: [age_years]    # include age as continuous covariate in scVI/scANVI
-  # categorical_covariate_keys: [sex]         # include sex as categorical covariate
+  transform_batch: WANG
+  continuous_covariate_keys: [age_log_pc]
+  categorical_covariate_keys: [sex]         # include sex as categorical covariate
+
 
 scanvi_label_transfer:
   enabled: true

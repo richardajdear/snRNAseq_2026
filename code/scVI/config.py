@@ -61,7 +61,7 @@ class PipelineConfig:
     umap_n_neighbors: int = 30
     umap_min_dist: float = 0.3
     umap_color_vars: List[str] = field(
-        default_factory=lambda: ["source", "cell_class", "cell_type_aligned", "age_years"]
+        default_factory=lambda: ["source", "chemistry", "cell_class", "cell_type_aligned", "age_years"]
     )
     umap_point_size: float = 1.0
     umap_log2_vars: List[str] = field(

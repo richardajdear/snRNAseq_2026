@@ -12,7 +12,7 @@
 #   cd /home/rajd2/rds/hpc-work/snRNAseq_2026
 #   bash code/pipeline/slurm/submit_pipeline.sh code/pipeline/chemistry_hpc_config.yaml
 
-output_dir: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/VelWangPsychAD_100k_chemistry
+output_dir: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/VelWangPsychAD_100k_chemistry_agelog
 
 sources:
   - name: WANG
@@ -54,8 +54,8 @@ scvi:
   early_stopping_patience: 20
   num_workers: 4
   transform_batch: multiome    # normalize all cells as multiome (WANG chemistry) for GRN scoring
-  # continuous_covariate_keys: [age_years]    # include age as continuous covariate in scVI/scANVI
-  # categorical_covariate_keys: [sex]         # include sex as categorical covariate
+  continuous_covariate_keys: [age_log_pc]   # log-postconceptional-age covariate (computed in downsample.py)
+  categorical_covariate_keys: [sex]         # include sex as categorical covariate
 
 scanvi_label_transfer:
   enabled: true

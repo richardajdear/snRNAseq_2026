@@ -28,8 +28,8 @@
 #   bash render_single.sh sensitivity_chemistry_scANVI "" --force
 
 #SBATCH --job-name=render_notebook
-#SBATCH --time=02:00:00
-#SBATCH --mem=200G
+#SBATCH --time=00:10:00
+#SBATCH --mem=10G
 #SBATCH --partition=icelake
 
 set -euo pipefail

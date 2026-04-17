@@ -273,6 +273,28 @@ def main():
             print(f"  {'(broad/excluded → Unknown)':35s}  {n_broad:5d}")
 
     # =========================================================================
+    # Step 3c: Add log-postconceptional-age column for scVI covariate
+    #   age_log_pc = log(age_years + 268/365)
+    #   Both Wang and Velmeshev readers use 268 days as the birth offset,
+    #   so adding 268/365 converts age_years back to postconceptional age in years.
+    # =========================================================================
+    if 'age_years' in adata.obs.columns:
+        adata.obs['age_log_pc'] = np.log(adata.obs['age_years'] + 268 / 365)
+        n_valid = adata.obs['age_log_pc'].notna().sum()
+        print(f"\nage_log_pc: {n_valid} valid values "
+              f"(range: {adata.obs['age_log_pc'].min():.2f} to {adata.obs['age_log_pc'].max():.2f})")
+
+    # Combined batch key for joint correction of source and chemistry.
+    if 'source' in adata.obs.columns and 'chemistry' in adata.obs.columns:
+        source = adata.obs['source'].fillna('unknown').astype(str)
+        chemistry = adata.obs['chemistry'].fillna('unknown').astype(str)
+        adata.obs['source-chemistry'] = source + '-' + chemistry
+        n_combo = adata.obs['source-chemistry'].nunique()
+        print(f"source-chemistry: {n_combo} unique combinations")
+    else:
+        print("Warning: could not create source-chemistry (missing source and/or chemistry columns)")
+
+    # =========================================================================
     # Step 4: Save
     # =========================================================================
     print(f"Saving to {args.output}...")

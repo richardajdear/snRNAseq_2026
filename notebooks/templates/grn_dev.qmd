@@ -67,7 +67,7 @@ else:
     print("No NOTEBOOK_PARAMS set — using defaults (interactive mode)")
 
 # --- Experiment identity ---
-EXPERIMENT_NAME = _cfg.get('EXPERIMENT_NAME', 'grn_development')
+EXPERIMENT_NAME = _cfg.get('EXPERIMENT_NAME', 'grn_dev')
 
 # --- Data: pseudobulk file ---
 _pb_default = os.path.join(
@@ -359,7 +359,7 @@ cat(sprintf(
 ```{python}
 #| message: false
 #| warning: false
-%%R -i TOTAL_GENES -i N_VALUES
+%%R -i TOTAL_GENES -i N_VALUES -w 220 -h 220 -u mm -r 300
 
 facet_levels <- c(paste0("all\n(", TOTAL_GENES, ")"), as.character(N_VALUES))
 
@@ -393,13 +393,6 @@ pb <- df %>%
 df_boxes_plot <- df_boxes %>%
     filter(network == 'C3+') %>%
     decorate_hvg_facets()
-
-n_vertical_facets <- nlevels(pb$n_genes)
-options(
-    repr.plot.width = 220 / 25.4,
-    repr.plot.height = (60 * n_vertical_facets) / 25.4,
-    repr.plot.res = 300
-)
 
 p_traj <- pb %>%
     ggplot(aes(x = age_years, y = value)) +

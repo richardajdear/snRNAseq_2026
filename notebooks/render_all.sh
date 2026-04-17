@@ -33,9 +33,6 @@ fi
 echo "Submitting ${#CONFIGS[@]} render job(s)..."
 for config_file in "${CONFIGS[@]}"; do
     name=$(basename "$config_file" .yaml)
-    job_id=$(sbatch --parsable \
-        --output="${REPO_ROOT}/logs/render_${name}_%j.out" \
-        --error="${REPO_ROOT}/logs/render_${name}_%j.err" \
-        "${REPO_ROOT}/notebooks/render_single.sh" "$name" "" "$FORCE")
-    echo "  Submitted ${name}  → job ${job_id}"
+    output=$(bash "${REPO_ROOT}/notebooks/render_single.sh" "$name" "" "$FORCE")
+    echo "  ${name}  → ${output}"
 done
