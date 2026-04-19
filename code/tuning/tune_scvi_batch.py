@@ -24,6 +24,9 @@ from scvi.model import SCVI
 from sklearn.metrics import silhouette_score
 from sklearn.neighbors import NearestNeighbors
 
+# Keep silhouette subsampling deterministic while separate from model/trial seeds.
+SILHOUETTE_SEED_OFFSET = 1000
+
 
 def _setup_logger(log_path: Path) -> logging.Logger:
     logger = logging.getLogger("tune_scvi_batch")
@@ -168,11 +171,12 @@ def _evaluate_age_aware_batch_score(
 
     numer = sum(score * w for score, w in weighted_scores)
     denom = sum(w for _, w in weighted_scores)
-    return float(numer / max(denom, 1e-8)), details
+    return float(numer / max(denom, 1.0)), details
 
 
 def _evaluate_trial(
     adata,
+    latent_key: str,
     batch_key: str,
     age_key: str,
     cell_type_key: str | None,
@@ -180,7 +184,7 @@ def _evaluate_trial(
 ) -> dict[str, Any]:
     age_score, age_details = _evaluate_age_aware_batch_score(
         adata=adata,
-        latent_key="X_scVI",
+        latent_key=latent_key,
         batch_key=batch_key,
         age_key=age_key,
         age_bin_edges=metric_cfg["age_bin_edges"],
@@ -199,11 +203,11 @@ def _evaluate_trial(
             max_n = int(metric_cfg.get("max_silhouette_cells", 20000))
             n = adata.n_obs
             if n > max_n:
-                rng = np.random.default_rng(0)
+                rng = np.random.default_rng(int(metric_cfg["silhouette_seed"]))
                 idx = rng.choice(n, size=max_n, replace=False)
             else:
                 idx = np.arange(n)
-            sil = silhouette_score(np.asarray(adata.obsm["X_scVI"])[idx], labels.iloc[idx])
+            sil = silhouette_score(np.asarray(adata.obsm[latent_key])[idx], labels.iloc[idx])
             sil_score_norm = float((sil + 1.0) / 2.0)
 
     total = (1.0 - sil_weight) * age_score + sil_weight * sil_score_norm
@@ -238,7 +242,7 @@ def _subset_for_tuning(adata, max_cells: int, stratify_cols: list[str], seed: in
         keep_idx = np.sort(rng.choice(keep_idx, size=max_cells, replace=False))
     elif keep_idx.size < max_cells:
         missing = max_cells - keep_idx.size
-        pool = np.setdiff1d(np.arange(adata.n_obs), keep_idx, assume_unique=False)
+        pool = np.setdiff1d(np.arange(adata.n_obs), keep_idx, assume_unique=True)
         if pool.size > 0:
             fill = rng.choice(pool, size=min(missing, pool.size), replace=False)
             keep_idx = np.sort(np.concatenate([keep_idx, fill]))
@@ -284,6 +288,7 @@ def run_tuning(config_path: Path):
     metric_cfg = cfg.get("metric", {})
     if "age_bin_edges" not in metric_cfg:
         raise ValueError("metric.age_bin_edges is required")
+    metric_cfg.setdefault("silhouette_seed", random_seed + SILHOUETTE_SEED_OFFSET)
 
     search_space = cfg.get("search_space", {})
 
@@ -326,9 +331,9 @@ def run_tuning(config_path: Path):
     )
 
     covariate_kwargs = {}
-    if cfg.get("continuous_covariate_keys"):
+    if "continuous_covariate_keys" in cfg and cfg["continuous_covariate_keys"] is not None:
         covariate_kwargs["continuous_covariate_keys"] = cfg["continuous_covariate_keys"]
-    if cfg.get("categorical_covariate_keys"):
+    if "categorical_covariate_keys" in cfg and cfg["categorical_covariate_keys"] is not None:
         covariate_kwargs["categorical_covariate_keys"] = cfg["categorical_covariate_keys"]
 
     logger.info(f"Setting up anndata for scVI with covariates: {covariate_kwargs}")
@@ -357,6 +362,7 @@ def run_tuning(config_path: Path):
         logger.info(f"Trial {trial}/{n_trials} | elapsed={elapsed_h:.2f}h | params={params}")
 
         trial_t0 = time.time()
+        validation_size = max(0.0, 1.0 - train_size)
         try:
             model = SCVI(
                 adata,
@@ -370,7 +376,7 @@ def run_tuning(config_path: Path):
                 "max_epochs": max_epochs,
                 "early_stopping": early_stopping,
                 "train_size": train_size,
-                "validation_size": 1.0 - train_size,
+                "validation_size": validation_size,
                 "batch_size": params["batch_size"],
                 "enable_progress_bar": True,
                 "plan_kwargs": {
@@ -386,6 +392,7 @@ def run_tuning(config_path: Path):
             adata.obsm["X_scVI"] = model.get_latent_representation()
             metrics = _evaluate_trial(
                 adata=adata,
+                latent_key="X_scVI",
                 batch_key=batch_key,
                 age_key=age_key,
                 cell_type_key=cell_type_key,
@@ -393,7 +400,9 @@ def run_tuning(config_path: Path):
             )
             status = "ok"
             error = ""
-        except Exception as e:  # keep running remaining trials
+        except KeyboardInterrupt:
+            raise
+        except (RuntimeError, FloatingPointError, torch.cuda.OutOfMemoryError) as e:
             status = "failed"
             error = repr(e)
             metrics = {

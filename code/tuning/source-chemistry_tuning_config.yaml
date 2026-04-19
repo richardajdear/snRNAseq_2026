@@ -37,9 +37,10 @@ training:
 search_space:
   n_latent: [20, 30, 40, 50]
   n_hidden: [64, 128, 256]
-  n_layers: [1, 2, 3]
+  n_layers: [1, 2]
   dropout_rate: [0.0, 0.1, 0.2]
-  gene_likelihood: [nb, zinb]
+  # "nb" is typically faster/more stable; include "zinb" only if zero inflation helps integration.
+  gene_likelihood: ["nb", "zinb"]
   batch_size: [256, 512, 1024]
   lr: [0.001, 0.0005, 0.0002]
   weight_decay: [0.000001, 0.00001, 0.0001]
