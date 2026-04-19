@@ -116,6 +116,26 @@ sbatch code/pipeline/slurm/step4_pseudobulk.sh
 - `integrated.h5ad` — scVI/scANVI corrected, with `cell_type_aligned` labels
 - `pseudobulk/` — Donor-level aggregates
 
+### Overnight scVI hyperparameter tuning (source-chemistry)
+
+Use the dedicated tuning module under `code/tuning/`:
+
+```bash
+# Submit 12h GPU tuning job
+sbatch code/tuning/slurm/tune_scvi_source_chemistry.sh
+
+# Optional: override config path
+sbatch --export=ALL,CONFIG=code/tuning/source-chemistry_tuning_config.yaml \
+  code/tuning/slurm/tune_scvi_source_chemistry.sh
+```
+
+The tuner writes:
+- `trial_results.csv` — one row per trial with objective + metrics
+- `best_hyperparameters.yaml` — best scVI settings to copy into pipeline config
+- `tuning.log` — detailed training/metric log
+
+The objective is age-aware: batch mixing is evaluated separately by age bins, with prenatal bins upweighted.
+
 ---
 
 ## Running Analysis Notebooks

@@ -1,0 +1,56 @@
+# scVI hyperparameter tuning config for source-chemistry integration.
+# Run with: PYTHONPATH=code python -m tuning.tune_scvi_batch --config code/tuning/source-chemistry_tuning_config.yaml
+
+# Input from pipeline step1/step2 preparation.
+input_h5ad: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/VelWangPsychAD_100k_source-chemistry/combined.h5ad
+output_dir: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/VelWangPsychAD_100k_source-chemistry/scvi_tuning
+
+batch_key: source-chemistry
+age_key: age_years
+cell_type_key: cell_class
+counts_layer: counts
+
+# Match production covariates.
+continuous_covariate_keys: [age_log_pc]
+categorical_covariate_keys: [sex]
+
+hvg:
+  n_top_genes: 10000
+  hvg_flavor: pearson_residuals
+  hvg_batch_key: source-chemistry
+
+# Keep trial runtime bounded to fit in an overnight 12h GPU job.
+tuning:
+  random_seed: 42
+  n_trials: 14
+  max_hours: 12.0
+  max_cells: 120000
+  num_workers: 4
+
+training:
+  max_epochs_scvi: 120
+  early_stopping: true
+  early_stopping_patience: 15
+  train_size: 0.9
+
+# Search space sampled per trial.
+search_space:
+  n_latent: [20, 30, 40, 50]
+  n_hidden: [64, 128, 256]
+  n_layers: [1, 2, 3]
+  dropout_rate: [0.0, 0.1, 0.2]
+  gene_likelihood: [nb, zinb]
+  batch_size: [256, 512, 1024]
+  lr: [0.001, 0.0005, 0.0002]
+  weight_decay: [0.000001, 0.00001, 0.0001]
+
+# Objective = weighted age-bin batch mixing + cell-type silhouette preservation.
+# Prenatal bins are upweighted because this is currently least integrated.
+metric:
+  age_bin_edges: [-1.0, -0.75, -0.5, -0.25, 0.0, 1.0, 5.0, 12.0, 20.0, 40.0, 90.0]
+  prenatal_weight: 2.0
+  k_neighbors: 20
+  min_cells_per_bin: 200
+  min_cells_per_group: 75
+  silhouette_weight: 0.2
+  max_silhouette_cells: 20000
