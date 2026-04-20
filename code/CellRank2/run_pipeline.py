@@ -3,16 +3,16 @@ Main orchestration script for the CellRank 2 lineage tracing pipeline.
 
 Usage (from project root):
     # With YAML config:
-    PYTHONPATH=code python -m CellRank2.run_pipeline --config code/CellRank2/default_config.yaml
+    PYTHONPATH=code python -m CellRank2.run_pipeline --config code/CellRank2/config.yaml
 
     # With CLI overrides:
     PYTHONPATH=code python -m CellRank2.run_pipeline \\
-        --config code/CellRank2/default_config.yaml \\
+        --config code/CellRank2/config.yaml \\
         --n_macrostates 10
 
     # Run specific steps only (e.g. re-plot without re-computing):
     PYTHONPATH=code python -m CellRank2.run_pipeline \\
-        --config code/CellRank2/default_config.yaml \\
+        --config code/CellRank2/config.yaml \\
         --steps save
 
 Pipeline steps:
@@ -42,7 +42,7 @@ from .estimator import (
 from .kernels import bin_ages, build_kernels, ensure_neighbors, run_moscot_ot
 from .plots import (
     plot_coarse_transition_matrix,
-    plot_excitatory_l23_fate_umap,
+    plot_excitatory_l23_pseudotime,
     plot_fate_probabilities,
     plot_macrostates,
     plot_obs_vars,
@@ -94,6 +94,29 @@ def run(config: CellRankConfig) -> ad.AnnData:
         )
     logger.info(f"  {adata.n_obs} cells × {adata.n_vars} genes")
     log_memory("After loading", logger)
+
+    # ── CELL TYPE PRE-FILTER ───────────────────────────────────────────────────
+    if config.cell_type_filter_pattern:
+        if config.cell_type_key not in adata.obs.columns:
+            raise KeyError(
+                f"cell_type_key '{config.cell_type_key}' not found in adata.obs. "
+                "Cannot apply cell_type_filter_pattern."
+            )
+        mask = adata.obs[config.cell_type_key].astype(str).str.contains(
+            config.cell_type_filter_pattern, case=False, na=False, regex=True
+        )
+        n_before = adata.n_obs
+        adata = adata[mask].copy()
+        logger.info(
+            f"Cell-type filter '{config.cell_type_filter_pattern}': "
+            f"{n_before} → {adata.n_obs} cells retained "
+            f"({100 * adata.n_obs / n_before:.1f}%)"
+        )
+        if adata.n_obs == 0:
+            raise ValueError(
+                f"Cell-type filter '{config.cell_type_filter_pattern}' removed all cells."
+            )
+        log_memory("After cell-type filter", logger)
 
     # ── FILTER TO CELLS WITH VALID AGE BINS ───────────────────────────────────
     # Bin ages now (before neighbors) so the kNN graph is computed only on
@@ -192,10 +215,21 @@ def run(config: CellRankConfig) -> ad.AnnData:
 
         if config.save_plots:
             plot_fate_probabilities(adata, g, config, logger)
-            plot_excitatory_l23_fate_umap(
-                adata, g, config, logger,
+            # Also plot pseudotime as a standard obs-var UMAP if the key was written
+            if config.pseudotime_key and config.pseudotime_key in adata.obs.columns:
+                from .plots import plot_umap_colored
+                plot_umap_colored(
+                    adata,
+                    color_by=config.pseudotime_key,
+                    umap_key=config.umap_key,
+                    output_path=str(config.plots_dir / f"umap_{config.pseudotime_key}.png"),
+                    title=f"L2-3 pseudotime (all cells)",
+                    point_size=config.point_size,
+                    logger=logger,
+                )
+            plot_excitatory_l23_pseudotime(
+                adata, config, logger,
                 excitatory_pattern=config.excitatory_cell_type_pattern,
-                l23_pattern=config.l23_lineage_pattern,
             )
 
         # Lineage subsetting

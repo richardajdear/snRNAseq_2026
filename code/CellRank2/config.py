@@ -13,6 +13,11 @@ class CellRankConfig:
     input_h5ad: str = ""
     output_dir: str = "cellrank_output/"
 
+    # -- Cell type pre-filtering --
+    # Applied before all CellRank steps. Subset to matching cell types
+    # (case-insensitive regex on cell_type_key). Leave empty to use all cells.
+    cell_type_filter_pattern: str = ""
+
     # -- Data keys --
     latent_key: str = "X_scANVI"       # obsm key for the corrected latent space
     time_key: str = "age_years"         # obs key for donor chronological age
@@ -32,6 +37,8 @@ class CellRankConfig:
     age_bin_key: str = "age_bin"        # new obs column written by the pipeline
     ot_epsilon: float = 0.05            # regularisation strength for OT
     ot_max_iterations: int = 1000
+    # "auto" resolves to "cuda" when a GPU is available, otherwise "cpu".
+    ot_device: str = "auto"
 
     # -- Kernel combination --
     # Combined kernel = rtk_weight * RealTimeKernel + (1-rtk_weight) * ConnectivityKernel
@@ -54,6 +61,12 @@ class CellRankConfig:
     compute_drivers: bool = False       # gene-level lineage drivers (slow)
     driver_cluster_key: str = "cell_type_aligned"
 
+    # -- Pseudotime --
+    # After fate_probs, the L2-3 fate probability (summed over all matching
+    # terminal states) is normalised to [0, 1] and written to this obs key.
+    # Set to "" to skip.
+    pseudotime_key: str = "pseudotime_l23"
+
     # -- Lineage subsetting --
     # After computing fate probabilities, cells with fate_prob >= threshold
     # towards any of the target lineages are retained.
@@ -67,9 +80,8 @@ class CellRankConfig:
     )
     umap_key: str = "X_umap_scanvi"    # obsm key for UMAP (used in plots)
     point_size: float = 1.0
-    # Patterns used by plot_excitatory_l23_fate_umap.
     # excitatory_cell_type_pattern: case-insensitive regex matched against
-    #   cell_type_key to identify excitatory neurons (e.g. "EN-" or "excit|EN-").
+    #   cell_type_key to identify excitatory neurons.
     # l23_lineage_pattern: case-insensitive substring matched against
     #   terminal-state names to pick the L2-3 lineage.
     excitatory_cell_type_pattern: str = "excit|EN-"

@@ -180,12 +180,40 @@ def compute_fate_probabilities(
     logger: logging.Logger,
 ) -> None:
     """Compute per-cell fate probabilities towards terminal states."""
+    import numpy as np
+
     with Timer("compute_fate_probabilities", logger):
         g.compute_fate_probabilities()
 
-    if g.fate_probabilities is not None:
-        lineages = list(g.fate_probabilities.names)
-        logger.info(f"  Fate probabilities computed for lineages: {lineages}")
+    if g.fate_probabilities is None:
+        log_memory("After compute_fate_probabilities", logger)
+        return
+
+    lineages = list(g.fate_probabilities.names)
+    logger.info(f"  Fate probabilities computed for lineages: {lineages}")
+
+    # Write L2-3 pseudotime: sum of fate probs for all L2-3-matching terminal
+    # states, normalised to [0, 1].  Higher value = more committed to L2-3 fate.
+    if config.pseudotime_key:
+        l23_indices = [
+            i for i, name in enumerate(lineages)
+            if config.l23_lineage_pattern.lower() in name.lower()
+        ]
+        if l23_indices:
+            probs = g.fate_probabilities.X
+            raw = probs[:, l23_indices].sum(axis=1)
+            mn, mx = raw.min(), raw.max()
+            g.adata.obs[config.pseudotime_key] = (raw - mn) / (mx - mn + 1e-9)
+            logger.info(
+                f"  Pseudotime '{config.pseudotime_key}' written from L2-3 "
+                f"terminal states: {[lineages[i] for i in l23_indices]}"
+            )
+        else:
+            logger.warning(
+                f"  No terminal states matched l23_lineage_pattern "
+                f"'{config.l23_lineage_pattern}' in {lineages}; "
+                f"'{config.pseudotime_key}' not written."
+            )
 
     log_memory("After compute_fate_probabilities", logger)
 

@@ -50,11 +50,42 @@ def ensure_neighbors(
 
     uns_key = config.neighbors_key
     if uns_key in adata.uns and not config.overwrite:
-        logger.info(
-            f"  Neighbour graph '{uns_key}' already present, skipping "
-            "(set overwrite=True to recompute)."
+        neigh_meta = adata.uns.get(uns_key, {})
+        conn_key = neigh_meta.get("connectivities_key", f"{uns_key}_connectivities")
+        dist_key = neigh_meta.get("distances_key", f"{uns_key}_distances")
+
+        stale_reason = None
+        if conn_key not in adata.obsp:
+            stale_reason = f"missing connectivities '{conn_key}'"
+        else:
+            conn = adata.obsp[conn_key]
+            if conn.shape != (adata.n_obs, adata.n_obs):
+                stale_reason = (
+                    f"connectivity matrix shape {conn.shape} does not match "
+                    f"current cells ({adata.n_obs}, {adata.n_obs})"
+                )
+            else:
+                row_sums = np.asarray(conn.sum(axis=1)).ravel()
+                n_zero = int(np.sum(row_sums <= 0))
+                if n_zero > 0:
+                    stale_reason = (
+                        f"{n_zero} cells have zero connectivity degree"
+                    )
+
+        if stale_reason is None:
+            logger.info(
+                f"  Neighbour graph '{uns_key}' already present, skipping "
+                "(set overwrite=True to recompute)."
+            )
+            return
+
+        logger.warning(
+            f"  Existing neighbour graph '{uns_key}' is stale/invalid "
+            f"({stale_reason}); recomputing."
         )
-        return
+        adata.uns.pop(uns_key, None)
+        adata.obsp.pop(conn_key, None)
+        adata.obsp.pop(dist_key, None)
 
     with Timer(
         f"Computing kNN graph (n_neighbors={config.n_neighbors}) "
@@ -151,6 +182,16 @@ def run_moscot_ot(
         + ", ".join(str(t) for t in sorted_times)
     )
 
+    # Resolve device: "auto" → "cuda" if available, else "cpu"
+    device = config.ot_device
+    if device == "auto":
+        try:
+            import torch
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+        except ImportError:
+            device = "cpu"
+    logger.info(f"  moscot OT device: {device}")
+
     with Timer("moscot TemporalProblem (prepare + solve)", logger):
         problem = mp.TemporalProblem(adata)
         problem = problem.prepare(
@@ -159,6 +200,7 @@ def run_moscot_ot(
         problem = problem.solve(
             epsilon=config.ot_epsilon,
             max_iterations=config.ot_max_iterations,
+            device=device,
         )
 
     logger.info("  moscot OT solved successfully.")

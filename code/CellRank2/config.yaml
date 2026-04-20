@@ -1,12 +1,23 @@
-# CellRank 2 Pipeline — VelWangPsychAD_100k_pearson (full dataset)
+# CellRank 2 Pipeline — main config
 #
-# Run via SLURM from the project root:
+# Dataset: VelWangPsychAD_100k (source-chemistry normalisation)
+#   300 000 cells  ×  15 540 genes
+#   Ages: -0.47 (GW ~14) to 89 years; ~123k prenatal cells
+#
+# Submit:
 #   cd /home/rajd2/rds/hpc-work/snRNAseq_2026
-#   sbatch code/CellRank2/slurm_submit_pearson.sh
+#   sbatch code/CellRank2/slurm/run_full.sh    # full run
+#   sbatch code/CellRank2/slurm/run_test.sh    # 5k-cell smoke test
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
-input_h5ad: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/VelWangPsychAD_100k_pearson/scvi_output/integrated.h5ad
-output_dir: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/VelWangPsychAD_100k_pearson/cellrank_output
+input_h5ad: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/VelWangPsychAD_100k_source-chemistry/scvi_output/integrated.h5ad
+output_dir: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/VelWangPsychAD_100k_source-chemistry/cellrank_output
+
+# ── Cell type pre-filter ──────────────────────────────────────────────────────
+# Subset to excitatory neurons before all CellRank steps.
+# Matches: EN-L2_3-IT, EN-L4-IT, EN-L5-IT, EN-L6-IT, EN-L6b, EN-L6-CT,
+#          EN-L5_6-NP, EN-Newborn, EN-IT-Immature, EN-Non-IT-Immature
+cell_type_filter_pattern: "EN-"
 
 # ── Data keys ─────────────────────────────────────────────────────────────────
 latent_key: X_scANVI
@@ -19,18 +30,26 @@ n_neighbors: 30
 neighbors_key: neighbors_scanvi
 
 # ── Age binning ───────────────────────────────────────────────────────────────
-age_bin_edges: [0.0, 0.5, 2.0, 10.0, 20.0, 40.0, 100.0]
+# 8 bins spanning prenatal (~GW14) through older adult.
+# Prenatal is split into two bins to capture early vs. late neurogenesis:
+#   [-0.50, -0.30)  early prenatal  (GW ~14-26)
+#   [-0.30,  0.00)  late prenatal   (GW ~26-40)
+# Bin edges in years (0 = birth; negative = gestational).
+age_bin_edges: [-0.50, -0.30, 0.00, 0.50, 2.00, 8.00, 20.00, 50.00, 90.00]
 age_bin_key: age_bin
 
 # ── Optimal transport ─────────────────────────────────────────────────────────
 ot_epsilon: 0.05
 ot_max_iterations: 2000
+ot_device: auto         # "cuda" if GPU available, else "cpu"
 
 # ── Kernel combination ────────────────────────────────────────────────────────
-rtk_weight: 0.8
+rtk_weight: 0.8         # RealTimeKernel (temporal) weight; CK weight = 0.2
 
 # ── GPCCA ─────────────────────────────────────────────────────────────────────
-n_macrostates: 10
+# Expected EN terminal states: EN-L2_3-IT, EN-L4-IT, EN-L5-IT, EN-L6-IT,
+#   EN-L6b, EN-L6-CT, EN-L5_6-NP, EN-Non-IT-Immature (~8-10 states).
+n_macrostates: 12
 use_minchi: false
 cluster_key: cell_type_aligned
 terminal_states: []
@@ -41,6 +60,12 @@ compute_drivers: false
 lineage_targets: []
 fate_prob_threshold: 0.1
 
+# ── Pseudotime ────────────────────────────────────────────────────────────────
+# Written to adata.obs after fate_probs: L2-3 fate probability (normalised
+# to [0,1]) as a continuous maturational pseudotime index.
+pseudotime_key: pseudotime_l23
+l23_lineage_pattern: "L2_3"        # matches "EN-L2_3-IT"
+
 # ── Plots ─────────────────────────────────────────────────────────────────────
 save_plots: true
 plot_color_vars:
@@ -49,6 +74,7 @@ plot_color_vars:
   - source
 umap_key: X_umap_scanvi
 point_size: 0.5
+excitatory_cell_type_pattern: "EN-"
 
 # ── Pipeline control ──────────────────────────────────────────────────────────
 steps:
