@@ -1,0 +1,47 @@
+# Dry-run config for local verification only — NOT for production use.
+# Runs 2 trials with a tiny cell subset to confirm end-to-end correctness.
+input_h5ad: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/VelWangPsychAD_100k_source-chemistry/combined.h5ad
+output_dir: /home/rajd2/rds/hpc-work/snRNAseq_2026/test_outputs/tuning_dryrun
+
+batch_key: source-chemistry
+age_key: age_years
+cell_type_key: cell_class
+counts_layer: counts
+
+continuous_covariate_keys: [age_log_pc]
+categorical_covariate_keys: [sex]
+
+hvg:
+  n_top_genes: 2000
+  hvg_flavor: pearson_residuals
+
+tuning:
+  random_seed: 42
+  n_trials: 2
+  max_hours: 0.1
+  max_cells: 5000
+  num_workers: 2
+  scanvi_top_k: 2
+
+training:
+  max_epochs_scvi: 10
+  early_stopping: true
+  early_stopping_patience: 5
+  train_size: 0.9
+  max_epochs_scanvi: 5
+
+search_space:
+  n_latent: [10, 20]
+  n_hidden: [64, 128]
+  n_layers: [2, 3]
+  gene_likelihood: ["nb", "zinb"]
+  batch_size: [256]
+
+metric:
+  age_bin_edges: [-1.0, -0.5, -0.38, -0.27, -0.15, -0.05, 0.0, 1.0, 5.0, 12.0, 20.0, 40.0, 90.0]
+  prenatal_weight: 2.0
+  k_neighbors: 10
+  min_cells_per_bin: 10
+  min_cells_per_group: 10
+  silhouette_weight: 0.2
+  max_silhouette_cells_per_bin: 500

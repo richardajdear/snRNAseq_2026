@@ -1,7 +1,9 @@
-# scVI hyperparameter tuning config for source-chemistry integration.
+# scVI hyperparameter tuning config — source-chemistry batch correction.
 # Run with: PYTHONPATH=code python -m tuning.tune_scvi_batch --config code/tuning/source-chemistry_tuning_config.yaml
+#
+# If combined.h5ad has been deleted by the pipeline, the script automatically
+# rebuilds it from scvi_output/integrated.h5ad using backed reads (layers['counts']).
 
-# Input from pipeline step1/step2 preparation.
 input_h5ad: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/VelWangPsychAD_100k_source-chemistry/combined.h5ad
 output_dir: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/VelWangPsychAD_100k_source-chemistry/scvi_tuning
 
@@ -10,48 +12,68 @@ age_key: age_years
 cell_type_key: cell_class
 counts_layer: counts
 
-# Match production covariates.
+# Match production covariates exactly.
 continuous_covariate_keys: [age_log_pc]
 categorical_covariate_keys: [sex]
 
 hvg:
   n_top_genes: 10000
   hvg_flavor: pearson_residuals
-  hvg_batch_key: source-chemistry
+  # hvg_batch_key is ignored for pearson_residuals (not supported by scanpy).
 
-# Keep trial runtime bounded to fit in an overnight 12h GPU job.
 tuning:
   random_seed: 42
-  n_trials: 14
-  max_hours: 12.0
-  max_cells: 120000
+  n_trials: 24           # time-budget check stops early if max_hours is hit
+  max_hours: 11.0        # 1h buffer inside the 12h SLURM wall
+  max_cells: 120000      # stratified subsample; ~40% of full 300k dataset
   num_workers: 4
+  scanvi_top_k: 3        # evaluate top-3 scVI trials with scANVI post-loop
 
 training:
-  max_epochs_scvi: 120
+  # Use the production epoch horizon so tuned architecture is valid at full scale.
+  # NOTE: max_epochs_scvi from this file is NOT copied into best_hyperparameters.yaml
+  # to avoid accidentally overriding the production value when the user applies results.
+  max_epochs_scvi: 400
   early_stopping: true
-  early_stopping_patience: 15
+  early_stopping_patience: 20
   train_size: 0.9
+  max_epochs_scanvi: 50   # short scANVI fine-tune for top-trial comparison
 
-# Search space sampled per trial.
+# Search space: model architecture + gene likelihood only.
+# lr / weight_decay / dropout_rate use scVI defaults — they are secondary to
+# architecture for batch integration quality and do not plumb back to production.
+#
+# Run 1 (14 trials) showed n_layers=1 is consistently worse than n_layers=2.
+# This run explores n_layers=[2,3,4] and a wider n_latent/n_hidden range to
+# properly estimate effects that were confounded by n_layers in run 1.
+#
+# Space size: 6 × 4 × 3 × 2 × 2 = 288 combinations
+# At ~20-25 min/trial and n_trials=24 + max_hours=11: ~20-22 trials expected
 search_space:
-  n_latent: [20, 30, 40, 50]
-  n_hidden: [64, 128, 256]
-  n_layers: [1, 2]
-  dropout_rate: [0.0, 0.1, 0.2]
-  # "nb" is typically faster/more stable; include "zinb" only if zero inflation helps integration.
+  n_latent: [20, 30, 40, 50, 60, 80]
+  n_hidden: [64, 128, 256, 512]
+  n_layers: [2, 3, 4]
   gene_likelihood: ["nb", "zinb"]
-  batch_size: [256, 512, 1024]
-  lr: [0.001, 0.0005, 0.0002]
-  weight_decay: [0.000001, 0.00001, 0.0001]
+  batch_size: [256, 512]
 
-# Objective = weighted age-bin batch mixing + cell-type silhouette preservation.
-# Prenatal bins are upweighted because this is currently least integrated.
+# Objective = weighted age-bin batch mixing (80%) + per-age-bin cell-type silhouette (20%).
+# Prenatal bins are upweighted because this is currently the least integrated region.
+# Entropy is normalised by log(n_batches_global) so prenatal bins with fewer batches
+# present are NOT artificially inflated relative to postnatal bins.
+#
+# Prenatal bin edges are set finer than run 1 (~5-7 gestational week windows) to
+# co-locate Wang donors (discrete GW ages) with Velmeshev donors at similar ages.
+# Run the job once with the prenatal age distribution log (printed at startup) to
+# verify that Wang and Velmeshev cells share each bin; adjust edges if they don't.
+#
+# GW↔age_years mapping (age = (GW - 40) / 52, negative = before birth):
+#   GW14 ≈ -0.50    GW20 ≈ -0.38    GW26 ≈ -0.27
+#   GW33 ≈ -0.13    GW37 ≈ -0.06    GW40 =  0.00
 metric:
-  age_bin_edges: [-1.0, -0.75, -0.5, -0.25, 0.0, 1.0, 5.0, 12.0, 20.0, 40.0, 90.0]
+  age_bin_edges: [-1.0, -0.5, -0.38, -0.27, -0.15, -0.05, 0.0, 1.0, 5.0, 12.0, 20.0, 40.0, 90.0]
   prenatal_weight: 2.0
   k_neighbors: 20
-  min_cells_per_bin: 200
+  min_cells_per_bin: 100      # lowered from 200 to capture finer prenatal bins
   min_cells_per_group: 75
   silhouette_weight: 0.2
-  max_silhouette_cells: 20000
+  max_silhouette_cells_per_bin: 5000   # per-bin cap; avoids global silhouette age artefact

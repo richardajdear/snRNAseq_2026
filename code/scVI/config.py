@@ -32,6 +32,7 @@ class PipelineConfig:
     n_latent: int = 30
     n_hidden: int = 128
     n_layers: int = 2
+    gene_likelihood: str = "zinb"  # "nb" or "zinb"; tunable via scvi_tuning/best_hyperparameters.yaml
 
     # -- Training --
     max_epochs_scvi: int = 400

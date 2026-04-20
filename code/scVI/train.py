@@ -75,10 +75,11 @@ def train_scvi(
         n_hidden=config.n_hidden,
         n_latent=config.n_latent,
         n_layers=config.n_layers,
+        gene_likelihood=config.gene_likelihood,
     )
     logger.info(
-        f"scVI model: n_latent={config.n_latent}, "
-        f"n_hidden={config.n_hidden}, n_layers={config.n_layers}"
+        f"scVI model: n_latent={config.n_latent}, n_hidden={config.n_hidden}, "
+        f"n_layers={config.n_layers}, gene_likelihood={config.gene_likelihood}"
     )
 
     accel = _get_accelerator(device_info)
