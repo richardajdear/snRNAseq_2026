@@ -52,8 +52,15 @@ class CellRankConfig:
     cluster_key: str = "cell_type_aligned"   # for naming macrostates
 
     # -- Terminal / initial state selection --
-    # Provide explicit terminal state names (matching cluster labels) when known.
-    # Leave empty to rely on automatic selection after compute_macrostates.
+    # Option 1 (recommended): provide a regex pattern matching macrostate names
+    # that should be treated as INITIAL (progenitor) states.  All other
+    # macrostates are automatically assigned as terminal states.  Matching is
+    # case-insensitive.  Leave empty to fall through to Option 2 or 3.
+    immature_state_pattern: str = "Immature|Newborn"
+
+    # Option 2: provide explicit terminal/initial state names.  Names must match
+    # what GPCCA assigns (visible in pipeline.log after compute_macrostates).
+    # Leave empty to fall through to Option 3.
     terminal_states: List[str] = field(default_factory=list)
     initial_states: List[str] = field(default_factory=list)
 
@@ -64,8 +71,15 @@ class CellRankConfig:
     # -- Pseudotime --
     # After fate_probs, the L2-3 fate probability (summed over all matching
     # terminal states) is normalised to [0, 1] and written to this obs key.
+    # This is a fate *commitment* score, not a trajectory position.
     # Set to "" to skip.
     pseudotime_key: str = "pseudotime_l23"
+
+    # Absorption-time pseudotime: mean first-passage time from each cell to any
+    # terminal state (via GPCCA).  This is the Monocle3-equivalent trajectory
+    # ordering — low near progenitors, high near mature neurons.
+    # Set to "" to skip.
+    absorption_pseudotime_key: str = "pseudotime_absorption"
 
     # -- Lineage subsetting --
     # After computing fate probabilities, cells with fate_prob >= threshold

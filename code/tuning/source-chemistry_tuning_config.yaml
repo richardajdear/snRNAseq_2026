@@ -43,16 +43,17 @@ training:
 # lr / weight_decay / dropout_rate use scVI defaults — they are secondary to
 # architecture for batch integration quality and do not plumb back to production.
 #
-# Run 1 (14 trials) showed n_layers=1 is consistently worse than n_layers=2.
-# This run explores n_layers=[2,3,4] and a wider n_latent/n_hidden range to
-# properly estimate effects that were confounded by n_layers in run 1.
+# Run 2 (24 trials) showed n_layers=4 > n_layers=3 > n_layers=2 (+0.019/layer,
+# no diminishing returns), and within n_layers=4, narrower n_hidden is better
+# (n_hidden=64 > 128 > 512).  n_hidden=512 and n_latent=80 dropped; n_hidden=32
+# and n_layers=5 added to probe whether the narrow+deep trend continues.
 #
-# Space size: 6 × 4 × 3 × 2 × 2 = 288 combinations
-# At ~20-25 min/trial and n_trials=24 + max_hours=11: ~20-22 trials expected
+# Space size: 2 × 3 × 5 × 2 × 2 = 120 combinations
+# At ~25 min/trial and n_trials=24 + max_hours=11: ~24 trials expected
 search_space:
-  n_latent: [20, 30, 40, 50, 60, 80]
-  n_hidden: [64, 128, 256, 512]
-  n_layers: [2, 3, 4]
+  n_latent: [20, 30, 40, 50, 60]
+  n_hidden: [32, 64, 128]
+  n_layers: [4, 5]
   gene_likelihood: ["nb", "zinb"]
   batch_size: [256, 512]
 

@@ -77,6 +77,47 @@ def compute_macrostates(
     return g
 
 
+def _assign_states_by_pattern(g, pattern: str, logger: logging.Logger) -> None:
+    """Classify macrostates into initial/terminal using a regex pattern.
+
+    Macrostates whose names match *pattern* (case-insensitive) become initial
+    states (progenitors); all others become terminal states (mature cell types).
+    This bypasses GPCCA's stability-based auto-prediction, which fails when the
+    transition matrix lacks strong absorbing states.
+    """
+    import re
+
+    all_states = list(g.macrostates.cat.categories)
+    rx = re.compile(pattern, re.IGNORECASE)
+    initial = [s for s in all_states if rx.search(s)]
+    terminal = [s for s in all_states if not rx.search(s)]
+
+    logger.info(
+        f"  Pattern '{pattern}' classified macrostates:"
+    )
+    logger.info(f"    Initial  (progenitor): {initial}")
+    logger.info(f"    Terminal (mature):     {terminal}")
+
+    if not terminal:
+        logger.warning(
+            "  Pattern matched ALL macrostates as initial — no terminal states. "
+            "Falling back to auto-prediction."
+        )
+        _predict_terminal_states_robust(g, logger)
+        return
+
+    if not initial:
+        logger.warning(
+            "  Pattern matched NO macrostates as initial — "
+            "all states will be terminal. Falling back to auto-prediction."
+        )
+        _predict_terminal_states_robust(g, logger)
+        return
+
+    g.set_terminal_states(states=terminal)
+    g.set_initial_states(states=initial)
+
+
 def _predict_terminal_states_robust(g, logger: logging.Logger) -> None:
     """Try several methods to auto-select terminal states, falling back gracefully.
 
@@ -135,12 +176,29 @@ def set_terminal_and_initial_states(
 
     Same logic applies to ``config.initial_states``.
     """
-    # Terminal states
-    if config.terminal_states:
+    # Priority 1: explicit lists override everything
+    if config.terminal_states or config.initial_states:
+        if config.terminal_states:
+            logger.info(
+                f"Setting terminal states explicitly: {config.terminal_states}"
+            )
+            g.set_terminal_states(states=config.terminal_states)
+        if config.initial_states:
+            logger.info(
+                f"Setting initial states explicitly: {config.initial_states}"
+            )
+            g.set_initial_states(states=config.initial_states)
+
+    # Priority 2: pattern-based classification (recommended default)
+    elif config.immature_state_pattern:
         logger.info(
-            f"Setting terminal states explicitly: {config.terminal_states}"
+            f"Assigning states by immature_state_pattern: "
+            f"'{config.immature_state_pattern}'"
         )
-        g.set_terminal_states(states=config.terminal_states)
+        with Timer("assign_states_by_pattern", logger):
+            _assign_states_by_pattern(g, config.immature_state_pattern, logger)
+
+    # Priority 3: fully automatic (fallback — unreliable for this dataset)
     else:
         logger.info("Auto-predicting terminal states...")
         with Timer("predict_terminal_states", logger):
@@ -150,14 +208,6 @@ def set_terminal_and_initial_states(
                 f"  Terminal states: "
                 f"{sorted(g.terminal_states.cat.categories.tolist())}"
             )
-
-    # Initial states
-    if config.initial_states:
-        logger.info(
-            f"Setting initial states explicitly: {config.initial_states}"
-        )
-        g.set_initial_states(states=config.initial_states)
-    else:
         logger.info("Auto-predicting initial states...")
         with Timer("predict_initial_states", logger):
             try:
@@ -204,6 +254,7 @@ def compute_fate_probabilities(
             raw = probs[:, l23_indices].sum(axis=1)
             mn, mx = raw.min(), raw.max()
             g.adata.obs[config.pseudotime_key] = (raw - mn) / (mx - mn + 1e-9)
+            g.adata.obs["fate_prob_l23"] = raw
             logger.info(
                 f"  Pseudotime '{config.pseudotime_key}' written from L2-3 "
                 f"terminal states: {[lineages[i] for i in l23_indices]}"
@@ -216,6 +267,74 @@ def compute_fate_probabilities(
             )
 
     log_memory("After compute_fate_probabilities", logger)
+
+
+def compute_absorption_pseudotime(
+    g,
+    config: CellRankConfig,
+    logger: logging.Logger,
+) -> None:
+    """Compute absorption-time pseudotime via GPCCA mean first-passage times.
+
+    This is the Monocle3-equivalent trajectory ordering: each cell is assigned
+    the expected number of Markov chain steps until it reaches any terminal
+    state.  Values are high near progenitors (many steps to maturity) and low
+    near mature neurons (already at or near a terminal state).  We invert and
+    normalise to [0, 1] so that 0 = progenitor, 1 = fully mature.
+    """
+    import numpy as np
+
+    if not config.absorption_pseudotime_key:
+        return
+
+    if g.terminal_states is None:
+        logger.warning(
+            "  No terminal states set; skipping absorption-time pseudotime."
+        )
+        return
+
+    try:
+        with Timer("compute_absorption_times", logger):
+            g.compute_absorption_times()
+
+        at = g.absorption_times
+        if at is None:
+            logger.warning("  absorption_times is None after computation; skipping.")
+            return
+
+        # absorption_times is a DataFrame (cells × terminal states); take the
+        # row-wise mean across all terminal states.
+        import pandas as pd
+        if isinstance(at, pd.DataFrame):
+            mean_at = at.mean(axis=1).values
+        else:
+            mean_at = np.asarray(at).mean(axis=1)
+
+        # Invert so high = mature (far from progenitor → short absorption time
+        # in raw terms, but conceptually "far along the trajectory").
+        # Raw absorption time is *high* for progenitors, *low* for mature cells.
+        # We invert: pseudotime = (max - raw) / (max - min) so 0 = progenitor,
+        # 1 = mature.
+        mn, mx = float(np.nanmin(mean_at)), float(np.nanmax(mean_at))
+        if mx - mn < 1e-9:
+            logger.warning("  Absorption times have zero range; pseudotime not written.")
+            return
+
+        pseudotime = (mx - mean_at) / (mx - mn)
+        g.adata.obs[config.absorption_pseudotime_key] = pseudotime
+        logger.info(
+            f"  Absorption-time pseudotime written to "
+            f"'{config.absorption_pseudotime_key}' "
+            f"(range [{pseudotime.min():.3f}, {pseudotime.max():.3f}])."
+        )
+
+    except (AttributeError, NotImplementedError) as exc:
+        logger.warning(
+            f"  compute_absorption_times not available in this CellRank version "
+            f"({exc}); skipping absorption-time pseudotime."
+        )
+    except Exception as exc:
+        logger.warning(f"  compute_absorption_times failed unexpectedly: {exc}")
 
 
 def compute_lineage_drivers(

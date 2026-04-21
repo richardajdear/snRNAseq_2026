@@ -33,6 +33,7 @@ import numpy as np
 from .config import CellRankConfig
 from .estimator import (
     build_gpcca,
+    compute_absorption_pseudotime,
     compute_fate_probabilities,
     compute_lineage_drivers,
     compute_macrostates,
@@ -42,7 +43,7 @@ from .estimator import (
 from .kernels import bin_ages, build_kernels, ensure_neighbors, run_moscot_ot
 from .plots import (
     plot_coarse_transition_matrix,
-    plot_excitatory_l23_pseudotime,
+    plot_excitatory_l23_plots,
     plot_fate_probabilities,
     plot_macrostates,
     plot_obs_vars,
@@ -208,6 +209,7 @@ def run(config: CellRankConfig) -> ad.AnnData:
         logger.info("─" * 40)
         logger.info("STEP: fate_probs")
         compute_fate_probabilities(g, config, logger)
+        compute_absorption_pseudotime(g, config, logger)
 
         if config.compute_drivers:
             logger.info("Computing lineage drivers (this may take a while)...")
@@ -215,22 +217,7 @@ def run(config: CellRankConfig) -> ad.AnnData:
 
         if config.save_plots:
             plot_fate_probabilities(adata, g, config, logger)
-            # Also plot pseudotime as a standard obs-var UMAP if the key was written
-            if config.pseudotime_key and config.pseudotime_key in adata.obs.columns:
-                from .plots import plot_umap_colored
-                plot_umap_colored(
-                    adata,
-                    color_by=config.pseudotime_key,
-                    umap_key=config.umap_key,
-                    output_path=str(config.plots_dir / f"umap_{config.pseudotime_key}.png"),
-                    title=f"L2-3 pseudotime (all cells)",
-                    point_size=config.point_size,
-                    logger=logger,
-                )
-            plot_excitatory_l23_pseudotime(
-                adata, config, logger,
-                excitatory_pattern=config.excitatory_cell_type_pattern,
-            )
+            plot_excitatory_l23_plots(adata, config, logger)
 
         # Lineage subsetting
         if config.lineage_targets:

@@ -12,6 +12,7 @@ Produces a multi-page PDF and individual PNGs covering:
   - Prenatal vs postnatal mixing comparison
   - scVI vs scANVI objective comparison for top-k trials
   - Per-batch global mixing scores (identifies which batches are poorly integrated)
+  - UMAP grid: top-5 vs bottom-5 trials coloured by batch (2 rows × 5 cols)
 """
 
 from __future__ import annotations
@@ -72,7 +73,9 @@ def _is_prenatal_bin(label: str) -> bool:
 
 PARAM_COLS = ["n_latent", "n_hidden", "n_layers", "gene_likelihood", "batch_size"]
 
-PALETTE = {1: "#4878CF", 2: "#D65F5F", 3: "#6AAB6A", 4: "#D68A5F"}  # n_layers → colour
+PALETTE = {1: "#4878CF", 2: "#D65F5F", 3: "#6AAB6A", 4: "#D68A5F", 5: "#9B59B6"}  # n_layers → colour
+
+N_UMAP_CELLS = 10_000  # per-trial subsample for UMAP speed (~10–20 s/panel on CPU)
 
 
 def _load_results(input_dir: Path) -> tuple[pd.DataFrame, pd.DataFrame | None]:
@@ -500,6 +503,120 @@ def fig_batch_mixing(df: pd.DataFrame) -> plt.Figure | None:
 
 
 # ---------------------------------------------------------------------------
+# Figure 7: UMAP grid — top-5 vs bottom-5 trials coloured by batch
+# ---------------------------------------------------------------------------
+
+def fig_umap_grid(
+    df: pd.DataFrame,
+    input_dir: Path,
+    batch_key: str,
+    n_top: int = 5,
+    n_bot: int = 5,
+    n_cells: int = N_UMAP_CELLS,
+    seed: int = 77,
+) -> plt.Figure | None:
+    """2-row × 5-col UMAP grid: top-n (row 1) and bottom-n (row 2) trials coloured by batch.
+
+    Requires trial_XX_latent.npy and obs_tuning.csv produced by tune_scvi_batch.py.
+    A fixed random subsample of n_cells is used across all panels so batch colour
+    proportions are directly comparable; only the UMAP layout differs between panels.
+    Returns None when latent files are absent (e.g. older run results).
+    """
+    try:
+        import anndata as ad
+        import scanpy as sc
+    except ImportError:
+        return None
+
+    obs_path = input_dir / "obs_tuning.csv"
+    if not obs_path.exists():
+        return None
+
+    obs_full = pd.read_csv(obs_path, index_col=0)
+    if batch_key not in obs_full.columns:
+        return None
+
+    def _latent_path(t: int) -> Path:
+        return input_dir / f"trial_{t:02d}_latent.npy"
+
+    n_top = min(n_top, len(df))
+    n_bot = min(n_bot, len(df) - n_top)
+    top_rows = df.head(n_top)
+    bot_rows = df.tail(n_bot)
+
+    top_mask = [_latent_path(int(r["trial"])).exists() for _, r in top_rows.iterrows()]
+    bot_mask = [_latent_path(int(r["trial"])).exists() for _, r in bot_rows.iterrows()]
+    top_rows = top_rows[top_mask].reset_index(drop=True)
+    bot_rows = bot_rows[bot_mask].reset_index(drop=True)
+
+    if len(top_rows) == 0 and len(bot_rows) == 0:
+        return None
+
+    # Fixed subsample index shared across all panels
+    rng = np.random.default_rng(seed)
+    n_full = len(obs_full)
+    n_sub = min(n_cells, n_full)
+    sub_idx = np.sort(rng.choice(n_full, n_sub, replace=False))
+    batch_sub = obs_full[batch_key].astype(str).iloc[sub_idx].values
+
+    batches = sorted(obs_full[batch_key].astype(str).unique())
+    tab_cmap = plt.cm.get_cmap("tab10", len(batches))
+    batch_colors = {b: tab_cmap(i) for i, b in enumerate(batches)}
+
+    n_cols = 5
+    fig, axes = plt.subplots(2, n_cols, figsize=(n_cols * 2.8, 6.5))
+    fig.suptitle(
+        f"UMAP coloured by batch — top {len(top_rows)} trials (row 1) vs bottom {len(bot_rows)} trials (row 2)\n"
+        f"Fixed {n_sub:,}-cell subsample per panel; each UMAP is independent — compare clustering, not coordinates",
+        fontsize=10, fontweight="bold",
+    )
+
+    def _plot_one(ax: plt.Axes, trial_row: pd.Series) -> None:
+        t = int(trial_row["trial"])
+        X = np.load(str(_latent_path(t)))[sub_idx].astype(np.float32)
+
+        adata_tmp = ad.AnnData(X=X)
+        sc.pp.neighbors(adata_tmp, use_rep="X", n_neighbors=15, random_state=seed)
+        sc.tl.umap(adata_tmp, min_dist=0.3, random_state=seed)
+        coords = adata_tmp.obsm["X_umap"]
+
+        for batch in batches:
+            mask = batch_sub == batch
+            if mask.any():
+                ax.scatter(
+                    coords[mask, 0], coords[mask, 1],
+                    c=[batch_colors[batch]], s=1.0, alpha=0.4, rasterized=True,
+                )
+
+        ax.set_title(
+            f"T{t}  obj={trial_row['objective']:.3f}\n"
+            f"lay={int(trial_row['n_layers'])} H={int(trial_row['n_hidden'])} "
+            f"L={int(trial_row['n_latent'])} {trial_row['gene_likelihood']}",
+            fontsize=7,
+        )
+        ax.set_xticks([])
+        ax.set_yticks([])
+
+    for col, (_, row) in enumerate(top_rows.iterrows()):
+        _plot_one(axes[0, col], row)
+    for col in range(len(top_rows), n_cols):
+        axes[0, col].axis("off")
+    axes[0, 0].set_ylabel("Top trials", fontsize=9, labelpad=4)
+
+    for col, (_, row) in enumerate(bot_rows.iterrows()):
+        _plot_one(axes[1, col], row)
+    for col in range(len(bot_rows), n_cols):
+        axes[1, col].axis("off")
+    axes[1, 0].set_ylabel("Bottom trials", fontsize=9, labelpad=4)
+
+    legend_handles = [mpatches.Patch(color=batch_colors[b], label=b) for b in batches]
+    fig.legend(handles=legend_handles, loc="lower center", ncol=len(batches),
+               fontsize=8, frameon=True, bbox_to_anchor=(0.5, 0.0))
+    fig.tight_layout(rect=[0, 0.07, 1, 1])
+    return fig
+
+
+# ---------------------------------------------------------------------------
 # Programmatic entry point (called from tune_scvi_batch.py after tuning)
 # ---------------------------------------------------------------------------
 
@@ -531,6 +648,15 @@ def run_diagnostics(
 
     _log(f"  {len(df)} successful trials loaded")
 
+    # Load key names for UMAP figure (written by tune_scvi_batch.py)
+    meta_path = input_dir / "tuning_metadata.json"
+    batch_key_meta: str | None = None
+    if meta_path.exists():
+        import json as _json
+        with open(meta_path) as _mf:
+            _meta = _json.load(_mf)
+        batch_key_meta = _meta.get("batch_key")
+
     def _build_figures() -> dict[str, plt.Figure]:
         d, s = _load_results(input_dir)
         figs: dict[str, plt.Figure] = {
@@ -545,6 +671,13 @@ def run_diagnostics(
         batch_fig = fig_batch_mixing(d)
         if batch_fig is not None:
             figs["6_batch_mixing"] = batch_fig
+        if batch_key_meta:
+            _log(f"  Building UMAP grid (top-5 vs bottom-5, batch_key='{batch_key_meta}') ...")
+            umap_fig = fig_umap_grid(d, input_dir, batch_key_meta)
+            if umap_fig is not None:
+                figs["7_umap_grid"] = umap_fig
+            else:
+                _log("  UMAP grid skipped (latent files not found; run produced by newer code only)")
         return figs
 
     # Write individual PNGs

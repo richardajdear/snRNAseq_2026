@@ -36,10 +36,10 @@ mkdir -p "${WORK_DIR}/logs"
 export XLA_PYTHON_CLIENT_PREALLOCATE=false
 
 singularity exec \
+    --nv \
     --pwd "${WORK_DIR}" \
     --bind "${DATA_DIR}:${DATA_DIR}" \
     --bind "${WORK_DIR}:${WORK_DIR}" \
-    --env "LD_LIBRARY_PATH=/opt/micromamba/envs/shortcake_default/lib" \
     "${SIF}" \
     micromamba run -n shortcake_default \
     env PYTHONPATH="code" python3 -u -m CellRank2.run_pipeline --config "${CONFIG}"

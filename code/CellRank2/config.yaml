@@ -11,7 +11,7 @@
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 input_h5ad: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/VelWangPsychAD_100k_source-chemistry/scvi_output/integrated.h5ad
-output_dir: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/VelWangPsychAD_100k_source-chemistry/cellrank_output
+output_dir: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/VelWangPsychAD_100k_source-chemistry/cellrank_output_v2
 
 # ── Cell type pre-filter ──────────────────────────────────────────────────────
 # Subset to excitatory neurons before all CellRank steps.
@@ -47,11 +47,16 @@ ot_device: auto         # "cuda" if GPU available, else "cpu"
 rtk_weight: 0.8         # RealTimeKernel (temporal) weight; CK weight = 0.2
 
 # ── GPCCA ─────────────────────────────────────────────────────────────────────
-# Expected EN terminal states: EN-L2_3-IT, EN-L4-IT, EN-L5-IT, EN-L6-IT,
-#   EN-L6b, EN-L6-CT, EN-L5_6-NP, EN-Non-IT-Immature (~8-10 states).
-n_macrostates: 12
+# 14 macrostates: 11 mature EN subtypes + EN-IT-Immature + EN-Newborn +
+# EN-Non-IT-Immature (the three progenitor/immature classes in this dataset).
+n_macrostates: 14
 use_minchi: false
 cluster_key: cell_type_aligned
+# Pattern-based state assignment (Priority 1): macrostates whose names match
+# this regex become INITIAL states; all others become TERMINAL states.
+# This bypasses GPCCA's stability auto-prediction, which fails on this dataset.
+immature_state_pattern: "Immature|Newborn"
+# Explicit overrides (Priority 2) — leave empty to use pattern above.
 terminal_states: []
 initial_states: []
 
@@ -61,10 +66,15 @@ lineage_targets: []
 fate_prob_threshold: 0.1
 
 # ── Pseudotime ────────────────────────────────────────────────────────────────
-# Written to adata.obs after fate_probs: L2-3 fate probability (normalised
-# to [0,1]) as a continuous maturational pseudotime index.
+# pseudotime_l23: L2-3 fate probability summed over matching terminal states,
+# normalised to [0,1].  This is a fate *commitment* score (how likely is this
+# cell to end up as L2-3?), not a trajectory position.
 pseudotime_key: pseudotime_l23
 l23_lineage_pattern: "L2_3"        # matches "EN-L2_3-IT"
+# pseudotime_absorption: mean first-passage time to any terminal state (GPCCA).
+# Inverted and normalised so 0 = progenitor, 1 = mature neuron.
+# This is the Monocle3-equivalent trajectory pseudotime.
+absorption_pseudotime_key: pseudotime_absorption
 
 # ── Plots ─────────────────────────────────────────────────────────────────────
 save_plots: true
@@ -73,7 +83,7 @@ plot_color_vars:
   - age_years
   - source
 umap_key: X_umap_scanvi
-point_size: 0.5
+point_size: 1.0
 excitatory_cell_type_pattern: "EN-"
 
 # ── Pipeline control ──────────────────────────────────────────────────────────
@@ -86,4 +96,4 @@ steps:
   - save
 
 random_seed: 42
-overwrite: false
+overwrite: true

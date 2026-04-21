@@ -1,0 +1,96 @@
+# snRNAseq Pipeline Config — HPC, Pearson residuals HVG, postnatal only + source-chemistry batch correction
+#
+# Uses a combined per-cell batch column created in downsample.py:
+#   source-chemistry = source + '-' + chemistry
+#
+# Submit via:
+#   cd /home/rajd2/rds/hpc-work/snRNAseq_2026
+#   bash code/pipeline/slurm/submit_pipeline.sh code/pipeline/source-chemistry_hpc_config.yaml
+
+output_dir: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/VelWangPsychAD_100k_postnatal_source-chemistry_tuning2
+
+sources:
+  - name: WANG
+    path: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/wang/wang.h5ad
+    dataset_type: Wang
+    cell_type_field: "Type_updated"
+    pfc_only: true
+    n_cells: 100000
+
+  - name: VELMESHEV
+    path: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/velmeshev/velmeshev.h5ad
+    dataset_type: Velmeshev
+    cell_type_field: "Cell_Type"
+    pfc_only: true
+    n_cells: 100000
+
+  - name: PSYCHAD
+    paths:
+      aging: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_PsychAD/RNAseq/Aging_Cohort.h5ad
+      hbcc:  /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_PsychAD/RNAseq/HBCC_Cohort.h5ad
+    dataset_type: PsychAD
+    cell_type_field: "subclass"
+    pfc_only: true
+    n_cells: 100000
+
+age_downsample: true
+postnatal_only: true
+seed: 42
+
+scvi:
+  n_top_genes: 10000
+  hvg_flavor: pearson_residuals
+  hvg_batch_key: source-chemistry
+  batch_key: source-chemistry
+  n_latent: 30
+  n_hidden: 64
+  n_layers: 4
+  gene_likelihood: zinb
+  max_epochs_scvi: 400
+  batch_size: 256
+  early_stopping: true
+  early_stopping_patience: 20
+  num_workers: 4
+  transform_batch: WANG-multiome
+  continuous_covariate_keys: [age_log_pc]
+  categorical_covariate_keys: [sex]
+
+scanvi_label_transfer:
+  enabled: true
+  label_column: cell_type_for_scanvi
+  max_epochs_scanvi: 100
+  confidence_threshold: 0.5
+
+pseudobulk:
+  layers:
+    - name: counts
+      aggregation: sum
+    - name: scvi_normalized
+      aggregation: mean
+    - name: scanvi_normalized
+      aggregation: mean
+  min_cells: 10
+  groups:
+    - name: all_cells_by_donor
+      group_cols: [individual]
+
+    - name: by_cell_class
+      group_cols: [individual, cell_class]
+
+    - name: excitatory_by_celltype
+      group_cols: [individual, cell_type_aligned]
+      filter:
+        cell_class: Excitatory
+
+    - name: inhibitory_by_celltype
+      group_cols: [individual, cell_type_aligned]
+      filter:
+        cell_class: Inhibitory
+
+steps:
+  - downsample
+  - combine
+  - scvi
+  - diagnostics
+  - pseudobulk
+overwrite: true

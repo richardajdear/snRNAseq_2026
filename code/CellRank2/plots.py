@@ -1,19 +1,39 @@
 """Diagnostic plots for CellRank 2 lineage tracing outputs."""
 
 import logging
+import re
 from pathlib import Path
-from typing import List, Optional
+from typing import Optional
 
 import anndata as ad
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 
 from .config import CellRankConfig
 from .utils import Timer
 
 
+# ── Style utilities ────────────────────────────────────────────────────────────
+
+def _set1_palette(n: int) -> list:
+    """Return n colours from RColorBrewer's Set1 palette (matching R's default)."""
+    set1_hex = [
+        "#E41A1C", "#377EB8", "#4DAF4A", "#984EA3", "#FF7F00",
+        "#A65628", "#F781BF", "#999999", "#66C2A5",
+    ]
+    colors = []
+    for i in range(n):
+        hex_color = set1_hex[i % len(set1_hex)]
+        r = int(hex_color[1:3], 16) / 255.0
+        g = int(hex_color[3:5], 16) / 255.0
+        b = int(hex_color[5:7], 16) / 255.0
+        colors.append((r, g, b))
+    return colors
+
+
 def _apply_ggplot_theme(ax):
-    """Apply ggplot2 theme_bw()-inspired styling."""
+    """Apply ggplot2 theme_bw() styling to a matplotlib Axes."""
     ax.set_facecolor("white")
     ax.grid(True, color="#E0E0E0", linewidth=0.5, zorder=0)
     for spine in ax.spines.values():
@@ -26,16 +46,95 @@ def _apply_ggplot_theme(ax):
         item.set_color("#333333")
 
 
+# ── cell_type_aligned palette (shared with scVI/visualize.py) ─────────────────
+
+def _is_immature(label: str) -> bool:
+    return any(x in label for x in ("Immature", "Newborn")) or label.startswith("IPC-")
+
+
+def _cell_type_group(label: str) -> str:
+    if label.startswith("EN-") or label == "IPC-EN":
+        return "EN"
+    if label.startswith("IN-"):
+        return "IN"
+    if "Oligodendrocyte" in label or label == "OPC":
+        return "Oligo"
+    if label.startswith("Astrocyte"):
+        return "Astro"
+    if label == "Microglia":
+        return "Microglia"
+    if label.startswith("RG-") or label in ("Tri-IPC", "Cajal-Retzius cell"):
+        return "Progenitor"
+    return "Other"
+
+
+_GROUP_CMAP = {
+    "EN":         ("Reds",    (0.45, 0.90), (0.25, 0.45)),
+    "IN":         ("Blues",   (0.40, 0.88), (0.22, 0.42)),
+    "Oligo":      ("Greens",  (0.45, 0.85), (0.22, 0.38)),
+    "Astro":      ("GnBu",    (0.45, 0.80), (0.22, 0.38)),
+    "Microglia":  ("YlGn",    (0.52, 0.68), (0.30, 0.45)),
+    "Progenitor": ("Purples", (0.45, 0.85), (0.25, 0.40)),
+    "Other":      ("Greys",   (0.35, 0.65), (0.20, 0.35)),
+}
+
+
+def build_cell_type_aligned_palette(categories: list) -> dict:
+    """Build a hue+shade colour dict for cell_type_aligned categories.
+
+    Groups cell types by broad class (EN, IN, Oligo, etc.) and assigns darker
+    shades to mature subtypes and lighter shades to immature/newborn subtypes,
+    making the maturation axis readable at a glance.
+    """
+    from matplotlib import colormaps
+
+    groups: dict = {}
+    for cat in categories:
+        g = _cell_type_group(cat)
+        if g not in groups:
+            groups[g] = {"mature": [], "immature": []}
+        (groups[g]["immature"] if _is_immature(cat) else groups[g]["mature"]).append(cat)
+
+    for g in groups:
+        groups[g]["mature"].sort()
+        groups[g]["immature"].sort()
+
+    palette = {}
+    for g_name, buckets in groups.items():
+        cmap_name, mature_range, immature_range = _GROUP_CMAP.get(g_name, _GROUP_CMAP["Other"])
+        cmap = colormaps[cmap_name]
+
+        def _sample(labels, lo, hi):
+            n = len(labels)
+            vals = [lo] if n == 1 else [lo + (hi - lo) * i / (n - 1) for i in range(n)]
+            for lbl, v in zip(labels, vals):
+                palette[lbl] = cmap(v)[:3]
+
+        _sample(buckets["mature"],   *mature_range)
+        _sample(buckets["immature"], *immature_range)
+
+    return palette
+
+
+def _macrostate_base_name(name: str) -> str:
+    """Strip trailing numeric suffix: 'EN-L2_3-IT_1' → 'EN-L2_3-IT'."""
+    return re.sub(r"_\d+$", "", name)
+
+
+# ── Single-panel UMAP helper ───────────────────────────────────────────────────
+
 def plot_umap_colored(
     adata: ad.AnnData,
     color_by: str,
     umap_key: str,
     output_path: Optional[str] = None,
     title: Optional[str] = None,
-    point_size: float = 1.0,
+    point_size: float = 2.0,
     alpha: float = 0.5,
+    cmap: str = "viridis",
+    palette: Optional[dict] = None,
     logger: Optional[logging.Logger] = None,
-    figsize: tuple = (5, 5),
+    figsize: tuple = (6, 6),
 ) -> None:
     """Plot a single UMAP coloured by a continuous or categorical variable."""
     if umap_key not in adata.obsm:
@@ -70,20 +169,24 @@ def plot_umap_colored(
             if hasattr(values, "cat")
             else sorted(values.dropna().unique())
         )
-        cmap = plt.get_cmap("tab20", max(len(cats), 1))
-        cat_to_idx = {c: i for i, c in enumerate(cats)}
-        # NaN / unassigned cells are plotted in light grey
-        nan_color = (0.8, 0.8, 0.8, 0.3)
+        if palette is not None:
+            fallback = _set1_palette(len(cats))
+            color_map = {c: palette.get(c, fallback[i]) for i, c in enumerate(cats)}
+        else:
+            color_map = dict(zip(cats, _set1_palette(len(cats))))
+
+        nan_color = (0.85, 0.85, 0.85, 0.5)
         c_vals = [
-            cmap(cat_to_idx[v]) if (v == v and v in cat_to_idx) else nan_color
+            color_map[v] if (v == v and v in color_map) else nan_color
             for v in values.iloc[order]
         ]
         ax.scatter(xy[:, 0], xy[:, 1], c=c_vals, s=point_size, alpha=alpha,
                    rasterized=True, linewidths=0)
         handles = [
             plt.Line2D([0], [0], marker="o", color="w",
-                       markerfacecolor=cmap(i), markersize=5, label=c)
-            for i, c in enumerate(cats)
+                       markerfacecolor=color_map.get(c, (0.5, 0.5, 0.5)),
+                       markersize=6, label=c)
+            for c in cats if c in color_map
         ]
         ax.legend(handles=handles, fontsize=7, frameon=False,
                   bbox_to_anchor=(1.01, 1), loc="upper left", title=color_by,
@@ -91,17 +194,18 @@ def plot_umap_colored(
     else:
         vals = np.array(values, dtype=float)
         sc = ax.scatter(xy[:, 0], xy[:, 1], c=vals[order], s=point_size,
-                        alpha=alpha, cmap="viridis", rasterized=True,
-                        linewidths=0)
+                        alpha=alpha, cmap=cmap, rasterized=True, linewidths=0)
         plt.colorbar(sc, ax=ax, shrink=0.7, label=color_by)
 
     if output_path:
         Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-        fig.savefig(output_path, dpi=150, bbox_inches="tight")
+        fig.savefig(output_path, dpi=200, bbox_inches="tight")
         if logger:
             logger.info(f"Saved: {output_path}")
     plt.close(fig)
 
+
+# ── CellRank-specific plots ────────────────────────────────────────────────────
 
 def plot_macrostates(
     adata: ad.AnnData,
@@ -109,7 +213,11 @@ def plot_macrostates(
     config: CellRankConfig,
     logger: logging.Logger,
 ) -> None:
-    """Plot macrostate memberships on the UMAP."""
+    """Plot macrostate assignments on the UMAP.
+
+    Uses soft memberships (dominant state per cell) so all cells are coloured,
+    with colours matched to cell_type_aligned palette via base-name lookup.
+    """
     plots_dir = config.plots_dir
     plots_dir.mkdir(parents=True, exist_ok=True)
 
@@ -117,16 +225,50 @@ def plot_macrostates(
         logger.warning("No macrostates computed; skipping macrostate plot.")
         return
 
-    adata.obs["macrostates"] = g.macrostates
+    # Assign every cell to its dominant macrostate using soft memberships
+    color_var = "macrostates_dominant"
+    if g.macrostates_memberships is not None:
+        memberships = g.macrostates_memberships.X
+        state_names = list(g.macrostates_memberships.names)
+        dominant_idx = np.argmax(memberships, axis=1)
+        adata.obs[color_var] = pd.Categorical(
+            [state_names[i] for i in dominant_idx],
+            categories=state_names,
+        )
+    else:
+        adata.obs["macrostates"] = g.macrostates
+        color_var = "macrostates"
+
+    # Match macrostate colours to cell_type_aligned palette (strip numeric suffix)
+    all_cell_types = (
+        list(adata.obs[config.cell_type_key].dropna().unique())
+        if config.cell_type_key in adata.obs.columns
+        else []
+    )
+    ct_palette = build_cell_type_aligned_palette(all_cell_types) if all_cell_types else {}
+
+    ms_cats = list(adata.obs[color_var].cat.categories)
+    ms_palette = {}
+    for ms in ms_cats:
+        base = _macrostate_base_name(ms)
+        color = ct_palette.get(base)
+        if color is None:
+            for ct, c in ct_palette.items():
+                if base.lower() in ct.lower() or ct.lower() in base.lower():
+                    color = c
+                    break
+        if color is not None:
+            ms_palette[ms] = color
 
     with Timer("Plotting macrostates", logger):
         plot_umap_colored(
             adata,
-            color_by="macrostates",
+            color_by=color_var,
             umap_key=config.umap_key,
             output_path=str(plots_dir / "macrostates.png"),
             title="Macrostates",
             point_size=config.point_size,
+            palette=ms_palette or None,
             logger=logger,
         )
 
@@ -156,7 +298,7 @@ def plot_fate_probabilities(
     n = len(lineages)
     ncols = min(4, n)
     nrows = (n + ncols - 1) // ncols
-    fig, axes = plt.subplots(nrows, ncols, figsize=(4 * ncols, 4 * nrows),
+    fig, axes = plt.subplots(nrows, ncols, figsize=(5 * ncols, 5 * nrows),
                              squeeze=False)
     fig.suptitle("Fate Probabilities", fontsize=12)
 
@@ -182,13 +324,12 @@ def plot_fate_probabilities(
         )
         plt.colorbar(sc_, ax=ax, shrink=0.7)
 
-    # Hide unused panels
     for idx in range(n, nrows * ncols):
         row, col = divmod(idx, ncols)
         axes[row][col].set_visible(False)
 
     out_path = plots_dir / "fate_probabilities.png"
-    fig.savefig(str(out_path), dpi=150, bbox_inches="tight")
+    fig.savefig(str(out_path), dpi=200, bbox_inches="tight")
     logger.info(f"Saved: {out_path}")
     plt.close(fig)
 
@@ -209,7 +350,6 @@ def plot_coarse_transition_matrix(
 
     with Timer("Plotting coarse transition matrix", logger):
         try:
-            # CellRank 2 supports a native `save` parameter on plot_coarse_T
             g.plot_coarse_T(save=str(out_path), figsize=(6, 5))
             logger.info(f"Saved: {out_path}")
         except Exception as exc:
@@ -229,141 +369,204 @@ def plot_obs_vars(
         if var not in adata.obs.columns:
             logger.warning(f"  '{var}' not in adata.obs; skipping plot.")
             continue
+
+        var_palette = None
+        if var == config.cell_type_key:
+            cats = list(adata.obs[var].dropna().unique())
+            var_palette = build_cell_type_aligned_palette(cats)
+
         plot_umap_colored(
             adata,
             color_by=var,
             umap_key=config.umap_key,
             output_path=str(plots_dir / f"umap_{var}.png"),
             point_size=config.point_size,
+            palette=var_palette,
             logger=logger,
         )
 
 
-def plot_excitatory_l23_pseudotime(
+def plot_excitatory_l23_plots(
     adata: ad.AnnData,
     config: CellRankConfig,
     logger: logging.Logger,
-    excitatory_pattern: str = "excit",
 ) -> None:
-    """Two-panel UMAP of excitatory neurons coloured by L2-3 pseudotime.
+    """Three UMAP plots of excitatory neurons for L2-3 lineage analysis.
 
-    Panel 1 — all excitatory neurons: L2-3 lineage cells coloured by
-    pseudotime (viridis), all others in grey.
-    Panel 2 — L2-3 lineage cells only, coloured by pseudotime.
+    Outputs (all restricted to excitatory cells):
+    1. umap_excit_fate_prob_l23.png              — L2-3 fate probability.
+    2. umap_excit_pseudotime.png                 — L2-3 commitment score (all cells).
+    3. umap_excit_l23_pseudotime.png             — L2-3 lineage cells by commitment score.
+    4. umap_excit_pseudotime_absorption.png      — absorption pseudotime (all cells).
+    5. umap_excit_l23_pseudotime_absorption.png  — L2-3 lineage cells by absorption pseudotime.
 
-    Requires ``config.pseudotime_key`` to be present in ``adata.obs``
-    (written by ``compute_fate_probabilities``).
+    Plots 4 & 5 are the Monocle3-equivalent: 0 = progenitor, 1 = mature neuron.
+    L2-3 lineage cells are defined as fate_prob_l23 >= config.fate_prob_threshold.
     """
     plots_dir = config.plots_dir
     plots_dir.mkdir(parents=True, exist_ok=True)
 
     if config.umap_key not in adata.obsm:
         logger.warning(
-            f"'{config.umap_key}' not in adata.obsm; "
-            "skipping excitatory L2-3 pseudotime UMAP."
+            f"'{config.umap_key}' not in adata.obsm; skipping excitatory L2-3 plots."
         )
         return
     if config.cell_type_key not in adata.obs.columns:
         logger.warning(
-            f"'{config.cell_type_key}' not in adata.obs; "
-            "skipping excitatory L2-3 pseudotime UMAP."
-        )
-        return
-    if not config.pseudotime_key or config.pseudotime_key not in adata.obs.columns:
-        logger.warning(
-            f"Pseudotime key '{config.pseudotime_key}' not found in adata.obs; "
-            "skipping excitatory L2-3 pseudotime UMAP."
+            f"'{config.cell_type_key}' not in adata.obs; skipping excitatory L2-3 plots."
         )
         return
 
-    cell_types = adata.obs[config.cell_type_key].astype(str)
-    excit_mask = cell_types.str.contains(excitatory_pattern, case=False, na=False)
+    excit_mask = (
+        adata.obs[config.cell_type_key]
+        .astype(str)
+        .str.contains(config.excitatory_cell_type_pattern, case=False, na=False)
+    )
     n_excit = int(excit_mask.sum())
     if n_excit == 0:
         logger.warning(
-            f"No cells matching '{excitatory_pattern}'; "
-            "skipping excitatory L2-3 pseudotime UMAP."
+            f"No cells match '{config.excitatory_cell_type_pattern}'; "
+            "skipping excitatory L2-3 plots."
         )
         return
 
-    pseudotime = adata.obs[config.pseudotime_key].values.astype(float)
-    coords = adata.obsm[config.umap_key]
-
     excit_idx = np.where(excit_mask.values)[0]
-    excit_coords = coords[excit_idx]
-    excit_pt = pseudotime[excit_idx]
+    excit_coords = adata.obsm[config.umap_key][excit_idx]
 
-    # L2-3 cells: those with pseudotime above the 10th percentile of excitatory
-    # neurons, used as a soft threshold to separate committed L2-3 cells from the
-    # background.  A stricter cut can be applied by raising fate_prob_threshold.
-    pt_thresh = float(np.nanpercentile(excit_pt, 10))
-    l23_mask = excit_pt > pt_thresh
-    n_l23 = int(l23_mask.sum())
-    logger.info(
-        f"  Excitatory neurons: {n_excit}; "
-        f"L2-3 lineage (pseudotime > {pt_thresh:.3f}): {n_l23}"
-    )
+    rng = np.random.RandomState(42)
+    shuffle = rng.permutation(n_excit)
+    xy = excit_coords[shuffle]
 
-    fig, axes = plt.subplots(1, 2, figsize=(13, 5))
-    fig.suptitle(
-        f"Excitatory neurons — L2-3 maturational pseudotime",
-        fontsize=11,
-    )
+    fate_prob_key = "fate_prob_l23"
 
-    # Shared colormap limits
-    vmin, vmax = float(np.nanmin(excit_pt[l23_mask])), float(np.nanmax(excit_pt))
-
-    for ax_idx, ax in enumerate(axes):
+    # ── Plot 1: L2-3 fate probability ─────────────────────────────────────────
+    if fate_prob_key not in adata.obs.columns:
+        logger.warning(
+            f"'{fate_prob_key}' not in adata.obs; skipping fate probability plot."
+        )
+    else:
+        fate_probs = adata.obs[fate_prob_key].values.astype(float)[excit_idx]
+        fig, ax = plt.subplots(figsize=(6, 6))
         _apply_ggplot_theme(ax)
         ax.set_box_aspect(1)
         ax.set_xticks([])
         ax.set_yticks([])
         ax.set_xlabel("UMAP1", fontsize=9)
         ax.set_ylabel("UMAP2", fontsize=9)
+        ax.set_title(
+            f"Excitatory neurons (n={n_excit:,})\nL2-3 fate probability", fontsize=9
+        )
+        sc = ax.scatter(
+            xy[:, 0], xy[:, 1],
+            c=fate_probs[shuffle], s=config.point_size, alpha=0.6,
+            cmap="viridis", rasterized=True, linewidths=0,
+            vmin=0, vmax=1,
+        )
+        plt.colorbar(sc, ax=ax, shrink=0.7, label="L2-3 fate probability")
+        fig.savefig(
+            str(plots_dir / "umap_excit_fate_prob_l23.png"), dpi=200, bbox_inches="tight"
+        )
+        logger.info(f"Saved: {plots_dir / 'umap_excit_fate_prob_l23.png'}")
+        plt.close(fig)
 
-    # ── Panel 1: all excitatory neurons ───────────────────────────────────────
-    ax1 = axes[0]
-    ax1.set_title(
-        f"All excitatory neurons (n={n_excit:,})\nL2-3 lineage coloured by pseudotime",
-        fontsize=8,
-    )
-    # Grey background: non-L2-3 excitatory neurons
-    ax1.scatter(
-        excit_coords[~l23_mask, 0], excit_coords[~l23_mask, 1],
-        c="#CCCCCC", s=config.point_size, alpha=0.35,
-        rasterized=True, linewidths=0,
-    )
-    # Viridis foreground: L2-3 cells by pseudotime
-    if l23_mask.any():
-        sc1 = ax1.scatter(
-            excit_coords[l23_mask, 0], excit_coords[l23_mask, 1],
-            c=excit_pt[l23_mask], cmap="viridis",
-            vmin=vmin, vmax=vmax,
-            s=config.point_size * 1.5, alpha=0.85,
+    # ── Helper: draw pseudotime UMAP ──────────────────────────────────────────
+    def _plot_pseudotime(pseudotime_vals, fname, title_suffix, label):
+        vmin_ = float(np.nanmin(pseudotime_vals))
+        vmax_ = float(np.nanmax(pseudotime_vals))
+
+        # All excitatory cells
+        fig_, ax_ = plt.subplots(figsize=(6, 6))
+        _apply_ggplot_theme(ax_)
+        ax_.set_box_aspect(1)
+        ax_.set_xticks([])
+        ax_.set_yticks([])
+        ax_.set_xlabel("UMAP1", fontsize=9)
+        ax_.set_ylabel("UMAP2", fontsize=9)
+        ax_.set_title(
+            f"Excitatory neurons (n={n_excit:,})\n{title_suffix}", fontsize=9
+        )
+        sc_ = ax_.scatter(
+            xy[:, 0], xy[:, 1],
+            c=pseudotime_vals[shuffle], s=config.point_size, alpha=0.6,
+            cmap="magma", rasterized=True, linewidths=0,
+            vmin=vmin_, vmax=vmax_,
+        )
+        plt.colorbar(sc_, ax=ax_, shrink=0.7, label=label)
+        fig_.savefig(str(plots_dir / fname), dpi=200, bbox_inches="tight")
+        logger.info(f"Saved: {plots_dir / fname}")
+        plt.close(fig_)
+
+        # L2-3 lineage cells highlighted, others grey
+        if fate_prob_key in adata.obs.columns:
+            fate_probs_ = adata.obs[fate_prob_key].values.astype(float)[excit_idx]
+            l23_mask_ = fate_probs_ >= config.fate_prob_threshold
+        else:
+            l23_mask_ = pseudotime_vals >= np.nanpercentile(pseudotime_vals, 25)
+
+        n_l23_ = int(l23_mask_.sum())
+        logger.info(
+            f"  Excitatory: {n_excit:,}; L2-3 lineage "
+            f"(fate_prob≥{config.fate_prob_threshold}): {n_l23_:,}"
+        )
+        l23_fname = fname.replace("umap_excit_", "umap_excit_l23_")
+
+        fig_, ax_ = plt.subplots(figsize=(6, 6))
+        _apply_ggplot_theme(ax_)
+        ax_.set_box_aspect(1)
+        ax_.set_xticks([])
+        ax_.set_yticks([])
+        ax_.set_xlabel("UMAP1", fontsize=9)
+        ax_.set_ylabel("UMAP2", fontsize=9)
+        ax_.set_title(
+            f"Excitatory neurons\nL2-3 lineage (n={n_l23_:,}) — {title_suffix}",
+            fontsize=9,
+        )
+        l23_in_shuf = l23_mask_[shuffle]
+        ax_.scatter(
+            xy[~l23_in_shuf, 0], xy[~l23_in_shuf, 1],
+            c="#CCCCCC", s=config.point_size, alpha=0.4,
             rasterized=True, linewidths=0,
         )
-        cb1 = plt.colorbar(sc1, ax=ax1, shrink=0.7)
-        cb1.set_label("Pseudotime", fontsize=8)
+        l23_sel = np.where(l23_in_shuf)[0]
+        if l23_sel.size > 0:
+            sc_ = ax_.scatter(
+                xy[l23_sel, 0], xy[l23_sel, 1],
+                c=pseudotime_vals[shuffle][l23_sel], cmap="magma",
+                s=config.point_size * 1.5, alpha=0.85,
+                vmin=vmin_, vmax=vmax_,
+                rasterized=True, linewidths=0,
+            )
+            plt.colorbar(sc_, ax=ax_, shrink=0.7, label=label)
+        fig_.savefig(str(plots_dir / l23_fname), dpi=200, bbox_inches="tight")
+        logger.info(f"Saved: {plots_dir / l23_fname}")
+        plt.close(fig_)
 
-    # ── Panel 2: L2-3 cells only ──────────────────────────────────────────────
-    ax2 = axes[1]
-    ax2.set_title(
-        f"L2-3 lineage cells (n={n_l23:,})\ncoloured by pseudotime",
-        fontsize=8,
-    )
-    if l23_mask.any():
-        sc2 = ax2.scatter(
-            excit_coords[l23_mask, 0], excit_coords[l23_mask, 1],
-            c=excit_pt[l23_mask], cmap="viridis",
-            vmin=vmin, vmax=vmax,
-            s=config.point_size * 2.0, alpha=0.9,
-            rasterized=True, linewidths=0,
+    # ── Plot 2 & 3: L2-3 fate-commitment pseudotime ───────────────────────────
+    if config.pseudotime_key and config.pseudotime_key in adata.obs.columns:
+        pt_l23 = adata.obs[config.pseudotime_key].values.astype(float)[excit_idx]
+        _plot_pseudotime(
+            pt_l23,
+            fname="umap_excit_pseudotime.png",
+            title_suffix="L2-3 commitment score",
+            label="L2-3 commitment",
         )
-        cb2 = plt.colorbar(sc2, ax=ax2, shrink=0.7)
-        cb2.set_label("Pseudotime", fontsize=8)
+    else:
+        logger.warning(
+            f"Pseudotime key '{config.pseudotime_key}' not in adata.obs; "
+            "skipping L2-3 commitment pseudotime plots."
+        )
 
-    fig.tight_layout()
-    out_path = plots_dir / "umap_excitatory_l23_pseudotime.png"
-    fig.savefig(str(out_path), dpi=150, bbox_inches="tight")
-    logger.info(f"Saved: {out_path}")
-    plt.close(fig)
+    # ── Plot 4 & 5: Absorption-time pseudotime (Monocle3-equivalent) ──────────
+    if config.absorption_pseudotime_key and config.absorption_pseudotime_key in adata.obs.columns:
+        pt_abs = adata.obs[config.absorption_pseudotime_key].values.astype(float)[excit_idx]
+        _plot_pseudotime(
+            pt_abs,
+            fname="umap_excit_pseudotime_absorption.png",
+            title_suffix="Absorption pseudotime (progenitor → mature)",
+            label="Pseudotime",
+        )
+    else:
+        logger.warning(
+            f"Absorption pseudotime key '{config.absorption_pseudotime_key}' "
+            "not in adata.obs; skipping absorption pseudotime plots."
+        )

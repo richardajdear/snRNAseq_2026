@@ -359,6 +359,7 @@ def _evaluate_age_aware_batch_score(
                 if np.isfinite(score_ct):
                     group_scores.append((score_ct, idx_ct.size))
 
+        n_batches_in_bin = int(obs_bin[batch_key].nunique())
         bin_label = f"[{age_bin.left},{age_bin.right})"
         if group_scores:
             numer = sum(s * w for s, w in group_scores)
@@ -373,6 +374,18 @@ def _evaluate_age_aware_batch_score(
         if np.isfinite(score_bin):
             details[bin_label] = score_bin
             weighted_scores.append((score_bin, bin_weight))
+            # Structural ceiling: max normalised entropy for this bin =
+            # log(n_batches_in_bin) / log(n_batches_global).  Prenatal bins
+            # with fewer present batches have a lower ceiling — reporting
+            # score as % of max distinguishes poor mixing from structural cap.
+            details[f"{bin_label}_n_batches"] = n_batches_in_bin
+            if n_batches_in_bin >= 2 and n_batches_global >= 2:
+                max_achievable = math.log(n_batches_in_bin) / math.log(n_batches_global)
+                details[f"{bin_label}_max_score"] = round(max_achievable, 4)
+                details[f"{bin_label}_pct_of_max"] = round(score_bin / max_achievable * 100, 1)
+            else:
+                details[f"{bin_label}_max_score"] = float("nan")
+                details[f"{bin_label}_pct_of_max"] = float("nan")
 
     if not weighted_scores:
         return 0.0, details
@@ -745,6 +758,14 @@ def run_tuning(config_path: Path):
     n_batches_global = int(adata.obs[batch_key].nunique())
     logger.info(f"Global batch count (for entropy normalisation): {n_batches_global}")
 
+    # Save obs metadata and key names once for diagnostics UMAP.
+    # Per-trial latent arrays are saved inside the trial loop below.
+    adata.obs[[batch_key, age_key]].to_csv(output_dir / "obs_tuning.csv")
+    with open(output_dir / "tuning_metadata.json", "w") as _mf:
+        json.dump({"batch_key": batch_key, "age_key": age_key,
+                   "cell_type_key": cell_type_key or ""}, _mf)
+    logger.info(f"Saved obs metadata ({adata.n_obs:,} cells) → obs_tuning.csv + tuning_metadata.json")
+
     # -----------------------------------------------------------------------
     # scVI setup (once; reused across all trials and scANVI evaluation)
     # -----------------------------------------------------------------------
@@ -823,6 +844,8 @@ def run_tuning(config_path: Path):
             model.train(**train_kwargs)
 
             adata.obsm["X_scVI"] = model.get_latent_representation()
+            np.save(str(output_dir / f"trial_{trial:02d}_latent.npy"),
+                    adata.obsm["X_scVI"].astype(np.float32))
             metrics = _evaluate_trial(
                 adata=adata,
                 latent_key="X_scVI",
