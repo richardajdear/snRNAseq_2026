@@ -19,7 +19,13 @@ class CellRankConfig:
     cell_type_filter_pattern: str = ""
 
     # -- Data keys --
-    latent_key: str = "X_scANVI"       # obsm key for the corrected latent space
+    latent_key: str = "X_scANVI"       # obsm key used for kNN, OT, and UMAP
+    # Age-aware PCA: PCA computed on norm_layer_key preserves developmental-stage
+    # variation that X_scANVI removes (age is an explicit scANVI covariate).
+    # When norm_layer_key is set, the pipeline computes PCA and writes the result
+    # to latent_key so all downstream steps use the age-aware representation.
+    norm_layer_key: str = "scanvi_normalized"  # adata layer to PCA over
+    n_pca_comps: int = 50              # number of PCs to compute
     time_key: str = "age_years"         # obs key for donor chronological age
     cell_type_key: str = "cell_type_aligned"  # obs key for aligned cell type labels
     batch_key: str = "source"

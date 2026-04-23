@@ -35,6 +35,65 @@ from .config import CellRankConfig
 from .utils import Timer, log_memory
 
 
+# ── Age-aware PCA (scanvi_normalized) ─────────────────────────────────────────
+
+def compute_scnorm_pca(
+    adata: ad.AnnData,
+    config: CellRankConfig,
+    logger: logging.Logger,
+) -> None:
+    """Compute PCA on the scanvi_normalized layer for an age-aware representation.
+
+    X_scANVI explicitly removes age as a model covariate, so cells are
+    ordered only by cell-type identity in that space.  PCA on the
+    scanvi_normalized layer retains developmental-stage variation, giving
+    the kNN graph, OT couplings, and UMAP an age gradient.
+
+    Result stored in adata.obsm[config.latent_key] (overwriting the placeholder
+    so that all downstream steps — kNN, OT, UMAP — automatically use it).
+    """
+    layer = getattr(config, "norm_layer_key", "scanvi_normalized")
+    n_comps = getattr(config, "n_pca_comps", 50)
+    out_key = config.latent_key  # kNN + OT will pick it up via this key
+
+    if layer not in adata.layers:
+        logger.warning(
+            f"  Layer '{layer}' not in adata.layers; "
+            "skipping age-aware PCA (keeping X_scANVI)."
+        )
+        return
+
+    if out_key in adata.obsm and not config.overwrite:
+        logger.info(
+            f"  '{out_key}' already in adata.obsm; skipping PCA recomputation."
+        )
+        return
+
+    use_hvg = "highly_variable" in adata.var.columns
+
+    with Timer(f"PCA on '{layer}' ({n_comps} PCs)", logger):
+        orig_X = adata.X
+        adata.X = adata.layers[layer]
+        try:
+            sc.pp.pca(
+                adata,
+                n_comps=n_comps,
+                use_highly_variable=use_hvg,
+                svd_solver="arpack",
+                random_state=config.random_seed,
+            )
+            adata.obsm[out_key] = adata.obsm.pop("X_pca")
+            adata.varm.pop("PCs", None)
+            adata.uns.pop("pca", None)
+        finally:
+            adata.X = orig_X
+
+    logger.info(
+        f"  Age-aware PCA stored as '{out_key}' "
+        f"({adata.n_obs} cells × {n_comps} PCs)"
+    )
+
+
 # ── Neighbour graph ────────────────────────────────────────────────────────────
 
 def ensure_neighbors(
@@ -293,20 +352,44 @@ def build_cytotrace_kernel(
         return None
 
     try:
-        # CytoTRACEKernel reads adata.uns['neighbors'] by default regardless of
-        # what conn_key is passed. Temporarily expose our custom graph under the
-        # standard key so the kernel can find it.
-        _prior = adata.uns.get("neighbors")
-        adata.uns["neighbors"] = adata.uns[config.neighbors_key]
+        # CytoTRACEKernel hardcodes the obsp key as 'neighbors_connectivities'
+        # and also checks adata.uns['neighbors'] — both ignore our custom key.
+        # Temporarily expose full aliases under the standard names.
+        our_conn = f"{config.neighbors_key}_connectivities"
+        our_dist = f"{config.neighbors_key}_distances"
+
+        _prior_uns  = adata.uns.get("neighbors")
+        _prior_conn = adata.obsp.get("neighbors_connectivities")
+        _prior_dist = adata.obsp.get("neighbors_distances")
+
+        # Build a uns entry that points to the aliased obsp keys
+        neighbors_info = dict(adata.uns[config.neighbors_key])
+        neighbors_info["connectivities_key"] = "neighbors_connectivities"
+        neighbors_info["distances_key"]      = "neighbors_distances"
+        adata.uns["neighbors"] = neighbors_info
+        adata.obsp["neighbors_connectivities"] = adata.obsp[our_conn]
+        if our_dist in adata.obsp:
+            adata.obsp["neighbors_distances"] = adata.obsp[our_dist]
+
         try:
             with Timer("CytoTRACEKernel", logger):
                 ctk = CytoTRACEKernel(adata)
+                ctk.compute_cytotrace(layer=config.cytotrace_layer)
                 ctk.compute_transition_matrix(threshold_scheme="soft")
         finally:
-            if _prior is not None:
-                adata.uns["neighbors"] = _prior
+            # Restore original state
+            if _prior_uns is not None:
+                adata.uns["neighbors"] = _prior_uns
             else:
                 adata.uns.pop("neighbors", None)
+            if _prior_conn is not None:
+                adata.obsp["neighbors_connectivities"] = _prior_conn
+            else:
+                adata.obsp.pop("neighbors_connectivities", None)
+            if _prior_dist is not None:
+                adata.obsp["neighbors_distances"] = _prior_dist
+            else:
+                adata.obsp.pop("neighbors_distances", None)
 
         logger.info(
             f"  CytoTRACEKernel: transition matrix shape "

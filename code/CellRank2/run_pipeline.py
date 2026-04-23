@@ -40,7 +40,7 @@ from .estimator import (
     set_terminal_and_initial_states,
     subset_to_lineage,
 )
-from .kernels import bin_ages, build_kernels, compute_lineage_umap, ensure_neighbors, run_moscot_ot
+from .kernels import bin_ages, build_kernels, compute_lineage_umap, compute_scnorm_pca, ensure_neighbors, run_moscot_ot
 from .plots import (
     plot_coarse_transition_matrix,
     plot_excitatory_l23_plots,
@@ -124,6 +124,16 @@ def run(config: CellRankConfig) -> ad.AnnData:
     # temporally-valid cells.  Cells without a valid bin (NaN age or age outside
     # the configured edges) cannot participate in the RealTimeKernel and their
     # inclusion causes _restich_couplings to fail.
+    # ── AGE-AWARE PCA ─────────────────────────────────────────────────────────
+    # X_scANVI removes age as an explicit model covariate. PCA on scanvi_normalized
+    # retains developmental-stage variation so that kNN, OT, and UMAP all respect
+    # the age gradient. This writes config.latent_key = X_pca_scnorm.
+    if getattr(config, "norm_layer_key", None):
+        logger.info("─" * 40)
+        logger.info("STEP: age-aware PCA on scanvi_normalized")
+        compute_scnorm_pca(adata, config, logger)
+        log_memory("After age-aware PCA", logger)
+
     bin_ages(adata, config, logger)
     valid_mask = adata.obs[config.age_bin_key].notna()
     cells_removed = False

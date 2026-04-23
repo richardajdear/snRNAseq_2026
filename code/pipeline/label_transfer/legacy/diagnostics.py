@@ -429,17 +429,22 @@ def make_class_remapping_tables(tf, out):
 # ══════════════════════════════════════════════════════════════════════════════
 
 def make_confidence_histogram(tf, out):
-    import matplotlib.cm as cm
-
-    # Layout: top row = overall + per-class; bottom = excitatory subtype (full width)
-    fig = plt.figure(figsize=(14, 9))
-    ax_overall = fig.add_subplot(2, 2, 1)
-    ax_class   = fig.add_subplot(2, 2, 2)
-    ax_exc     = fig.add_subplot(2, 1, 2)   # spans full bottom row
+    # Uniform 2×2 grid:
+    #   TL: overall absolute counts stacked by cell class
+    #   TR: fraction stacked by cell class
+    #   BL: excitatory subtype absolute counts
+    #   BR: excitatory subtype fraction stacked  (matches TR format)
+    fig, axes = plt.subplots(2, 2, figsize=(14, 9))
+    ax_overall  = axes[0, 0]
+    ax_class    = axes[0, 1]
+    ax_exc_abs  = axes[1, 0]
+    ax_exc_frac = axes[1, 1]
 
     bins = np.linspace(0, 1, 51)
+    bin_centres = 0.5 * (bins[:-1] + bins[1:])
+    width = bins[1] - bins[0]
 
-    # Panel 1: Overall (stacked by cell_class)
+    # ── TL: overall absolute counts stacked by cell class ────────────────────
     classes = sorted(tf['cell_class'].unique())
     class_colors = [CLASS_PALETTE.get(c, _FALLBACK) for c in classes]
     data_by_class = [tf.loc[tf['cell_class'] == c, 'transfer_confidence'].values
@@ -451,47 +456,67 @@ def make_confidence_histogram(tf, out):
                    title='Overall confidence (stacked by cell class)')
     ax_overall.legend(fontsize=7, ncol=2)
 
-    # Panel 2: Stacked by cell_class (normalised to fraction)
-    counts = np.zeros((len(classes), len(bins) - 1))
+    # ── TR: fraction stacked by cell class ───────────────────────────────────
+    counts_cls = np.zeros((len(classes), len(bins) - 1))
     for i, c in enumerate(classes):
-        counts[i], _ = np.histogram(
+        counts_cls[i], _ = np.histogram(
             tf.loc[tf['cell_class'] == c, 'transfer_confidence'].values, bins=bins)
-    totals = counts.sum(axis=0)
-    totals[totals == 0] = 1   # avoid divide-by-zero
-    fracs = counts / totals
+    totals_cls = counts_cls.sum(axis=0)
+    totals_cls[totals_cls == 0] = 1
+    fracs_cls = counts_cls / totals_cls
     bottom = np.zeros(len(bins) - 1)
-    bin_centres = 0.5 * (bins[:-1] + bins[1:])
-    width = bins[1] - bins[0]
     for i, (c, col) in enumerate(zip(classes, class_colors)):
-        ax_class.bar(bin_centres, fracs[i], width=width, bottom=bottom,
+        ax_class.bar(bin_centres, fracs_cls[i], width=width, bottom=bottom,
                      color=col, edgecolor='none', label=c)
-        bottom += fracs[i]
+        bottom += fracs_cls[i]
     ax_class.axvline(0.5, color='red', ls='--', lw=1)
     ax_class.set(xlabel='Transfer confidence', ylabel='Fraction of cells',
                  ylim=(0, 1), title='Confidence by cell class (fraction stacked)')
     ax_class.legend(fontsize=7, ncol=2)
 
-    # Panel 3: Excitatory neurons stacked by subtype
+    # ── BL & BR: excitatory neurons by subtype ───────────────────────────────
     exc = tf[tf['cell_class'] == 'Excitatory'].copy()
     if not exc.empty:
         en_pal = get_en_palette()
-        # Sort subtypes in biological order (most-informative order)
         subtype_order = sorted(exc['cell_type_aligned'].unique(), key=_en_sort_key)
+        colors_sub = [en_pal.get(ct, _FALLBACK) for ct in subtype_order]
+
+        # BL: absolute counts
         data_by_sub = [exc.loc[exc['cell_type_aligned'] == ct,
                                 'transfer_confidence'].values
                        for ct in subtype_order]
-        colors_sub = [en_pal.get(ct, _FALLBACK) for ct in subtype_order]
-        ax_exc.hist(data_by_sub, bins=bins, stacked=True,
-                    color=colors_sub, edgecolor='none', label=subtype_order)
-        ax_exc.axvline(0.5, color='red', ls='--', lw=1, label='threshold=0.5')
-        ax_exc.set(xlabel='Transfer confidence', ylabel='Cells',
-                   title=f'Excitatory neurons by subtype  '
-                         f'(cell_type_aligned, n={len(exc):,})')
-        ax_exc.legend(fontsize=6.5, ncol=4, loc='upper left',
-                      framealpha=0.85, handlelength=1.2)
+        ax_exc_abs.hist(data_by_sub, bins=bins, stacked=True,
+                        color=colors_sub, edgecolor='none', label=subtype_order)
+        ax_exc_abs.axvline(0.5, color='red', ls='--', lw=1, label='threshold=0.5')
+        ax_exc_abs.set(xlabel='Transfer confidence', ylabel='Cells',
+                       title=f'Excitatory by subtype — counts  (n={len(exc):,})')
+        ax_exc_abs.legend(fontsize=6.5, ncol=3, loc='upper left',
+                          framealpha=0.85, handlelength=1.2)
+
+        # BR: fraction stacked (same format as TR)
+        counts_sub = np.zeros((len(subtype_order), len(bins) - 1))
+        for i, ct in enumerate(subtype_order):
+            counts_sub[i], _ = np.histogram(
+                exc.loc[exc['cell_type_aligned'] == ct,
+                        'transfer_confidence'].values, bins=bins)
+        totals_sub = counts_sub.sum(axis=0)
+        totals_sub[totals_sub == 0] = 1
+        fracs_sub = counts_sub / totals_sub
+        bottom = np.zeros(len(bins) - 1)
+        for i, (ct, col) in enumerate(zip(subtype_order, colors_sub)):
+            ax_exc_frac.bar(bin_centres, fracs_sub[i], width=width, bottom=bottom,
+                            color=col, edgecolor='none', label=ct)
+            bottom += fracs_sub[i]
+        ax_exc_frac.axvline(0.5, color='red', ls='--', lw=1)
+        ax_exc_frac.set(xlabel='Transfer confidence', ylabel='Fraction of cells',
+                        ylim=(0, 1),
+                        title='Excitatory by subtype — fraction stacked')
+        ax_exc_frac.legend(fontsize=6.5, ncol=3, loc='upper left',
+                           framealpha=0.85, handlelength=1.2)
     else:
-        ax_exc.set_title('Excitatory neurons (none in dataset)')
-        ax_exc.axis('off')
+        for ax in (ax_exc_abs, ax_exc_frac):
+            ax.set_title('Excitatory neurons (none in dataset)')
+            ax.axis('off')
 
     plt.tight_layout()
     path = os.path.join(out, 'confidence_histogram.png')
@@ -676,10 +701,11 @@ def make_umap_perclass(all_df, emb, out, target_source='VELMESHEV'):
     print(f"  umap_perclass.png")
 
 
-def make_umap_all(all_df, out, target_source='VELMESHEV'):
+def make_umap_all(all_df, out, target_source='VELMESHEV',
+                  umap_cols=('umap_1', 'umap_2'), name='umap_all'):
     """2×2 UMAP of target-source cells only: pre/post-remapping × class / remap-status."""
     vel = all_df[all_df['source'] == target_source].copy()
-    xy  = vel[['umap_1', 'umap_2']].values
+    xy  = vel[list(umap_cols)].values
     vel['is_class_remapped'] = vel['old_cell_class'] != vel['new_cell_class']
 
     AGE_BINS   = [-np.inf, 0, 1, 10, np.inf]
@@ -755,17 +781,18 @@ def make_umap_all(all_df, out, target_source='VELMESHEV'):
                  'Pre- vs post-remapping',
                  fontsize=13, y=0.98)
     plt.tight_layout(rect=[0, 0, 1, 0.95])
-    path = os.path.join(out, 'umap_all.png')
-    plt.savefig(path, dpi=200, bbox_inches='tight')
+    fname = f'{name}.png'
+    plt.savefig(os.path.join(out, fname), dpi=200, bbox_inches='tight')
     plt.close()
-    print(f"  umap_all.png")
+    print(f"  {fname}")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 # EXCITATORY-ONLY UMAP
 # ══════════════════════════════════════════════════════════════════════════════
 
-def make_umap_excitatory(all_df, out, target_source='VELMESHEV'):
+def make_umap_excitatory(all_df, out, target_source='VELMESHEV',
+                         umap_cols=('umap_1', 'umap_2'), name='umap_excitatory'):
     """2×2 UMAP focusing on Excitatory cells (before OR after remapping).
 
     Panel layout:
@@ -785,10 +812,10 @@ def make_umap_excitatory(all_df, out, target_source='VELMESHEV'):
     df = src[mask].copy()
 
     if len(df) < 5:
-        print(f"  umap_excitatory.png  SKIPPED (too few Excitatory cells: {len(df)})")
+        print(f"  {name}.png  SKIPPED (too few Excitatory cells: {len(df)})")
         return
 
-    xy = df[['umap_1', 'umap_2']].values
+    xy = df[list(umap_cols)].values
     base_size = _adaptive_umap_point_size(len(df), min_size=1.5, max_size=8.0, scale=500.0)
 
     AGE_BINS   = [-np.inf, 0, 1, 10, np.inf]
@@ -805,10 +832,18 @@ def make_umap_excitatory(all_df, out, target_source='VELMESHEV'):
     m_gained = ~raw_is_L23 &  aligned_is_L23  # other → L2/3
     m_lost   =  raw_is_L23 & ~aligned_is_L23  # L2/3 → other
 
-    # Use fixed canonical palettes so every EN subtype always maps to the same
-    # colour regardless of which labels happen to appear in this dataset.
-    raw_pal     = get_en_palette()
+    # BL panel (cell_type_aligned) uses fixed canonical palette — WANG format.
     aligned_pal = get_en_palette()
+    # TL panel (cell_type_raw) builds a dynamic palette over the actual raw
+    # labels that appear in the Excitatory subset, so non-WANG naming
+    # conventions get distinct colours via tab20 fallback.
+    _exc_raw_types = df.loc[
+        df['old_cell_class'].astype(str) == 'Excitatory', 'cell_type_raw'
+    ].astype(str).unique()
+    _raw_dyn = _make_local_palette(_exc_raw_types)
+    _can_en  = get_en_palette()
+    # Canonical palette wins for WANG-format keys already in the dynamic palette.
+    raw_pal = {**_raw_dyn, **{k: v for k, v in _can_en.items() if k in _raw_dyn}}
 
     fig, axes = plt.subplots(2, 2, figsize=(13, 11))
 
@@ -834,7 +869,7 @@ def make_umap_excitatory(all_df, out, target_source='VELMESHEV'):
         for ct in exc_types:
             n = (types == ct).sum()
             handles_out.append(Line2D([0], [0], marker='o', color='w',
-                                      markerfacecolor=palette.get(ct, '#aaaaaa'),
+                                      markerfacecolor=palette.get(ct, _FALLBACK),
                                       markersize=6, label=f'{ct}  (n={n:,})'))
         if not merge_inh_into_other and inh_n > 0:
             handles_out.append(Line2D([0], [0], marker='o', color='w',
@@ -853,14 +888,12 @@ def make_umap_excitatory(all_df, out, target_source='VELMESHEV'):
     for ct in raw_types:
         m = (df['cell_type_raw'].astype(str) == ct).values
         ct_norm = _norm_key(ct)
-        # Colour by label name — avoids fragile .all() checks that fail when
-        # a single raw_type spans cells remapped across class boundaries.
-        if ct_norm.startswith('EN_') or ct == 'Excitatory':
-            col = raw_pal.get(ct, _FALLBACK)
-        elif ct_norm.startswith('IN_') or ct in ('Inhibitory', 'Interneurons', 'INT'):
+        if ct_norm.startswith('IN_') or ct in ('Inhibitory', 'Interneurons', 'INT'):
             col = '#5B7EB5'
         else:
-            col = '#999999'
+            # raw_pal covers all Excitatory raw types via dynamic palette;
+            # anything else (cross-class stray cells) falls back to grey.
+            col = raw_pal.get(ct, '#999999')
         ax.scatter(xy[m, 0], xy[m, 1],
                    c=col, s=base_size, alpha=0.45, linewidths=0, rasterized=True)
     handles = _consolidated_handles(df['cell_type_raw'], df['old_cell_class'], raw_pal)
@@ -949,17 +982,18 @@ def make_umap_excitatory(all_df, out, target_source='VELMESHEV'):
         f'pre- or post-remap class = Excitatory)\nGlobal UMAP embedding',
         fontsize=13, y=0.98)
     plt.tight_layout(rect=[0, 0, 1, 0.95])
-    path = os.path.join(out, 'umap_excitatory.png')
-    plt.savefig(path, dpi=200, bbox_inches='tight')
+    fname = f'{name}.png'
+    plt.savefig(os.path.join(out, fname), dpi=200, bbox_inches='tight')
     plt.close()
-    print(f"  umap_excitatory.png")
+    print(f"  {fname}")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 # INHIBITORY-ONLY UMAP
 # ══════════════════════════════════════════════════════════════════════════════
 
-def make_umap_inhibitory(all_df, out, target_source='VELMESHEV'):
+def make_umap_inhibitory(all_df, out, target_source='VELMESHEV',
+                         umap_cols=('umap_1', 'umap_2'), name='umap_inhibitory'):
     """2×2 UMAP focusing on Inhibitory cells (before OR after remapping).
 
     Panel layout:
@@ -976,10 +1010,10 @@ def make_umap_inhibitory(all_df, out, target_source='VELMESHEV'):
     df = src[mask].copy()
 
     if len(df) < 5:
-        print(f"  umap_inhibitory.png  SKIPPED (too few Inhibitory cells: {len(df)})")
+        print(f"  {name}.png  SKIPPED (too few Inhibitory cells: {len(df)})")
         return
 
-    xy = df[['umap_1', 'umap_2']].values
+    xy = df[list(umap_cols)].values
     base_size = _adaptive_umap_point_size(len(df), min_size=1.5, max_size=8.0, scale=500.0)
 
     AGE_BINS   = [-np.inf, 0, 1, 10, np.inf]
@@ -987,7 +1021,16 @@ def make_umap_inhibitory(all_df, out, target_source='VELMESHEV'):
     AGE_COLORS = ['#1B9E77', '#E6AB02', '#E7298A', '#7570B3']
     df['age_cat'] = pd.cut(df['age_years'], bins=AGE_BINS, labels=AGE_LABELS)
 
+    # BL panel (cell_type_aligned) uses the fixed canonical IN palette.
     in_pal = get_in_palette()
+    # TL panel (cell_type_raw) builds a dynamic palette over the actual raw
+    # labels in the Inhibitory subset so non-WANG naming gets distinct colours.
+    _inh_raw_types = df.loc[
+        df['old_cell_class'].astype(str) == 'Inhibitory', 'cell_type_raw'
+    ].astype(str).unique()
+    _raw_in_dyn = _make_local_palette(_inh_raw_types)
+    _can_in     = get_in_palette()
+    raw_in_pal  = {**_raw_in_dyn, **{k: v for k, v in _can_in.items() if k in _raw_in_dyn}}
 
     # ── lineage classification helpers ────────────────────────────────────────
     def _in_lineage(label):
@@ -1024,15 +1067,15 @@ def make_umap_inhibitory(all_df, out, target_source='VELMESHEV'):
     for ct in raw_types:
         m = (df['cell_type_raw'].astype(str) == ct).values
         ct_norm = _norm_key(ct)
-        if ct_norm.startswith('IN_') or ct == 'Inhibitory':
-            col = in_pal.get(ct, _FALLBACK)
-        elif ct_norm.startswith('EN_') or ct == 'Excitatory':
+        if ct_norm.startswith('EN_') or ct == 'Excitatory':
             col = '#E67E22'   # warm orange for stray excitatory raw labels
         else:
-            col = '#999999'
+            # raw_in_pal covers all IN raw types via dynamic palette;
+            # anything else falls back to grey.
+            col = raw_in_pal.get(ct, '#999999')
         ax.scatter(xy[m, 0], xy[m, 1],
                    c=col, s=base_size, alpha=0.45, linewidths=0, rasterized=True)
-    handles = _in_consolidated_handles(df['cell_type_raw'], df['old_cell_class'], in_pal)
+    handles = _in_consolidated_handles(df['cell_type_raw'], df['old_cell_class'], raw_in_pal)
     ax.legend(handles=handles, loc='lower right', fontsize=6,
               framealpha=0.85, edgecolor='0.8', handletextpad=0.3,
               ncol=max(1, len(handles) // 12))
@@ -1118,10 +1161,10 @@ def make_umap_inhibitory(all_df, out, target_source='VELMESHEV'):
         f'pre- or post-remap class = Inhibitory)\nGlobal UMAP embedding',
         fontsize=13, y=0.98)
     plt.tight_layout(rect=[0, 0, 1, 0.95])
-    path = os.path.join(out, 'umap_inhibitory.png')
-    plt.savefig(path, dpi=200, bbox_inches='tight')
+    fname = f'{name}.png'
+    plt.savefig(os.path.join(out, fname), dpi=200, bbox_inches='tight')
     plt.close()
-    print(f"  umap_inhibitory.png")
+    print(f"  {fname}")
 
 
 # ══════════════════════════════════════════════════════════════════════════════

@@ -391,17 +391,19 @@ def plot_excitatory_l23_plots(
     config: CellRankConfig,
     logger: logging.Logger,
 ) -> None:
-    """Three UMAP plots of excitatory neurons for L2-3 lineage analysis.
+    """Two focused UMAP plots for excitatory neuron L2-3 lineage analysis.
 
-    Outputs (all restricted to excitatory cells):
-    1. umap_excit_fate_prob_l23.png              — L2-3 fate probability.
-    2. umap_excit_pseudotime.png                 — L2-3 commitment score (all cells).
-    3. umap_excit_l23_pseudotime.png             — L2-3 lineage cells by commitment score.
-    4. umap_excit_pseudotime_absorption.png      — absorption pseudotime (all cells).
-    5. umap_excit_l23_pseudotime_absorption.png  — L2-3 lineage cells by absorption pseudotime.
+    Both plots use only excitatory cells (matched by excitatory_cell_type_pattern).
 
-    Plots 4 & 5 are the Monocle3-equivalent: 0 = progenitor, 1 = mature neuron.
-    L2-3 lineage cells are defined as fate_prob_l23 >= config.fate_prob_threshold.
+    1. umap_excit_dpt_pseudotime.png   — DPT pseudotime from the youngest progenitor
+                                         root. Should correlate with donor age and run
+                                         from EN-IT-Immature/EN-Newborn (0) to mature
+                                         EN subtypes (1).
+
+    2. umap_excit_fate_prob_l23.png    — Raw L2-3 fate probability from the CellRank
+                                         Markov chain. Higher = more likely to end up
+                                         as EN-L2_3-IT. Expect 0.1–1.0 range with
+                                         EN-L2_3-IT cells brightest.
     """
     plots_dir = config.plots_dir
     plots_dir.mkdir(parents=True, exist_ok=True)
@@ -431,142 +433,77 @@ def plot_excitatory_l23_plots(
         return
 
     excit_idx = np.where(excit_mask.values)[0]
-    excit_coords = adata.obsm[config.umap_key][excit_idx]
+    xy_all = adata.obsm[config.umap_key][excit_idx]
 
     rng = np.random.RandomState(42)
     shuffle = rng.permutation(n_excit)
-    xy = excit_coords[shuffle]
+    xy = xy_all[shuffle]
 
-    fate_prob_key = "fate_prob_l23"
-
-    # ── Plot 1: L2-3 fate probability ─────────────────────────────────────────
-    if fate_prob_key not in adata.obs.columns:
-        logger.warning(
-            f"'{fate_prob_key}' not in adata.obs; skipping fate probability plot."
+    def _scatter(ax, vals, cmap, label, vmin=None, vmax=None):
+        vmin = float(np.nanmin(vals)) if vmin is None else vmin
+        vmax = float(np.nanmax(vals)) if vmax is None else vmax
+        sc_ = ax.scatter(
+            xy[:, 0], xy[:, 1],
+            c=vals[shuffle], s=config.point_size, alpha=0.6,
+            cmap=cmap, rasterized=True, linewidths=0,
+            vmin=vmin, vmax=vmax,
         )
-    else:
-        fate_probs = adata.obs[fate_prob_key].values.astype(float)[excit_idx]
-        fig, ax = plt.subplots(figsize=(6, 6))
+        plt.colorbar(sc_, ax=ax, shrink=0.7, label=label)
+
+    def _base_ax(fig, title):
+        ax = fig.add_subplot(111)
         _apply_ggplot_theme(ax)
         ax.set_box_aspect(1)
         ax.set_xticks([])
         ax.set_yticks([])
         ax.set_xlabel("UMAP1", fontsize=9)
         ax.set_ylabel("UMAP2", fontsize=9)
-        ax.set_title(
-            f"Excitatory neurons (n={n_excit:,})\nL2-3 fate probability", fontsize=9
-        )
-        sc = ax.scatter(
-            xy[:, 0], xy[:, 1],
-            c=fate_probs[shuffle], s=config.point_size, alpha=0.6,
-            cmap="viridis", rasterized=True, linewidths=0,
-            vmin=0, vmax=1,
-        )
-        plt.colorbar(sc, ax=ax, shrink=0.7, label="L2-3 fate probability")
-        fig.savefig(
-            str(plots_dir / "umap_excit_fate_prob_l23.png"), dpi=200, bbox_inches="tight"
-        )
-        logger.info(f"Saved: {plots_dir / 'umap_excit_fate_prob_l23.png'}")
+        ax.set_title(title, fontsize=9)
+        return ax
+
+    # ── Plot 1: DPT pseudotime ────────────────────────────────────────────────
+    pt_key = config.absorption_pseudotime_key
+    if pt_key and pt_key in adata.obs.columns:
+        pt = adata.obs[pt_key].values.astype(float)[excit_idx]
+        fig = plt.figure(figsize=(6, 6))
+        ax = _base_ax(fig, f"Excitatory neurons (n={n_excit:,})\nDPT pseudotime  (0=progenitor, 1=mature)")
+        _scatter(ax, pt, cmap="magma", label="DPT pseudotime")
+        out = plots_dir / "umap_excit_dpt_pseudotime.png"
+        fig.savefig(str(out), dpi=200, bbox_inches="tight")
+        logger.info(f"Saved: {out}")
         plt.close(fig)
-
-    # ── Helper: draw pseudotime UMAP ──────────────────────────────────────────
-    def _plot_pseudotime(pseudotime_vals, fname, title_suffix, label):
-        vmin_ = float(np.nanmin(pseudotime_vals))
-        vmax_ = float(np.nanmax(pseudotime_vals))
-
-        # All excitatory cells
-        fig_, ax_ = plt.subplots(figsize=(6, 6))
-        _apply_ggplot_theme(ax_)
-        ax_.set_box_aspect(1)
-        ax_.set_xticks([])
-        ax_.set_yticks([])
-        ax_.set_xlabel("UMAP1", fontsize=9)
-        ax_.set_ylabel("UMAP2", fontsize=9)
-        ax_.set_title(
-            f"Excitatory neurons (n={n_excit:,})\n{title_suffix}", fontsize=9
+    else:
+        logger.warning(
+            f"DPT pseudotime key '{pt_key}' not in adata.obs; "
+            "skipping DPT pseudotime plot."
         )
-        sc_ = ax_.scatter(
-            xy[:, 0], xy[:, 1],
-            c=pseudotime_vals[shuffle], s=config.point_size, alpha=0.6,
-            cmap="magma", rasterized=True, linewidths=0,
-            vmin=vmin_, vmax=vmax_,
-        )
-        plt.colorbar(sc_, ax=ax_, shrink=0.7, label=label)
-        fig_.savefig(str(plots_dir / fname), dpi=200, bbox_inches="tight")
-        logger.info(f"Saved: {plots_dir / fname}")
-        plt.close(fig_)
 
-        # L2-3 lineage cells highlighted, others grey
-        if fate_prob_key in adata.obs.columns:
-            fate_probs_ = adata.obs[fate_prob_key].values.astype(float)[excit_idx]
-            l23_mask_ = fate_probs_ >= config.fate_prob_threshold
-        else:
-            l23_mask_ = pseudotime_vals >= np.nanpercentile(pseudotime_vals, 25)
-
-        n_l23_ = int(l23_mask_.sum())
+    # ── Plot 2: L2-3 fate probability ────────────────────────────────────────
+    fate_prob_key = "fate_prob_l23"
+    if fate_prob_key in adata.obs.columns:
+        fp = adata.obs[fate_prob_key].values.astype(float)[excit_idx]
+        n_l23 = int((fp >= config.fate_prob_threshold).sum())
         logger.info(
-            f"  Excitatory: {n_excit:,}; L2-3 lineage "
-            f"(fate_prob≥{config.fate_prob_threshold}): {n_l23_:,}"
+            f"  L2-3 lineage (fate_prob≥{config.fate_prob_threshold}): "
+            f"{n_l23:,} / {n_excit:,} excitatory cells"
         )
-        l23_fname = fname.replace("umap_excit_", "umap_excit_l23_")
-
-        fig_, ax_ = plt.subplots(figsize=(6, 6))
-        _apply_ggplot_theme(ax_)
-        ax_.set_box_aspect(1)
-        ax_.set_xticks([])
-        ax_.set_yticks([])
-        ax_.set_xlabel("UMAP1", fontsize=9)
-        ax_.set_ylabel("UMAP2", fontsize=9)
-        ax_.set_title(
-            f"Excitatory neurons\nL2-3 lineage (n={n_l23_:,}) — {title_suffix}",
-            fontsize=9,
+        # Use percentile colour limits so any gradient is visible even when the
+        # raw probability range is narrow (e.g., 0.10–0.25 for progenitors).
+        vmin_fp = float(np.nanpercentile(fp, 1))
+        vmax_fp = float(np.nanpercentile(fp, 99))
+        logger.info(
+            f"  L2-3 fate prob range: p1={vmin_fp:.3f}, "
+            f"median={float(np.nanmedian(fp)):.3f}, p99={vmax_fp:.3f}"
         )
-        l23_in_shuf = l23_mask_[shuffle]
-        ax_.scatter(
-            xy[~l23_in_shuf, 0], xy[~l23_in_shuf, 1],
-            c="#CCCCCC", s=config.point_size, alpha=0.4,
-            rasterized=True, linewidths=0,
-        )
-        l23_sel = np.where(l23_in_shuf)[0]
-        if l23_sel.size > 0:
-            sc_ = ax_.scatter(
-                xy[l23_sel, 0], xy[l23_sel, 1],
-                c=pseudotime_vals[shuffle][l23_sel], cmap="magma",
-                s=config.point_size * 1.5, alpha=0.85,
-                vmin=vmin_, vmax=vmax_,
-                rasterized=True, linewidths=0,
-            )
-            plt.colorbar(sc_, ax=ax_, shrink=0.7, label=label)
-        fig_.savefig(str(plots_dir / l23_fname), dpi=200, bbox_inches="tight")
-        logger.info(f"Saved: {plots_dir / l23_fname}")
-        plt.close(fig_)
-
-    # ── Plot 2 & 3: L2-3 fate-commitment pseudotime ───────────────────────────
-    if config.pseudotime_key and config.pseudotime_key in adata.obs.columns:
-        pt_l23 = adata.obs[config.pseudotime_key].values.astype(float)[excit_idx]
-        _plot_pseudotime(
-            pt_l23,
-            fname="umap_excit_pseudotime.png",
-            title_suffix="L2-3 commitment score",
-            label="L2-3 commitment",
-        )
+        fig = plt.figure(figsize=(6, 6))
+        ax = _base_ax(fig, f"Excitatory neurons (n={n_excit:,})\nL2-3 fate probability")
+        _scatter(ax, fp, cmap="viridis", label="L2-3 fate probability",
+                 vmin=vmin_fp, vmax=vmax_fp)
+        out = plots_dir / "umap_excit_fate_prob_l23.png"
+        fig.savefig(str(out), dpi=200, bbox_inches="tight")
+        logger.info(f"Saved: {out}")
+        plt.close(fig)
     else:
         logger.warning(
-            f"Pseudotime key '{config.pseudotime_key}' not in adata.obs; "
-            "skipping L2-3 commitment pseudotime plots."
-        )
-
-    # ── Plot 4 & 5: Absorption-time pseudotime (Monocle3-equivalent) ──────────
-    if config.absorption_pseudotime_key and config.absorption_pseudotime_key in adata.obs.columns:
-        pt_abs = adata.obs[config.absorption_pseudotime_key].values.astype(float)[excit_idx]
-        _plot_pseudotime(
-            pt_abs,
-            fname="umap_excit_pseudotime_absorption.png",
-            title_suffix="Absorption pseudotime (progenitor → mature)",
-            label="Pseudotime",
-        )
-    else:
-        logger.warning(
-            f"Absorption pseudotime key '{config.absorption_pseudotime_key}' "
-            "not in adata.obs; skipping absorption pseudotime plots."
+            f"'{fate_prob_key}' not in adata.obs; skipping L2-3 fate probability plot."
         )
