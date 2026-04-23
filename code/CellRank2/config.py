@@ -41,8 +41,13 @@ class CellRankConfig:
     ot_device: str = "auto"
 
     # -- Kernel combination --
-    # Combined kernel = rtk_weight * RealTimeKernel + (1-rtk_weight) * ConnectivityKernel
+    # With CytoTRACEKernel:
+    #   combined = cytotrace_weight * CTK + rtk_weight * RTK + (1 - both) * CK
+    # Without CytoTRACEKernel (cytotrace_weight = 0):
+    #   combined = rtk_weight * RTK + (1 - rtk_weight) * CK
     rtk_weight: float = 0.8
+    cytotrace_weight: float = 0.0   # set > 0 to include CytoTRACEKernel
+    cytotrace_layer: str = "counts"  # adata layer for CytoTRACE gene-count computation
 
     # -- GPCCA estimator --
     n_macrostates: int = 8              # passed to compute_macrostates; can be a list for minChi
@@ -75,11 +80,11 @@ class CellRankConfig:
     # Set to "" to skip.
     pseudotime_key: str = "pseudotime_l23"
 
-    # Absorption-time pseudotime: mean first-passage time from each cell to any
-    # terminal state (via GPCCA).  This is the Monocle3-equivalent trajectory
-    # ordering — low near progenitors, high near mature neurons.
+    # DPT pseudotime: diffusion pseudotime from the youngest progenitor root cell.
+    # The root is the cell matching dpt_root_cell_type with minimum age_years.
     # Set to "" to skip.
     absorption_pseudotime_key: str = "pseudotime_absorption"
+    dpt_root_cell_type: str = "Immature|Newborn"  # regex matched against cell_type_key
 
     # -- Lineage subsetting --
     # After computing fate probabilities, cells with fate_prob >= threshold
@@ -93,6 +98,11 @@ class CellRankConfig:
         default_factory=lambda: ["cell_type_aligned", "age_years", "source"]
     )
     umap_key: str = "X_umap_scanvi"    # obsm key for UMAP (used in plots)
+    # Recompute UMAP from X_scANVI on the filtered subset (recommended).
+    # After recomputation, umap_key is updated to lineage_umap_key so all plots
+    # use the EN-only embedding that better resolves developmental structure.
+    recompute_umap: bool = False
+    lineage_umap_key: str = "X_umap_lineage"
     point_size: float = 1.0
     # excitatory_cell_type_pattern: case-insensitive regex matched against
     #   cell_type_key to identify excitatory neurons.

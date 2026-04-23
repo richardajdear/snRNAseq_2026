@@ -4,11 +4,10 @@
 #SBATCH --error=/home/rajd2/rds/hpc-work/snRNAseq_2026/logs/cr2_full_%j.log
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --mem=200G
+#SBATCH --mem=64G
 #SBATCH --time=12:00:00
-#SBATCH --partition=ampere
-#SBATCH --gres=gpu:1
-#SBATCH --account=vertes-sl2-gpu
+#SBATCH --partition=icelake
+#SBATCH --account=vertes-sl2-cpu
 
 # For GPU-accelerated OT (requires GPU partition access):
 #   Change partition to e.g. ampere, change account to your GPU account,
@@ -36,10 +35,10 @@ mkdir -p "${WORK_DIR}/logs"
 export XLA_PYTHON_CLIENT_PREALLOCATE=false
 
 singularity exec \
-    --nv \
     --pwd "${WORK_DIR}" \
     --bind "${DATA_DIR}:${DATA_DIR}" \
     --bind "${WORK_DIR}:${WORK_DIR}" \
+    --env "LD_LIBRARY_PATH=/opt/micromamba/envs/shortcake_default/lib" \
     "${SIF}" \
     micromamba run -n shortcake_default \
     env PYTHONPATH="code" python3 -u -m CellRank2.run_pipeline --config "${CONFIG}"

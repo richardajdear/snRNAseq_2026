@@ -11,7 +11,7 @@
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 input_h5ad: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/VelWangPsychAD_100k_source-chemistry/scvi_output/integrated.h5ad
-output_dir: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/VelWangPsychAD_100k_source-chemistry/cellrank_output_v2
+output_dir: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/VelWangPsychAD_100k_source-chemistry/cellrank_output_v4
 
 # ── Cell type pre-filter ──────────────────────────────────────────────────────
 # Subset to excitatory neurons before all CellRank steps.
@@ -44,7 +44,9 @@ ot_max_iterations: 2000
 ot_device: auto         # "cuda" if GPU available, else "cpu"
 
 # ── Kernel combination ────────────────────────────────────────────────────────
-rtk_weight: 0.8         # RealTimeKernel (temporal) weight; CK weight = 0.2
+rtk_weight: 0.4         # RealTimeKernel (temporal) weight
+cytotrace_weight: 0.4   # CytoTRACEKernel (cell-intrinsic directionality) weight; CK = 0.2
+cytotrace_layer: counts # adata layer for gene-count computation
 
 # ── GPCCA ─────────────────────────────────────────────────────────────────────
 # 14 macrostates: 11 mature EN subtypes + EN-IT-Immature + EN-Newborn +
@@ -71,10 +73,10 @@ fate_prob_threshold: 0.1
 # cell to end up as L2-3?), not a trajectory position.
 pseudotime_key: pseudotime_l23
 l23_lineage_pattern: "L2_3"        # matches "EN-L2_3-IT"
-# pseudotime_absorption: mean first-passage time to any terminal state (GPCCA).
-# Inverted and normalised so 0 = progenitor, 1 = mature neuron.
-# This is the Monocle3-equivalent trajectory pseudotime.
+# pseudotime_absorption: DPT from the youngest progenitor root cell.
+# Correlated with donor age; 0 = progenitor, 1 = most mature.
 absorption_pseudotime_key: pseudotime_absorption
+dpt_root_cell_type: "Immature|Newborn"
 
 # ── Plots ─────────────────────────────────────────────────────────────────────
 save_plots: true
@@ -83,6 +85,8 @@ plot_color_vars:
   - age_years
   - source
 umap_key: X_umap_scanvi
+recompute_umap: true          # recompute UMAP from X_scANVI on EN-only subset
+lineage_umap_key: X_umap_lineage
 point_size: 1.0
 excitatory_cell_type_pattern: "EN-"
 

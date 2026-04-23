@@ -179,64 +179,93 @@ _grn_pivot = ahba_GRN.pivot_table(
     index='Network', columns='Gene', values='Importance', fill_value=0)
 ```
 
-### 2.3 Pearson Residuals + GRN Projection
+### 2.3 GRN Projection — Pearson Residuals vs scANVI-Normalized
 
-Three conditions are run:
+Two normalization methods × (all genes + top-N HVGs) = 10 conditions:
 
 | condition | description |
 |---|---|
-| `pearson_all` | Pearson residuals, all genes (no HVG filtering) |
-| `pearson_{n}` | Pearson residuals, top *n* genes by residual variance |
+| `pearson_all` | Pearson residuals on raw counts, all genes |
+| `pearson_{n}` | Pearson residuals, top-*n* genes (by Pearson HVG method) |
+| `scanvi_all` | scANVI batch-corrected expression, all genes |
+| `scanvi_{n}` | scANVI batch-corrected, top-*n* genes by variance |
 
 ```{python}
 from regulons import project_GRN
 
-# Compute Pearson residuals on raw counts once — overwrites adata.X
-adata.X = adata.layers['counts'].copy()
-sc.experimental.pp.normalize_pearson_residuals(adata, inplace=True)
-_residuals_X = (adata.X.toarray() if _sp.issparse(adata.X) else adata.X).copy()
-_n_nan = np.isnan(_residuals_X).sum()
-if _n_nan > 0:
-    _n_bad = int(np.isnan(_residuals_X).any(axis=0).sum())
-    print(f"Warning: {_n_nan} NaN residuals in {_n_bad} gene(s) (all-zero counts); filling with 0.")
-    _residuals_X = np.nan_to_num(_residuals_X, nan=0.0)
-print(f"Pearson residuals computed on all {adata.n_vars} genes.")
+def _project_and_collect(adata, ahba_GRN, condition_name, use_highly_variable=False):
+    project_GRN(adata, ahba_GRN, 'X_ahba',
+                use_residuals=False, use_highly_variable=use_highly_variable,
+                log_transform=False)
+    return (pd.DataFrame(adata.obsm['X_ahba'], index=adata.obs_names,
+                         columns=adata.uns['X_ahba_names'])[['C3+', 'C3-']]
+              .assign(obs_names=lambda d: d.index, condition=condition_name)
+              .melt(id_vars=['obs_names', 'condition'], var_name='C', value_name='value'))
 
 all_scores = []
 
-# --- Condition: all genes (no HVG filtering) ---
-adata.X = _residuals_X.copy()
+# ── Method 1: Pearson residuals on raw counts ─────────────────────────────────
+adata.X = adata.layers['counts'].copy()
+sc.experimental.pp.normalize_pearson_residuals(adata, inplace=True)
+_pearson_X = (adata.X.toarray() if _sp.issparse(adata.X) else adata.X).copy()
+_n_nan = np.isnan(_pearson_X).sum()
+if _n_nan > 0:
+    _n_bad = int(np.isnan(_pearson_X).any(axis=0).sum())
+    print(f"Warning: {_n_nan} NaN residuals in {_n_bad} gene(s) (all-zero counts); filling with 0.")
+    _pearson_X = np.nan_to_num(_pearson_X, nan=0.0)
+print(f"Pearson residuals: {adata.n_vars} genes, {adata.n_obs} donors.")
+
+adata.X = _pearson_X.copy()
 if 'highly_variable' in adata.var.columns:
     del adata.var['highly_variable']
-project_GRN(adata, ahba_GRN, 'X_ahba',
-            use_residuals=False, use_highly_variable=False, log_transform=False)
-_proj = (pd.DataFrame(adata.obsm['X_ahba'], index=adata.obs_names,
-                      columns=adata.uns['X_ahba_names'])[['C3+', 'C3-']]
-           .assign(obs_names=lambda d: d.index, condition='pearson_all'))
-all_scores.append(_proj.melt(id_vars=['obs_names', 'condition'], var_name='C', value_name='value'))
+all_scores.append(_project_and_collect(adata, ahba_GRN, 'pearson_all'))
 print(f"pearson_all : {adata.n_vars} genes, "
       f"{len(np.intersect1d(_grn_pivot.columns, adata.var_names))} GRN genes")
 
-# --- Conditions: top N genes by Pearson residuals ---
 for n in N_VALUES:
-    # Select HVGs based on Pearson residual variance (from counts layer)
     sc.experimental.pp.highly_variable_genes(adata, n_top_genes=n, layer='counts')
     n_hvg = int(adata.var['highly_variable'].sum())
     n_grn = len(np.intersect1d(
         _grn_pivot.columns, adata.var_names[adata.var['highly_variable']]))
-
-    # Project using full residual matrix filtered to selected HVGs
-    adata.X = _residuals_X.copy()
-    project_GRN(adata, ahba_GRN, 'X_ahba',
-                use_residuals=False, use_highly_variable=True, log_transform=False)
-    _proj = (pd.DataFrame(adata.obsm['X_ahba'], index=adata.obs_names,
-                          columns=adata.uns['X_ahba_names'])[['C3+', 'C3-']]
-               .assign(obs_names=lambda d: d.index, condition=f'pearson_{n}'))
-    all_scores.append(_proj.melt(id_vars=['obs_names', 'condition'], var_name='C', value_name='value'))
+    adata.X = _pearson_X.copy()
+    all_scores.append(_project_and_collect(adata, ahba_GRN, f'pearson_{n}',
+                                           use_highly_variable=True))
     print(f"pearson_{n:<5}: {n_hvg} HVGs, {n_grn} GRN genes")
+del _pearson_X
+
+# ── Method 2: scANVI batch-corrected (linear scale) ──────────────────────────
+if 'scanvi_normalized' not in adata.layers:
+    raise ValueError(
+        "Layer 'scanvi_normalized' not found. "
+        f"Available layers: {list(adata.layers.keys())}")
+_raw = adata.layers['scanvi_normalized']
+_scanvi_X = (_raw.toarray() if _sp.issparse(_raw)
+             else np.array(_raw, dtype=np.float32)).copy()
+_gene_vars = _scanvi_X.var(axis=0)
+print(f"scanvi_normalized: {adata.n_vars} genes, {adata.n_obs} donors.")
+
+adata.X = _scanvi_X.copy()
+if 'highly_variable' in adata.var.columns:
+    del adata.var['highly_variable']
+all_scores.append(_project_and_collect(adata, ahba_GRN, 'scanvi_all'))
+print(f"scanvi_all  : {adata.n_vars} genes, "
+      f"{len(np.intersect1d(_grn_pivot.columns, adata.var_names))} GRN genes")
+
+for n in N_VALUES:
+    top_idx = np.argsort(_gene_vars)[::-1][:n]
+    adata.var['highly_variable'] = False
+    adata.var.iloc[top_idx, adata.var.columns.get_loc('highly_variable')] = True
+    n_hvg = int(adata.var['highly_variable'].sum())
+    n_grn = len(np.intersect1d(
+        _grn_pivot.columns, adata.var_names[adata.var['highly_variable']]))
+    adata.X = _scanvi_X.copy()
+    all_scores.append(_project_and_collect(adata, ahba_GRN, f'scanvi_{n}',
+                                           use_highly_variable=True))
+    print(f"scanvi_{n:<5}: {n_hvg} HVGs, {n_grn} GRN genes")
+del _scanvi_X, _gene_vars
 
 scores_df = pd.concat(all_scores, ignore_index=True)
-del _residuals_X; gc.collect()
+gc.collect()
 ```
 
 ### 2.4 Build Scores DataFrame
@@ -277,7 +306,8 @@ Childhood = `[child_start, gap_start)`, Adolescence = `[gap_start + gap_length, 
 source(file.path(code_dir, 'plotting', 'hvg_plots.r'))
 source(file.path(code_dir, 'plotting', 'sensitivity_gap_plots.r'))
 
-selected_conds <- c('pearson_all', paste0('pearson_', N_VALUES))
+selected_conds <- c('pearson_all', paste0('pearson_', N_VALUES),
+                    'scanvi_all',  paste0('scanvi_', N_VALUES))
 
 df <- prepare_r_data_single(final_df, condition_order = selected_conds)
 
@@ -301,7 +331,7 @@ if (n_valid_d == 0) {
   cat(sprintf("  n donors in df: %d unique\n", length(unique(df$individual))))
 }
 
-best <- select_best_4d(sens_4d)   # auto-selects HVG condition with lowest p-value
+best <- select_best_4d(sens_4d, baseline = 'scanvi_all')
 
 cat(sprintf("\nBest HVG condition : %s\n", best$condition))
 cat(sprintf(
@@ -344,7 +374,8 @@ plot_4d_power(sens_4d, filter_cond = best_cond)
 
 ## 4. Developmental Trends (Best Age Range)
 
-All subsequent sections use the age boundaries selected above (lowest p-value for `pearson_all`).
+All subsequent sections use the age boundaries selected above (lowest p-value for `scanvi_all`),
+applied identically to both normalization methods for a direct comparison.
 
 ```{python}
 %%R
@@ -359,21 +390,21 @@ cat(sprintf(
 ```{python}
 #| message: false
 #| warning: false
-%%R -i TOTAL_GENES -i N_VALUES -w 220 -h 220 -u mm -r 300
+%%R -i TOTAL_GENES -i N_VALUES -w 280 -h 220 -u mm -r 300
 
-facet_levels <- c(paste0("all\n(", TOTAL_GENES, ")"), as.character(N_VALUES))
+facet_levels <- c(paste0("all\n(", TOTAL_GENES, ")"), rev(as.character(N_VALUES)))
 
 decorate_hvg_facets <- function(data_tbl) {
     data_tbl %>%
         mutate(
             flavor = case_when(
-                grepl('seurat_v3', condition) ~ 'seurat_v3',
                 grepl('pearson', condition) ~ 'pearson',
-                grepl('seurat', condition) ~ 'seurat',
-                TRUE ~ 'none'
+                grepl('scanvi',  condition) ~ 'scanvi',
+                TRUE ~ 'other'
             ),
             n_genes = case_when(
-                condition == 'pearson_all' ~ paste0("all\n(", TOTAL_GENES, ")"),
+                condition %in% c('pearson_all', 'scanvi_all') ~
+                    paste0("all\n(", TOTAL_GENES, ")"),
                 grepl('_(\\d+)$', as.character(condition)) ~
                     gsub('.*_(\\d+)$', '\\1', as.character(condition)),
                 TRUE ~ as.character(condition)
@@ -388,11 +419,21 @@ pb <- df %>%
     filter(C == 'C3+') %>%
     decorate_hvg_facets() %>%
     group_by(condition, flavor, n_genes, individual, age_years, source) %>%
-    summarize(value = mean(value), .groups = 'drop')
+    summarize(value = mean(value), .groups = 'drop') %>%
+    group_by(condition) %>%
+    mutate(value = (value - mean(value)) / sd(value)) %>%
+    ungroup()
 
 df_boxes_plot <- df_boxes %>%
     filter(network == 'C3+') %>%
-    decorate_hvg_facets()
+    decorate_hvg_facets() %>%
+    group_by(condition) %>%
+    mutate(
+        value    = (value - mean(value)) / sd(value),
+        box_alpha = ifelse(age_range == 'Gap', 0.3, 0.4),
+        pt_alpha = ifelse(age_range == 'Gap', 0.3, 0.7)
+    ) %>%
+    ungroup()
 
 p_traj <- pb %>%
     ggplot(aes(x = age_years, y = value)) +
@@ -414,10 +455,7 @@ p_traj <- pb %>%
         limits = c(0, 30),
         breaks = seq(0, 30, 5)
     ) +
-    scale_y_continuous(
-        name = 'C3+ Pseudobulked Score (CPM)',
-        labels = function(y) paste0(round(y / 1e3, 1), 'K')
-    ) +
+    scale_y_continuous(name = 'C3+ score (z-scored)') +
     scale_color_discrete(name = 'Source',
         guide = guide_legend(override.aes = list(size = 2, alpha = 1))) +
     theme_classic() +
@@ -429,7 +467,7 @@ p_traj <- pb %>%
         panel.spacing = unit(0.3, 'lines')
     ) +
     ggtitle(
-        "C3+ pseudobulked age trajectories by HVG method",
+        "C3+ age trajectories — Pearson residuals vs scANVI-normalized",
         subtitle = sprintf(
             "Childhood [%d, %d), gap [%d, %d), Adolescence [%d, %d)",
             best_cs, best_ce, best_ce, best_as, best_as, best_ae))
@@ -437,15 +475,14 @@ p_traj <- pb %>%
 p_boxes <- df_boxes_plot %>%
     ggplot(aes(x = age_range, y = value)) +
     facet_grid(n_genes ~ flavor, scales = 'free') +
-    geom_boxplot(outlier.shape = NA, alpha = 0.4) +
-    geom_jitter(aes(color = source), width = 0.15, size = 1.5, alpha = 0.7) +
+    geom_boxplot(aes(alpha = box_alpha), outlier.shape = NA) +
+    geom_jitter(aes(color = source, alpha = pt_alpha), width = 0.15, size = 1.5) +
+    scale_alpha_identity(guide = 'none') +
     stat_compare_means(comparisons = list(c('Childhood', 'Adolescence'),
-                                                                                c('Adolescence', 'Adulthood')),
-                                         label = 'p.signif', size = 3) +
-    scale_y_continuous(
-        name = 'Pseudobulked C3+ Score (CPM)',
-        labels = function(y) paste0(round(y / 1e3, 1), 'K')
-    ) +
+                                          c('Adolescence', 'Early Adult'),
+                                          c('Early Adult', 'Late Adult')),
+                       label = 'p.signif', size = 3) +
+    scale_y_continuous(name = 'C3+ score (z-scored)') +
     scale_color_discrete(name = 'Source',
         guide = guide_legend(override.aes = list(size = 2, alpha = 1))) +
     coord_cartesian(clip = 'off') +
@@ -461,7 +498,7 @@ p_boxes <- df_boxes_plot %>%
         panel.margin = margin(t = 15, r = 5, b = 5, l = 5)
     ) +
     ggtitle(sprintf(
-        "C3+ Childhood [%d, %d) vs Adolescence [%d, %d) by HVG method",
+        "C3+ Childhood [%d, %d) vs Adolescence [%d, %d) — Pearson vs scANVI-normalized",
         best_cs, best_ce, best_as, best_ae))
 
 (p_traj | p_boxes) + plot_layout(guides = 'collect')

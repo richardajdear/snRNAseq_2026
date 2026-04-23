@@ -77,6 +77,8 @@ PALETTE = {1: "#4878CF", 2: "#D65F5F", 3: "#6AAB6A", 4: "#D68A5F", 5: "#9B59B6"}
 
 N_UMAP_CELLS = 10_000  # per-trial subsample for UMAP speed (~10–20 s/panel on CPU)
 
+FIGURE_WIDTH = 14.0  # inches — enforced across all output figures so they align in the PDF
+
 
 def _load_results(input_dir: Path) -> tuple[pd.DataFrame, pd.DataFrame | None]:
     trials_path = input_dir / "trial_results.csv"
@@ -138,7 +140,7 @@ def _param_label(row: pd.Series) -> str:
 # ---------------------------------------------------------------------------
 
 def fig_trial_ranking(df: pd.DataFrame) -> plt.Figure:
-    fig, axes = plt.subplots(1, 2, figsize=(14, max(5, len(df) * 0.55 + 1.5)),
+    fig, axes = plt.subplots(1, 2, figsize=(FIGURE_WIDTH, max(5, len(df) * 0.55 + 1.5)),
                              gridspec_kw={"width_ratios": [3, 1]})
     fig.suptitle("Trial Objective Ranking", fontsize=13, fontweight="bold")
 
@@ -186,8 +188,8 @@ def fig_trial_ranking(df: pd.DataFrame) -> plt.Figure:
             fontsize=6.5, ha="left", va="bottom",
         )
     fig.colorbar(sc, ax=ax2, label="Objective")
-    ax2.set_xlabel("Silhouette norm (20%)")
-    ax2.set_ylabel("Age batch score (80%)")
+    ax2.set_xlabel("Silhouette norm (35%)")
+    ax2.set_ylabel("Age batch score (65%)")
     ax2.set_title("Score components")
     ax2.grid(alpha=0.3)
 
@@ -200,23 +202,42 @@ def fig_trial_ranking(df: pd.DataFrame) -> plt.Figure:
 # ---------------------------------------------------------------------------
 
 def fig_age_bin_heatmap(df: pd.DataFrame) -> plt.Figure:
-    present_bins = [b for b in AGE_BIN_ORDER if b in df.columns and df[b].notna().any()]
-    # Also pick up any bins not in AGE_BIN_ORDER (e.g. from unexpected config)
-    extra = [c for c in df.columns if c.startswith("[") and c not in present_bins and df[c].notna().any()]
-    present_bins = present_bins + extra
+    # Use _pct_of_max columns only: normalises each bin by its structural ceiling
+    # (bins with fewer present batches get lower max entropy; pct_of_max makes bins
+    # directly comparable).  Showing only this metric keeps the heatmap compact.
+    ordered_pct = [f"{b}_pct_of_max" for b in AGE_BIN_ORDER
+                   if f"{b}_pct_of_max" in df.columns and df[f"{b}_pct_of_max"].notna().any()]
+    extra_pct = [c for c in df.columns
+                 if c.endswith("_pct_of_max")
+                 and c not in ordered_pct
+                 and df[c].notna().any()]
+    pct_cols = ordered_pct + extra_pct
+    if not pct_cols:
+        # Fallback: no _pct_of_max columns (older run); show raw scores instead
+        present_bins = [b for b in AGE_BIN_ORDER if b in df.columns and df[b].notna().any()]
+        extra = [c for c in df.columns
+                 if c.startswith("[") and c not in present_bins
+                 and not any(c.endswith(s) for s in ("_pct_of_max", "_max_score", "_n_batches"))
+                 and df[c].notna().any()]
+        present_bins = present_bins + extra
+        pct_cols = present_bins
+        vmin, vmax, cbar_label, fmt = 0, 0.55, "Mixing score", ".2f"
+    else:
+        present_bins = [c[:-len("_pct_of_max")] for c in pct_cols]
+        vmin, vmax, cbar_label, fmt = 0, 100, "% of max possible", ".0f"
 
-    mat = df[present_bins].values  # shape: (n_trials, n_bins)
+    mat = df[pct_cols].values  # shape: (n_trials, n_bins)
     row_labels = [f"T{int(r['trial'])}  {_param_label(r)}" for _, r in df.iterrows()]
     col_labels = [AGE_BIN_LABELS.get(b, b) for b in present_bins]
     prenatal_idxs = [k for k, b in enumerate(present_bins) if _is_prenatal_bin(b)]
 
-    fig, ax = plt.subplots(figsize=(max(10, len(present_bins) * 1.2), max(5, len(df) * 0.55 + 2)))
-    fig.suptitle("Age-Bin Batch Mixing Scores (neighbourhood entropy, higher = better)",
+    fig, ax = plt.subplots(figsize=(FIGURE_WIDTH, max(5, len(df) * 0.55 + 2)))
+    fig.suptitle("Age-Bin Batch Mixing: % of max possible score (higher = better)",
                  fontsize=12, fontweight="bold")
 
-    im = ax.imshow(mat, aspect="auto", cmap="RdYlGn", vmin=0, vmax=0.55,
+    im = ax.imshow(mat, aspect="auto", cmap="RdYlGn", vmin=vmin, vmax=vmax,
                    interpolation="nearest")
-    fig.colorbar(im, ax=ax, label="Mixing score", shrink=0.6)
+    fig.colorbar(im, ax=ax, label=cbar_label, shrink=0.6)
 
     ax.set_xticks(range(len(col_labels)))
     ax.set_xticklabels(col_labels, fontsize=8, rotation=30, ha="right")
@@ -228,8 +249,8 @@ def fig_age_bin_heatmap(df: pd.DataFrame) -> plt.Figure:
         for j in range(mat.shape[1]):
             v = mat[i, j]
             if np.isfinite(v):
-                ax.text(j, i, f"{v:.2f}", ha="center", va="center",
-                        fontsize=6.5, color="black" if 0.15 < v < 0.45 else "white")
+                ax.text(j, i, f"{v:{fmt}}", ha="center", va="center",
+                        fontsize=6.5, color="black" if 20 < v < 80 else "white")
 
     for idx in prenatal_idxs:
         ax.axvline(idx - 0.5, color="steelblue", linewidth=1.5, alpha=0.7)
@@ -248,7 +269,7 @@ def fig_age_bin_heatmap(df: pd.DataFrame) -> plt.Figure:
 # ---------------------------------------------------------------------------
 
 def fig_parameter_effects(df: pd.DataFrame) -> plt.Figure:
-    fig, axes = plt.subplots(2, 3, figsize=(14, 8))
+    fig, axes = plt.subplots(2, 3, figsize=(FIGURE_WIDTH, 8))
     fig.suptitle(
         "Hyperparameter Effect on Objective Score\n"
         "(NOTE: effects are confounded — control for n_layers when interpreting n_hidden / n_latent)",
@@ -322,7 +343,7 @@ def fig_prenatal_focus(df: pd.DataFrame) -> plt.Figure:
     df2["prenatal_mean"] = df[prenatal_bins].mean(axis=1) if prenatal_bins else float("nan")
     df2["postnatal_mean"] = df[early_postnatal].mean(axis=1) if early_postnatal else float("nan")
 
-    fig, axes = plt.subplots(1, 2, figsize=(13, 5))
+    fig, axes = plt.subplots(1, 2, figsize=(FIGURE_WIDTH, 5))
     fig.suptitle("Prenatal vs Postnatal Batch Mixing", fontsize=13, fontweight="bold")
 
     # Left: scatter prenatal vs postnatal mean, coloured by n_latent
@@ -385,7 +406,7 @@ def fig_scanvi_comparison(df: pd.DataFrame, scanvi: pd.DataFrame) -> plt.Figure:
     merged = scanvi.merge(df[["trial"] + PARAM_COLS], on="trial", how="left")
     merged = merged.sort_values("scvi_objective", ascending=False).reset_index(drop=True)
 
-    fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+    fig, axes = plt.subplots(1, 2, figsize=(FIGURE_WIDTH, 5))
     fig.suptitle("scVI vs scANVI: Objective and Delta", fontsize=13, fontweight="bold")
 
     ax = axes[0]
@@ -455,8 +476,7 @@ def fig_batch_mixing(df: pd.DataFrame) -> plt.Figure | None:
     trial_labels = [f"T{int(r['trial'])}" for _, r in df.iterrows()]
 
     fig_h = max(3, len(sorted_names) * 0.65 + 2)
-    fig_w = max(10, len(df) * 0.65 + 3)
-    fig, ax = plt.subplots(figsize=(fig_w, fig_h))
+    fig, ax = plt.subplots(figsize=(FIGURE_WIDTH, fig_h))
     fig.suptitle(
         "Per-Batch Global Mixing Score  (k-NN entropy, higher = better integrated)\n"
         "Global k-NN — identifies batches isolated across the whole latent space, not just within one age bin.",
@@ -564,7 +584,7 @@ def fig_umap_grid(
     batch_colors = {b: tab_cmap(i) for i, b in enumerate(batches)}
 
     n_cols = 5
-    fig, axes = plt.subplots(2, n_cols, figsize=(n_cols * 2.8, 6.5))
+    fig, axes = plt.subplots(2, n_cols, figsize=(FIGURE_WIDTH, 6.5))
     fig.suptitle(
         f"UMAP coloured by batch — top {len(top_rows)} trials (row 1) vs bottom {len(bot_rows)} trials (row 2)\n"
         f"Fixed {n_sub:,}-cell subsample per panel; each UMAP is independent — compare clustering, not coordinates",

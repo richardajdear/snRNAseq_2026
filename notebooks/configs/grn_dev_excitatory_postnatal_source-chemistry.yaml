@@ -3,8 +3,8 @@ EXPERIMENT_NAME: grn_dev_excitatory_postnatal_source-chemistry
 PSEUDOBULK_FILE: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/VelWangPsychAD_100k_postnatal_source-chemistry/pseudobulk_output/by_cell_class.h5ad
 CELL_CLASS_COL:   cell_class
 CELL_CLASS_VALUE: Excitatory
-N_VALUES:      [1000, 2000, 4000, 8000]
+N_VALUES:      [2000, 4000, 8000]
 CHILD_STARTS:  [1, 2, 3, 4, 5]
-GAP_STARTS:    [9, 10, 11, 12, 13]
-GAP_LENGTHS:   [1, 2, 3, 4, 5]
-ADOL_ENDS:     [20, 22, 24, 26]
+GAP_STARTS:    [10, 11, 12, 13, 14]
+GAP_LENGTHS:   [0, 1, 2, 3, 4]
+ADOL_ENDS:     [18, 20, 22, 24, 26]

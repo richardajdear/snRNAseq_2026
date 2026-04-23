@@ -3,9 +3,24 @@
 #
 # If combined.h5ad has been deleted by the pipeline, the script automatically
 # rebuilds it from scvi_output/integrated.h5ad using backed reads (layers['counts']).
+#
+# --- Run history ---
+# Run 1 (scvi_tuning_round2): 25 trials, search space included n_hidden=[32, 64, 128],
+#   n_latent=[20..60], batch_size=[256, 512].  Results were invalid: all top-10
+#   trials used n_hidden=32.  Diagnosis: n_hidden=32 < n_latent=60 is a degenerate
+#   architecture — the encoder bottleneck is narrower than the latent space, so the
+#   model cannot learn structured geometry.  The resulting diffuse latent cloud
+#   maximises neighbourhood batch-mixing entropy by accident, gaming the objective.
+#   The downstream UMAP showed large structureless blobs confirming the collapse.
+# Run 2 (scvi_tuning_round3, this config): n_hidden constrained to [128, 256] so
+#   n_hidden >= 2×n_latent for all combinations.  batch_size=256 dropped (no
+#   meaningful effect at this scale with early stopping).  silhouette_weight raised
+#   from 0.2 → 0.35 for a stronger biological-preservation signal.  kNN cell-type
+#   purity was considered but deferred: computing it requires scANVI-derived unified
+#   labels, creating a circular dependency with the latent space being optimised.
 
 input_h5ad: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/VelWangPsychAD_100k_source-chemistry/combined.h5ad
-output_dir: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/VelWangPsychAD_100k_source-chemistry/scvi_tuning
+output_dir: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/VelWangPsychAD_100k_source-chemistry/scvi_tuning_round3
 
 batch_key: source-chemistry
 age_key: age_years
@@ -17,13 +32,13 @@ continuous_covariate_keys: [age_log_pc]
 categorical_covariate_keys: [sex]
 
 hvg:
-  n_top_genes: 10000
+  n_top_genes: 15000
   hvg_flavor: pearson_residuals
   # hvg_batch_key is ignored for pearson_residuals (not supported by scanpy).
 
 tuning:
   random_seed: 42
-  n_trials: 24           # time-budget check stops early if max_hours is hit
+  n_trials: 22           # 32 valid combinations; 22 trials ≈ 68% coverage
   max_hours: 11.0        # 1h buffer inside the 12h SLURM wall
   max_cells: 120000      # stratified subsample; ~40% of full 300k dataset
   num_workers: 4
@@ -43,21 +58,25 @@ training:
 # lr / weight_decay / dropout_rate use scVI defaults — they are secondary to
 # architecture for batch integration quality and do not plumb back to production.
 #
-# Run 2 (24 trials) showed n_layers=4 > n_layers=3 > n_layers=2 (+0.019/layer,
-# no diminishing returns), and within n_layers=4, narrower n_hidden is better
-# (n_hidden=64 > 128 > 512).  n_hidden=512 and n_latent=80 dropped; n_hidden=32
-# and n_layers=5 added to probe whether the narrow+deep trend continues.
+# n_hidden constrained to [128, 256]: enforces n_hidden >= 2×n_latent across all
+# combinations, preventing the degenerate encoder bottleneck seen in run 1.
+# n_hidden=32 and n_hidden=64 excluded entirely.
+# batch_size fixed at 512: no meaningful quality effect at this scale with early
+# stopping; dropping 256 frees trial budget for architecture exploration.
 #
-# Space size: 2 × 3 × 5 × 2 × 2 = 120 combinations
-# At ~25 min/trial and n_trials=24 + max_hours=11: ~24 trials expected
+# Space size: 4 × 2 × 2 × 2 × 1 = 32 combinations
 search_space:
-  n_latent: [20, 30, 40, 50, 60]
-  n_hidden: [32, 64, 128]
+  n_latent: [30, 40, 50, 60]
+  n_hidden: [128, 256]
   n_layers: [4, 5]
   gene_likelihood: ["nb", "zinb"]
-  batch_size: [256, 512]
+  batch_size: [512]
 
-# Objective = weighted age-bin batch mixing (80%) + per-age-bin cell-type silhouette (20%).
+# Objective = weighted age-bin batch mixing (65%) + per-age-bin cell-type silhouette (35%).
+# silhouette_weight raised from 0.2 → 0.35 to strengthen the biological-preservation
+# signal and reduce susceptibility to architectures that game mixing entropy via
+# latent-space collapse.  cell_type_key=cell_class (Excitatory/Inhibitory/Non-neuronal)
+# provides a batch-consistent cell-type label without requiring scANVI label transfer.
 # Prenatal bins are upweighted because this is currently the least integrated region.
 # Entropy is normalised by log(n_batches_global) so prenatal bins with fewer batches
 # present are NOT artificially inflated relative to postnatal bins.
@@ -76,5 +95,5 @@ metric:
   k_neighbors: 20
   min_cells_per_bin: 100      # lowered from 200 to capture finer prenatal bins
   min_cells_per_group: 75
-  silhouette_weight: 0.2
+  silhouette_weight: 0.35
   max_silhouette_cells_per_bin: 5000   # per-bin cap; avoids global silhouette age artefact

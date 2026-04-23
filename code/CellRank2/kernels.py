@@ -1,6 +1,6 @@
 """Kernel construction and combination for CellRank 2 lineage tracing.
 
-Two kernels are built and combined:
+Three kernels are built and combined:
 
   ConnectivityKernel (CK)
     Captures transcriptomic similarity via a kNN graph computed on the
@@ -13,7 +13,13 @@ Two kernels are built and combined:
     consecutive age bins, producing asymmetric couplings that drive the
     transition matrix forward in developmental / maturational time.
 
-Combined kernel = rtk_weight * RTK + (1 - rtk_weight) * CK
+  CytoTRACEKernel (CTK)  [optional, enabled when cytotrace_weight > 0]
+    Captures cell-intrinsic developmental directionality from transcriptomic
+    complexity: cells expressing more genes are less differentiated.  Drives
+    the Markov chain from high-complexity progenitors to low-complexity mature
+    neurons without relying on age-bin OT couplings.
+
+Combined kernel = cytotrace_weight * CTK + rtk_weight * RTK + (1-both) * CK
 """
 
 import logging
@@ -192,10 +198,18 @@ def run_moscot_ot(
             device = "cpu"
     logger.info(f"  moscot OT device: {device}")
 
+    # Use the batch-corrected latent embedding (X_scANVI, 30D) as the OT cost
+    # rather than adata.X (15,540D → PCA fallback). This makes couplings
+    # transcriptomically specific: prenatal cells couple to the adult cells they
+    # most resemble in the corrected latent space.
+    joint_attr = {"attr": "obsm", "key": config.latent_key}
+    logger.info(f"  OT joint_attr: obsm['{config.latent_key}']")
+
     with Timer("moscot TemporalProblem (prepare + solve)", logger):
         problem = mp.TemporalProblem(adata)
         problem = problem.prepare(
             time_key=time_col,
+            joint_attr=joint_attr,
         )
         problem = problem.solve(
             epsilon=config.ot_epsilon,
@@ -255,24 +269,132 @@ def build_realtime_kernel(
     return rtk
 
 
+def build_cytotrace_kernel(
+    adata: ad.AnnData,
+    config: CellRankConfig,
+    logger: logging.Logger,
+):
+    """Build CytoTRACEKernel using transcriptomic complexity (genes per cell).
+
+    Drives the Markov chain from high-complexity progenitors toward
+    low-complexity mature neurons, providing cell-intrinsic directionality
+    that the RealTimeKernel alone cannot supply.
+
+    Returns None if CytoTRACEKernel is not available in the installed
+    CellRank version.
+    """
+    try:
+        from cellrank.kernels import CytoTRACEKernel
+    except ImportError:
+        logger.warning(
+            "CytoTRACEKernel not available in this CellRank version; "
+            "set cytotrace_weight=0 to silence this warning."
+        )
+        return None
+
+    try:
+        # CytoTRACEKernel reads adata.uns['neighbors'] by default regardless of
+        # what conn_key is passed. Temporarily expose our custom graph under the
+        # standard key so the kernel can find it.
+        _prior = adata.uns.get("neighbors")
+        adata.uns["neighbors"] = adata.uns[config.neighbors_key]
+        try:
+            with Timer("CytoTRACEKernel", logger):
+                ctk = CytoTRACEKernel(adata)
+                ctk.compute_transition_matrix(threshold_scheme="soft")
+        finally:
+            if _prior is not None:
+                adata.uns["neighbors"] = _prior
+            else:
+                adata.uns.pop("neighbors", None)
+
+        logger.info(
+            f"  CytoTRACEKernel: transition matrix shape "
+            f"{ctk.transition_matrix.shape}"
+        )
+        return ctk
+    except Exception as exc:
+        logger.warning(
+            f"  CytoTRACEKernel.compute_transition_matrix failed ({exc}); "
+            "continuing without CytoTRACEKernel."
+        )
+        return None
+
+
 def combine_kernels(
     rtk,
     ck,
     config: CellRankConfig,
     logger: logging.Logger,
+    ctk=None,
 ):
-    """Combine RealTimeKernel and ConnectivityKernel into a weighted sum.
+    """Combine kernels into a weighted sum.
 
-    Combined = rtk_weight * RTK + (1 - rtk_weight) * CK
+    With CytoTRACEKernel:
+        combined = cytotrace_weight * CTK + rtk_weight * RTK + (1-both) * CK
+    Without:
+        combined = rtk_weight * RTK + (1 - rtk_weight) * CK
     """
     w_rtk = config.rtk_weight
-    w_ck = 1.0 - w_rtk
-    combined = w_rtk * rtk + w_ck * ck
-    logger.info(
-        f"  Combined kernel: "
-        f"RTK weight={w_rtk:.2f}, CK weight={w_ck:.2f}"
-    )
+    w_ctk = config.cytotrace_weight if ctk is not None else 0.0
+    w_ck = 1.0 - w_rtk - w_ctk
+
+    if ctk is not None:
+        combined = w_ctk * ctk + w_rtk * rtk + w_ck * ck
+        logger.info(
+            f"  Combined kernel: "
+            f"CTK weight={w_ctk:.2f}, RTK weight={w_rtk:.2f}, CK weight={w_ck:.2f}"
+        )
+    else:
+        combined = w_rtk * rtk + w_ck * ck
+        logger.info(
+            f"  Combined kernel: "
+            f"RTK weight={w_rtk:.2f}, CK weight={w_ck:.2f}"
+        )
     return combined
+
+
+def compute_lineage_umap(
+    adata: ad.AnnData,
+    config: CellRankConfig,
+    logger: logging.Logger,
+) -> None:
+    """Recompute UMAP on the EN-only subset from the existing kNN graph.
+
+    The neighbours graph (config.neighbors_key) was computed on X_scANVI of
+    the filtered EN subset, so this UMAP focuses all dimensionality-reduction
+    budget on within-EN developmental variance rather than cross-cell-type
+    separation.  Result stored in adata.obsm[config.lineage_umap_key].
+    """
+    if not config.recompute_umap:
+        return
+
+    if config.lineage_umap_key in adata.obsm and not config.overwrite:
+        logger.info(
+            f"  '{config.lineage_umap_key}' already present; "
+            "skipping UMAP recomputation (set overwrite=True to redo)."
+        )
+        return
+
+    if config.neighbors_key not in adata.uns:
+        logger.warning(
+            f"  '{config.neighbors_key}' not in adata.uns; "
+            "cannot recompute UMAP — run neighbors step first."
+        )
+        return
+
+    with Timer("UMAP on EN-only subset", logger):
+        sc.tl.umap(
+            adata,
+            neighbors_key=config.neighbors_key,
+            random_state=config.random_seed,
+        )
+
+    adata.obsm[config.lineage_umap_key] = adata.obsm["X_umap"].copy()
+    logger.info(
+        f"  EN-only UMAP stored as '{config.lineage_umap_key}' "
+        f"({adata.n_obs} cells × 2 dims)"
+    )
 
 
 # ── Public entry point ─────────────────────────────────────────────────────────
@@ -283,26 +405,38 @@ def build_kernels(
     logger: logging.Logger,
     moscot_problem=None,
 ):
-    """Build the ConnectivityKernel, optionally combine with RealTimeKernel.
+    """Build and combine kernels for GPCCA.
 
-    If ``moscot_problem`` is provided (from a prior ``run_moscot_ot`` call),
-    the function builds and combines both kernels.  Otherwise, only the
-    ConnectivityKernel is built (useful for testing without age data).
+    Always builds ConnectivityKernel.  If ``moscot_problem`` is provided,
+    also builds RealTimeKernel.  If ``config.cytotrace_weight > 0``, also
+    builds CytoTRACEKernel for cell-intrinsic developmental directionality.
 
     Returns
     -------
     combined_kernel
-        The final kernel expression passed to the GPCCA estimator.
+        The final weighted kernel expression for the GPCCA estimator.
     ck
-        The raw ConnectivityKernel (stored separately for diagnostics).
+        The raw ConnectivityKernel.
     rtk
         The raw RealTimeKernel, or None if not built.
+    ctk
+        The raw CytoTRACEKernel, or None if not built.
     """
     ck = build_connectivity_kernel(adata, config, logger)
 
+    # CytoTRACEKernel (optional — provides cell-intrinsic directionality)
+    ctk = None
+    if config.cytotrace_weight > 0:
+        ctk = build_cytotrace_kernel(adata, config, logger)
+        if ctk is None:
+            logger.warning(
+                "  CytoTRACEKernel build failed; proceeding without it. "
+                "Kernel weights will be renormalised automatically."
+            )
+
     if moscot_problem is not None:
         rtk = build_realtime_kernel(adata, moscot_problem, config, logger)
-        combined = combine_kernels(rtk, ck, config, logger)
+        combined = combine_kernels(rtk, ck, config, logger, ctk=ctk)
     else:
         logger.warning(
             "No moscot problem provided; using ConnectivityKernel only. "
@@ -312,4 +446,4 @@ def build_kernels(
         rtk = None
 
     log_memory("After kernel construction", logger)
-    return combined, ck, rtk
+    return combined, ck, rtk, ctk

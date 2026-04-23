@@ -40,7 +40,7 @@ from .estimator import (
     set_terminal_and_initial_states,
     subset_to_lineage,
 )
-from .kernels import bin_ages, build_kernels, ensure_neighbors, run_moscot_ot
+from .kernels import bin_ages, build_kernels, compute_lineage_umap, ensure_neighbors, run_moscot_ot
 from .plots import (
     plot_coarse_transition_matrix,
     plot_excitatory_l23_plots,
@@ -159,6 +159,20 @@ def run(config: CellRankConfig) -> ad.AnnData:
         ensure_neighbors(adata, config, logger)
         log_memory("After neighbors", logger)
 
+    # ── LINEAGE UMAP ───────────────────────────────────────────────────────────
+    # Recompute UMAP from X_scANVI on the filtered EN-only subset so all
+    # downstream plots focus dimensionality-reduction budget on within-EN
+    # developmental variance rather than cross-cell-type separation.
+    if config.recompute_umap:
+        logger.info("─" * 40)
+        logger.info("STEP: lineage UMAP (EN-only subset)")
+        compute_lineage_umap(adata, config, logger)
+        if config.lineage_umap_key in adata.obsm:
+            # Switch all plot functions to use the new EN-only UMAP
+            config.umap_key = config.lineage_umap_key
+            logger.info(f"  umap_key updated to '{config.umap_key}' for all plots.")
+        log_memory("After lineage UMAP", logger)
+
     # ── OT ─────────────────────────────────────────────────────────────────────
     moscot_problem = None
     if "ot" in steps:
@@ -173,7 +187,7 @@ def run(config: CellRankConfig) -> ad.AnnData:
     if "kernels" in steps:
         logger.info("─" * 40)
         logger.info("STEP: kernels")
-        combined_kernel, ck, rtk = build_kernels(
+        combined_kernel, ck, rtk, ctk = build_kernels(
             adata, config, logger, moscot_problem=moscot_problem
         )
         log_memory("After kernels", logger)

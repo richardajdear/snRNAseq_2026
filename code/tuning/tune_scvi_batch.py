@@ -1070,6 +1070,14 @@ def run_tuning(config_path: Path):
             exc_info=True,
         )
 
+    # Remove per-trial latent .npy files — they are only needed during the diagnostic
+    # UMAP step above and consume significant disk space (n_cells × n_latent × float32).
+    npy_files = sorted(output_dir.glob("trial_*_latent.npy"))
+    if npy_files:
+        for npy in npy_files:
+            npy.unlink()
+        logger.info(f"Deleted {len(npy_files)} trial latent .npy file(s)")
+
 
 def main():
     parser = argparse.ArgumentParser(description="Tune scVI hyperparameters for batch correction")

@@ -327,13 +327,14 @@ make_boxes_gap_df <- function(df, child_start, child_end, adol_start, adol_end) 
       age_years >= child_start & age_years < child_end     ~ "Childhood",
       age_years >= child_end  & age_years < adol_start     ~ "Gap",
       age_years >= adol_start & age_years < adol_end       ~ "Adolescence",
-      age_years >= adol_end                                ~ "Adulthood",
+      age_years >= adol_end   & age_years < 40             ~ "Early Adult",
+      age_years >= 40                                       ~ "Late Adult",
       TRUE ~ NA_character_
     )) %>%
     filter(!is.na(age_range)) %>%
     mutate(age_range = factor(age_range, ordered = TRUE,
                               levels = c("Prenatal", "Infancy", "Childhood",
-                                         "Gap", "Adolescence", "Adulthood"))) %>%
+                                         "Gap", "Adolescence", "Early Adult", "Late Adult"))) %>%
     group_by(condition, network, Individual, age_range, source, age_years) %>%
     summarize(value = mean(value), .groups = 'drop')
 }
@@ -540,7 +541,7 @@ select_best_4d <- function(sens_4d, baseline = NULL) {
 # → 25 panels of 5×5 tiles = 625 combinations in one figure.
 
 .make_4d_tile_base <- function(sens_4d, fill_var, fill_scale,
-                               filter_cond = 'pearson_all') {
+                               filter_cond = 'scanvi_all') {
   # Filter to one condition to avoid tile/text stacking from multiple conditions.
   # The sensitivity heatmaps show age-boundary robustness; HVG sensitivity
   # is shown separately in the effect summary table.
