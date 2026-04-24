@@ -37,4 +37,5 @@ from pipeline.label_transfer.legacy.diagnostics import (  # noqa: F401
     make_sankey,
     # Marker gene validation
     make_marker_validation,
+    make_marker_scatter_validation,
 )

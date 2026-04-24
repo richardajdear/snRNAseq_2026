@@ -110,6 +110,52 @@ def _find_progenitor_macrostates(g, pattern: str, config, logger) -> list:
     return progenitor_ms
 
 
+def _youngest_macrostate_as_initial(g, config, logger) -> list:
+    """Return the macrostate whose member cells have the lowest median age.
+
+    Used as a last-resort fallback when neither name-pattern nor composition
+    matching can identify progenitor/initial macrostates (e.g., postnatal
+    datasets where all GPCCA macrostates are mature EN subtypes).
+
+    The rationale: in postnatal maturational data the chronologically youngest
+    cells are the closest to a progenitor state, so the macrostate dominated by
+    the youngest donors is the most sensible initial state.
+    """
+    time_key = getattr(config, "time_key", "age_years") if config else "age_years"
+    adata = g.adata
+
+    if time_key not in adata.obs.columns:
+        logger.warning(
+            f"  time_key '{time_key}' not in adata.obs; "
+            "cannot use age-based initial state fallback."
+        )
+        return []
+
+    all_states = list(g.macrostates.cat.categories)
+    median_ages = {}
+    for state in all_states:
+        mask = g.macrostates == state
+        if mask.sum() == 0:
+            continue
+        ages = adata.obs.loc[mask, time_key].astype(float)
+        median_ages[state] = float(ages.median())
+
+    if not median_ages:
+        return []
+
+    age_str = ", ".join(
+        f"'{s}'={v:.2f}" for s, v in sorted(median_ages.items(), key=lambda x: x[1])
+    )
+    logger.info(f"  Macrostate median ages: {age_str}")
+
+    youngest = min(median_ages, key=median_ages.get)
+    logger.info(
+        f"  Age-based fallback: selecting '{youngest}' as initial state "
+        f"(median age = {median_ages[youngest]:.2f})"
+    )
+    return [youngest]
+
+
 def _assign_states_by_pattern(g, pattern: str, logger, config=None) -> None:
     """Classify macrostates into initial/terminal using a regex pattern.
 
@@ -154,10 +200,21 @@ def _assign_states_by_pattern(g, pattern: str, logger, config=None) -> None:
         else:
             logger.warning(
                 "  No progenitor-enriched macrostates found. "
-                "Falling back to auto-prediction."
+                "Trying age-based fallback (youngest macrostate as initial)..."
             )
-            _predict_terminal_states_robust(g, logger)
-            return
+            initial = _youngest_macrostate_as_initial(g, config, logger)
+            if initial:
+                terminal = [s for s in all_states if s not in initial]
+                logger.info(
+                    f"  Age-based fallback: initial={initial}, terminal={terminal}"
+                )
+            else:
+                logger.warning(
+                    "  Age-based fallback also failed. "
+                    "Falling back to auto-prediction."
+                )
+                _predict_terminal_states_robust(g, logger)
+                return
 
     g.set_terminal_states(states=terminal)
     g.set_initial_states(states=initial)

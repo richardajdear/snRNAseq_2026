@@ -323,6 +323,19 @@ MARKERS = {
     'Layer':      ['FEZF2', 'TLE4', 'BCL11B'],
 }
 
+# Expanded marker sets used for PC1-based scatter validation plots.
+MARKERS_SCATTER = {
+    'Excitatory': ['SLC17A7', 'SATB2', 'NEUROD6', 'TBR1', 'RBFOX3',
+                   'CUX2', 'RORB', 'CAMK2A', 'SLC17A6', 'NRGN', 'SNAP25'],
+    'Inhibitory': ['GAD1', 'GAD2', 'SLC32A1', 'ADARB2', 'RELN',
+                   'PVALB', 'SST', 'VIP', 'LAMP5', 'CXCL14', 'LHX6'],
+    'Oligos':     ['MBP', 'PLP1', 'MAG', 'MOG', 'OLIG1', 'OLIG2', 'CNP'],
+    'OPC':        ['PDGFRA', 'CSPG4', 'SOX10'],
+    'Astrocytes': ['AQP4', 'GFAP', 'SLC1A3', 'ALDH1L1', 'S100B', 'GLUL', 'CLU'],
+    'Microglia':  ['CSF1R', 'P2RY12', 'CX3CR1', 'TMEM119', 'AIF1', 'HEXB'],
+    'Endothelial':['CLDN5', 'FLT1', 'PECAM1', 'CD34'],
+}
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TABLES
@@ -1516,6 +1529,206 @@ def make_marker_validation(tf, adata, out, max_ref=5000,
                  fontsize=11, y=1.01)
     plt.tight_layout()
     fname = f'marker_validation{suffix}.png'
+    plt.savefig(os.path.join(out, fname), dpi=200, bbox_inches='tight')
+    plt.close()
+    print(f"  {fname}")
+
+
+def make_marker_scatter_validation(tf, adata, out, max_ref=5000,
+                                   ref_sources=None, age_lo=-np.inf, age_hi=np.inf,
+                                   suffix='', period_label=''):
+    """PC1-score scatter plot for class-remapped cells vs reference.
+
+    For each major class remapping, computes PC1 of the old-class marker genes
+    and PC1 of the new-class marker genes (fit on reference cells, then
+    transformed for all three groups).  Scatter: x = old-class PC1,
+    y = new-class PC1; points coloured by group (ref_old / remapped / ref_new).
+
+    The axis titles include the top 5 genes by |loading|.  The full marker
+    gene list used is printed below each subplot.
+    """
+    from sklearn.decomposition import PCA
+    import scipy.sparse as sp
+
+    if ref_sources is None:
+        ref_sources = ['WANG']
+
+    remap = tf[tf['is_class_remapped'] &
+               (tf['age_years'] >= age_lo) &
+               (tf['age_years'] < age_hi)].copy()
+    if remap.empty:
+        print(f"  No class-remapped cells in [{age_lo}, {age_hi}) — skipping scatter{suffix}.")
+        return
+
+    # Gene symbol → Ensembl ID mapping (same logic as make_marker_validation)
+    var = adata.var
+    sym2ens = {}
+    if 'gene_symbol' in var.columns:
+        for gs, ens in zip(var['gene_symbol'], var.index):
+            full = str(gs)
+            sym2ens[full] = ens
+            short = full.split('_ENSG')[0]
+            if short != full:
+                sym2ens[short] = ens
+    else:
+        sym2ens = {g: g for g in var.index}
+
+    top_remaps = (remap.groupby(['old_cell_class', 'new_cell_class'])
+                  .size().sort_values(ascending=False).head(3))
+
+    # Collect all marker genes needed across all remappings
+    all_markers_needed = set()
+    for (old_cls, new_cls), _ in top_remaps.items():
+        for cls in [old_cls, new_cls]:
+            all_markers_needed.update(MARKERS_SCATTER.get(cls, []))
+
+    marker_ens = {sym: sym2ens[sym] for sym in all_markers_needed if sym in sym2ens}
+    if not marker_ens:
+        print(f"  No MARKERS_SCATTER genes found in adata — skipping scatter{suffix}.")
+        return
+
+    # Collect all cell positions needed
+    obs = adata.obs
+    all_positions = set(remap['h5ad_pos'].values)
+    ref_positions = {}
+    for (old_cls, new_cls), _ in top_remaps.items():
+        for cls in [old_cls, new_cls]:
+            if cls not in ref_positions:
+                mask = obs['source'].isin(ref_sources) & (obs['cell_class'] == cls)
+                pos = np.where(mask.values)[0]
+                if len(pos) > max_ref:
+                    pos = np.random.RandomState(42).choice(pos, max_ref, replace=False)
+                ref_positions[cls] = pos
+                all_positions.update(pos)
+
+    all_positions = sorted(all_positions)
+    pos_to_local = {p: i for i, p in enumerate(all_positions)}
+
+    ens_to_varidx = {eid: i for i, eid in enumerate(adata.var_names)}
+    valid_ens = [e for e in marker_ens.values() if e in ens_to_varidx]
+    ens_to_sym = {v: k for k, v in marker_ens.items()}
+    var_indices = [ens_to_varidx[e] for e in valid_ens]
+    ref_label = '+'.join(ref_sources)
+
+    print(f"    [scatter {period_label or 'all'}] {len(all_positions)} cells × "
+          f"{len(valid_ens)} markers …")
+
+    # Load expression in chunks
+    chunk_size = 5000
+    expr = np.zeros((len(all_positions), len(valid_ens)), dtype=np.float32)
+    for start_i in range(0, len(all_positions), chunk_size):
+        end_i = min(start_i + chunk_size, len(all_positions))
+        chunk_pos = all_positions[start_i:end_i]
+        if 'scvi_normalized' in adata.layers:
+            chunk_data = adata.layers['scvi_normalized'][chunk_pos][:, var_indices]
+        elif 'counts' in adata.layers:
+            chunk_data = adata.layers['counts'][chunk_pos][:, var_indices]
+        else:
+            chunk_data = adata.X[chunk_pos][:, var_indices]
+        if sp.issparse(chunk_data):
+            chunk_data = chunk_data.toarray()
+        expr[start_i:end_i] = np.asarray(chunk_data, dtype=np.float32)
+    expr = np.log1p(expr * 100.0)
+
+    n_remaps = len(top_remaps)
+    fig, axes = plt.subplots(1, n_remaps, figsize=(5.5 * n_remaps, 5.5), squeeze=False)
+    plt.subplots_adjust(bottom=0.30, wspace=0.35)
+
+    for col_i, ((old_cls, new_cls), n_cells) in enumerate(top_remaps.items()):
+        ax = axes[0, col_i]
+
+        old_markers = [g for g in MARKERS_SCATTER.get(old_cls, [])
+                       if marker_ens.get(g) in valid_ens]
+        new_markers = [g for g in MARKERS_SCATTER.get(new_cls, [])
+                       if marker_ens.get(g) in valid_ens]
+
+        if not old_markers or not new_markers:
+            ax.set_title(f'{old_cls} → {new_cls}\n(insufficient markers)', fontsize=10)
+            ax.axis('off')
+            continue
+
+        # Column indices in expr for each marker set
+        old_cols = [valid_ens.index(marker_ens[g]) for g in old_markers]
+        new_cols = [valid_ens.index(marker_ens[g]) for g in new_markers]
+
+        remap_sub = remap[(remap['old_cell_class'] == old_cls) &
+                          (remap['new_cell_class'] == new_cls)]
+        remap_local = np.array([pos_to_local[p] for p in remap_sub['h5ad_pos'].values
+                                if p in pos_to_local])
+        ref_old_local = np.array([pos_to_local[p] for p in ref_positions.get(old_cls, [])
+                                  if p in pos_to_local])
+        ref_new_local = np.array([pos_to_local[p] for p in ref_positions.get(new_cls, [])
+                                  if p in pos_to_local])
+
+        if len(ref_old_local) == 0 or len(ref_new_local) == 0:
+            ax.set_title(f'{old_cls} → {new_cls}\n(no reference cells)', fontsize=10)
+            ax.axis('off')
+            continue
+
+        # Fit PC1 on old-class reference, transform all groups
+        pca_old = PCA(n_components=1)
+        pca_old.fit(expr[ref_old_local][:, old_cols])
+        all_local = np.concatenate([ref_old_local, remap_local, ref_new_local])
+        x_all = pca_old.transform(expr[all_local][:, old_cols])[:, 0]
+        n_ref_old = len(ref_old_local)
+        n_remap   = len(remap_local)
+        x_ref_old = x_all[:n_ref_old]
+        x_remap   = x_all[n_ref_old:n_ref_old + n_remap]
+        x_ref_new = x_all[n_ref_old + n_remap:]
+
+        # Fit PC1 on new-class reference, transform all groups
+        pca_new = PCA(n_components=1)
+        pca_new.fit(expr[ref_new_local][:, new_cols])
+        y_all = pca_new.transform(expr[all_local][:, new_cols])[:, 0]
+        y_ref_old = y_all[:n_ref_old]
+        y_remap   = y_all[n_ref_old:n_ref_old + n_remap]
+        y_ref_new = y_all[n_ref_old + n_remap:]
+
+        # Top 5 genes by |PC1 loading|
+        def _top5(pca, genes):
+            loadings = np.abs(pca.components_[0])
+            idx = np.argsort(loadings)[::-1][:5]
+            return [genes[i] for i in idx]
+
+        top5_old = _top5(pca_old, old_markers)
+        top5_new = _top5(pca_new, new_markers)
+
+        # Scatter plot
+        pt_size = max(2, min(10, 30000 // max(len(ref_old_local), 1)))
+        ax.scatter(x_ref_old, y_ref_old, c='#377EB8', alpha=0.3, s=pt_size,
+                   linewidths=0, rasterized=True,
+                   label=f'Ref {old_cls} (n={len(ref_old_local):,})')
+        ax.scatter(x_ref_new, y_ref_new, c='#4DAF4A', alpha=0.3, s=pt_size,
+                   linewidths=0, rasterized=True,
+                   label=f'Ref {new_cls} (n={len(ref_new_local):,})')
+        ax.scatter(x_remap, y_remap, c='#D62728', alpha=0.7, s=pt_size * 1.5,
+                   linewidths=0, rasterized=True, zorder=3,
+                   label=f'Remapped (n={n_cells:,})')
+
+        top5_old_str = ', '.join(top5_old)
+        top5_new_str = ', '.join(top5_new)
+        ax.set_xlabel(f'{old_cls} PC1  ({top5_old_str}, ++)', fontsize=8)
+        ax.set_ylabel(f'{new_cls} PC1  ({top5_new_str}, ++)', fontsize=8)
+        ax.set_title(f'{old_cls} → {new_cls}  (n={n_cells:,})', fontsize=10)
+        ax.legend(fontsize=7, markerscale=2)
+        ax.tick_params(labelsize=7)
+
+        # Full marker list below the axes
+        old_used_str = ', '.join(old_markers)
+        new_used_str = ', '.join(new_markers)
+        marker_txt = (f'{old_cls} markers: {old_used_str}\n'
+                      f'{new_cls} markers: {new_used_str}')
+        ax.text(0.5, -0.28, marker_txt, transform=ax.transAxes,
+                fontsize=6, ha='center', va='top', style='italic',
+                wrap=True)
+
+    title_period = f' — {period_label}' if period_label else ''
+    fig.suptitle(
+        f'Marker PC1 scatter: remapped cells vs reference{title_period}\n'
+        f'x = PC1 of original-class markers; y = PC1 of remapped-class markers\n'
+        f'(log1p CPM, fit on ref cells; reference: {ref_label})',
+        fontsize=10, y=1.01)
+    fname = f'marker_scatter_validation{suffix}.png'
     plt.savefig(os.path.join(out, fname), dpi=200, bbox_inches='tight')
     plt.close()
     print(f"  {fname}")

@@ -29,6 +29,7 @@ class CellRankConfig:
     time_key: str = "age_years"         # obs key for donor chronological age
     cell_type_key: str = "cell_type_aligned"  # obs key for aligned cell type labels
     batch_key: str = "source"
+    harmony_batch_key: str = ""   # if set, use this for Harmony (e.g. "source-chemistry"); falls back to batch_key
 
     # -- Neighbour graph (used by ConnectivityKernel + for latent-space kNN) --
     n_neighbors: int = 30

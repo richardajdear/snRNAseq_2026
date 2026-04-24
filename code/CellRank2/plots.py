@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Optional
 
 import anndata as ad
+import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -213,11 +214,14 @@ def plot_macrostates(
     config: CellRankConfig,
     logger: logging.Logger,
 ) -> None:
-    """Plot macrostate assignments on the UMAP.
+    """Plot macrostate assignments on the UMAP using a tab20 qualitative palette.
 
-    Uses soft memberships (dominant state per cell) so all cells are coloured,
-    with colours matched to cell_type_aligned palette via base-name lookup.
+    Uses soft memberships (dominant state per cell) so all cells are coloured.
+    tab20 is used so that even EN-only subsets (where all macrostates are
+    EN subtypes) have clearly distinguishable colours.
     """
+    from matplotlib import colormaps
+
     plots_dir = config.plots_dir
     plots_dir.mkdir(parents=True, exist_ok=True)
 
@@ -239,26 +243,14 @@ def plot_macrostates(
         adata.obs["macrostates"] = g.macrostates
         color_var = "macrostates"
 
-    # Match macrostate colours to cell_type_aligned palette (strip numeric suffix)
-    all_cell_types = (
-        list(adata.obs[config.cell_type_key].dropna().unique())
-        if config.cell_type_key in adata.obs.columns
-        else []
-    )
-    ct_palette = build_cell_type_aligned_palette(all_cell_types) if all_cell_types else {}
-
+    # Use tab20 so EN-only subsets (all macrostates the same broad type) have
+    # clearly distinguishable colours rather than similar shades of one hue.
     ms_cats = list(adata.obs[color_var].cat.categories)
-    ms_palette = {}
-    for ms in ms_cats:
-        base = _macrostate_base_name(ms)
-        color = ct_palette.get(base)
-        if color is None:
-            for ct, c in ct_palette.items():
-                if base.lower() in ct.lower() or ct.lower() in base.lower():
-                    color = c
-                    break
-        if color is not None:
-            ms_palette[ms] = color
+    cmap_t20 = colormaps["tab20"]
+    ms_palette = {
+        c: cmap_t20(i / max(len(ms_cats) - 1, 1))[:3]
+        for i, c in enumerate(ms_cats)
+    }
 
     with Timer("Plotting macrostates", logger):
         plot_umap_colored(
@@ -268,7 +260,7 @@ def plot_macrostates(
             output_path=str(plots_dir / "macrostates.png"),
             title="Macrostates",
             point_size=config.point_size,
-            palette=ms_palette or None,
+            palette=ms_palette,
             logger=logger,
         )
 
@@ -386,124 +378,174 @@ def plot_obs_vars(
         )
 
 
-def plot_excitatory_l23_plots(
+def plot_combined_umap_panel(
     adata: ad.AnnData,
     config: CellRankConfig,
     logger: logging.Logger,
 ) -> None:
-    """Two focused UMAP plots for excitatory neuron L2-3 lineage analysis.
+    """Six-panel 2×3 UMAP summary for the excitatory neuron lineage analysis.
 
-    Both plots use only excitatory cells (matched by excitatory_cell_type_pattern).
+    All panels share the same UMAP embedding (config.umap_key) and EN-only cells.
 
-    1. umap_excit_dpt_pseudotime.png   — DPT pseudotime from the youngest progenitor
-                                         root. Should correlate with donor age and run
-                                         from EN-IT-Immature/EN-Newborn (0) to mature
-                                         EN subtypes (1).
+    Row 0:  source (batch)  |  age_log_pc  |  cell_type_aligned
+    Row 1:  DPT pseudotime  |  L2-3 fate probability  |  L2-3 lineage membership
 
-    2. umap_excit_fate_prob_l23.png    — Raw L2-3 fate probability from the CellRank
-                                         Markov chain. Higher = more likely to end up
-                                         as EN-L2_3-IT. Expect 0.1–1.0 range with
-                                         EN-L2_3-IT cells brightest.
+    Saves a single combined PNG: umap_panel_excitatory.png
     """
+    from matplotlib import colormaps
+    from matplotlib.patches import Patch
+
     plots_dir = config.plots_dir
     plots_dir.mkdir(parents=True, exist_ok=True)
 
-    if config.umap_key not in adata.obsm:
-        logger.warning(
-            f"'{config.umap_key}' not in adata.obsm; skipping excitatory L2-3 plots."
-        )
-        return
-    if config.cell_type_key not in adata.obs.columns:
-        logger.warning(
-            f"'{config.cell_type_key}' not in adata.obs; skipping excitatory L2-3 plots."
-        )
+    umap_key = config.umap_key
+    if umap_key not in adata.obsm:
+        logger.warning(f"'{umap_key}' not in adata.obsm; skipping combined UMAP panel.")
         return
 
-    excit_mask = (
-        adata.obs[config.cell_type_key]
-        .astype(str)
-        .str.contains(config.excitatory_cell_type_pattern, case=False, na=False)
-    )
-    n_excit = int(excit_mask.sum())
-    if n_excit == 0:
-        logger.warning(
-            f"No cells match '{config.excitatory_cell_type_pattern}'; "
-            "skipping excitatory L2-3 plots."
-        )
-        return
-
-    excit_idx = np.where(excit_mask.values)[0]
-    xy_all = adata.obsm[config.umap_key][excit_idx]
-
+    n = adata.n_obs
+    coords = adata.obsm[umap_key]
     rng = np.random.RandomState(42)
-    shuffle = rng.permutation(n_excit)
-    xy = xy_all[shuffle]
+    order = rng.permutation(n)
+    xy = coords[order]
 
-    def _scatter(ax, vals, cmap, label, vmin=None, vmax=None):
-        vmin = float(np.nanmin(vals)) if vmin is None else vmin
-        vmax = float(np.nanmax(vals)) if vmax is None else vmax
-        sc_ = ax.scatter(
-            xy[:, 0], xy[:, 1],
-            c=vals[shuffle], s=config.point_size, alpha=0.6,
-            cmap=cmap, rasterized=True, linewidths=0,
-            vmin=vmin, vmax=vmax,
-        )
-        plt.colorbar(sc_, ax=ax, shrink=0.7, label=label)
+    cmap_t20 = colormaps["tab20"]
 
-    def _base_ax(fig, title):
-        ax = fig.add_subplot(111)
+    fig, axes = plt.subplots(2, 3, figsize=(18, 11))
+    fig.suptitle(f"Excitatory neuron lineage  (n={n:,})", fontsize=12, y=0.99)
+
+    def _setup(ax, title):
         _apply_ggplot_theme(ax)
         ax.set_box_aspect(1)
         ax.set_xticks([])
         ax.set_yticks([])
-        ax.set_xlabel("UMAP1", fontsize=9)
-        ax.set_ylabel("UMAP2", fontsize=9)
+        ax.set_xlabel("UMAP1", fontsize=8)
+        ax.set_ylabel("UMAP2", fontsize=8)
         ax.set_title(title, fontsize=9)
-        return ax
 
-    # ── Plot 1: DPT pseudotime ────────────────────────────────────────────────
-    pt_key = config.absorption_pseudotime_key
-    if pt_key and pt_key in adata.obs.columns:
-        pt = adata.obs[pt_key].values.astype(float)[excit_idx]
-        fig = plt.figure(figsize=(6, 6))
-        ax = _base_ax(fig, f"Excitatory neurons (n={n_excit:,})\nDPT pseudotime  (0=progenitor, 1=mature)")
-        _scatter(ax, pt, cmap="magma", label="DPT pseudotime")
-        out = plots_dir / "umap_excit_dpt_pseudotime.png"
-        fig.savefig(str(out), dpi=200, bbox_inches="tight")
-        logger.info(f"Saved: {out}")
-        plt.close(fig)
+    def _inset_cbar(ax, sc_, label):
+        """Colorbar as an inset — doesn't steal layout space from ax."""
+        cax = ax.inset_axes([1.02, 0.05, 0.04, 0.90])
+        fig.colorbar(sc_, cax=cax, label=label)
+        cax.tick_params(labelsize=6)
+        cax.yaxis.label.set_size(7)
+
+    def _cat_scatter(ax, col, title, palette=None):
+        _setup(ax, title)
+        if col not in adata.obs.columns:
+            ax.text(0.5, 0.5, f"'{col}' not found", transform=ax.transAxes,
+                    ha="center", va="center", fontsize=8, color="red")
+            return
+        vals = adata.obs[col].astype(str)
+        cats = sorted(vals.dropna().unique())
+        if palette is None:
+            palette = {c: cmap_t20(i / max(len(cats) - 1, 1))[:3]
+                       for i, c in enumerate(cats)}
+        nan_c = (0.85, 0.85, 0.85, 0.5)
+        c_arr = [palette.get(v, nan_c) for v in vals.iloc[order]]
+        ax.scatter(xy[:, 0], xy[:, 1], c=c_arr, s=config.point_size, alpha=0.5,
+                   rasterized=True, linewidths=0)
+        handles = [plt.Line2D([0], [0], marker="o", color="w",
+                               markerfacecolor=palette.get(c, (0.5,) * 3),
+                               markersize=4, label=c)
+                   for c in cats if c in palette]
+        ncols = 2 if len(handles) > 6 else 1
+        ax.legend(handles=handles, fontsize=5, frameon=True, framealpha=0.7,
+                  loc="lower right", title=col, title_fontsize=6,
+                  ncol=ncols, handlelength=0.8, handletextpad=0.3, borderpad=0.4)
+
+    def _cont_scatter(ax, col, title, cmap="viridis", vmin=None, vmax=None):
+        _setup(ax, title)
+        if col not in adata.obs.columns:
+            ax.text(0.5, 0.5, f"'{col}' not found", transform=ax.transAxes,
+                    ha="center", va="center", fontsize=8, color="red")
+            return
+        vals = np.array(adata.obs[col], dtype=float)
+        if vmin is None:
+            vmin = float(np.nanpercentile(vals, 1))
+        if vmax is None:
+            vmax = float(np.nanpercentile(vals, 99))
+        sc_ = ax.scatter(xy[:, 0], xy[:, 1], c=vals[order], s=config.point_size,
+                         alpha=0.6, cmap=cmap, rasterized=True, linewidths=0,
+                         vmin=vmin, vmax=vmax)
+        _inset_cbar(ax, sc_, col)
+
+    # ── Row 0: batch/age/cell-type ────────────────────────────────────────────
+    _cat_scatter(axes[0, 0], config.batch_key, title="Source (batch)")
+
+    _cont_scatter(axes[0, 1], "age_log_pc", title="Age (log1p years)", cmap="viridis")
+
+    ct_key = config.cell_type_key
+    if ct_key in adata.obs.columns:
+        ct_cats = sorted(adata.obs[ct_key].dropna().astype(str).unique())
+        ct_pal = {c: cmap_t20(i / max(len(ct_cats) - 1, 1))[:3]
+                  for i, c in enumerate(ct_cats)}
     else:
-        logger.warning(
-            f"DPT pseudotime key '{pt_key}' not in adata.obs; "
-            "skipping DPT pseudotime plot."
-        )
+        ct_pal = None
+    _cat_scatter(axes[0, 2], ct_key, title="Cell type", palette=ct_pal)
 
-    # ── Plot 2: L2-3 fate probability ────────────────────────────────────────
-    fate_prob_key = "fate_prob_l23"
-    if fate_prob_key in adata.obs.columns:
-        fp = adata.obs[fate_prob_key].values.astype(float)[excit_idx]
-        n_l23 = int((fp >= config.fate_prob_threshold).sum())
+    # ── Row 1: pseudotime/fate/lineage ────────────────────────────────────────
+    pt_key = config.absorption_pseudotime_key or ""
+    if pt_key and pt_key in adata.obs.columns:
+        pt = np.array(adata.obs[pt_key], dtype=float)
         logger.info(
-            f"  L2-3 lineage (fate_prob≥{config.fate_prob_threshold}): "
-            f"{n_l23:,} / {n_excit:,} excitatory cells"
+            f"  DPT pseudotime: min={np.nanmin(pt):.3f}, "
+            f"median={np.nanmedian(pt):.3f}, max={np.nanmax(pt):.3f}"
         )
-        # Use percentile colour limits so any gradient is visible even when the
-        # raw probability range is narrow (e.g., 0.10–0.25 for progenitors).
+    _cont_scatter(axes[1, 0], pt_key,
+                  title="DPT pseudotime\n(0=progenitor → 1=mature)",
+                  cmap="magma", vmin=0.0, vmax=1.0)
+
+    fate_key = "fate_prob_l23"
+    if fate_key in adata.obs.columns:
+        fp = np.array(adata.obs[fate_key], dtype=float)
         vmin_fp = float(np.nanpercentile(fp, 1))
         vmax_fp = float(np.nanpercentile(fp, 99))
         logger.info(
-            f"  L2-3 fate prob range: p1={vmin_fp:.3f}, "
-            f"median={float(np.nanmedian(fp)):.3f}, p99={vmax_fp:.3f}"
+            f"  L2-3 fate prob: p1={vmin_fp:.3f}, "
+            f"median={np.nanmedian(fp):.3f}, p99={vmax_fp:.3f}"
         )
-        fig = plt.figure(figsize=(6, 6))
-        ax = _base_ax(fig, f"Excitatory neurons (n={n_excit:,})\nL2-3 fate probability")
-        _scatter(ax, fp, cmap="viridis", label="L2-3 fate probability",
-                 vmin=vmin_fp, vmax=vmax_fp)
-        out = plots_dir / "umap_excit_fate_prob_l23.png"
-        fig.savefig(str(out), dpi=200, bbox_inches="tight")
-        logger.info(f"Saved: {out}")
-        plt.close(fig)
+        _cont_scatter(axes[1, 1], fate_key, title="L2-3 fate probability",
+                      cmap="plasma", vmin=vmin_fp, vmax=vmax_fp)
     else:
-        logger.warning(
-            f"'{fate_prob_key}' not in adata.obs; skipping L2-3 fate probability plot."
+        _setup(axes[1, 1], "L2-3 fate probability")
+        axes[1, 1].text(0.5, 0.5, f"'{fate_key}' not found",
+                        transform=axes[1, 1].transAxes,
+                        ha="center", va="center", fontsize=8, color="red")
+
+    # ── Panel (1,2): L2-3 lineage membership ─────────────────────────────────
+    ax6 = axes[1, 2]
+    _setup(ax6, f"L2-3 lineage  (fate_prob ≥ {config.fate_prob_threshold})")
+    if fate_key in adata.obs.columns:
+        fp = np.array(adata.obs[fate_key], dtype=float)
+        in_lineage = fp >= config.fate_prob_threshold
+        n_on = int(in_lineage.sum())
+        logger.info(
+            f"  L2-3 lineage: {n_on:,} / {n:,} cells "
+            f"({100 * n_on / n:.1f}%)"
         )
+        col_arr = np.where(in_lineage, 0, 1).astype(float)
+        lin_cmap = matplotlib.colors.ListedColormap(
+            [(0.85, 0.85, 0.85), (0.13, 0.47, 0.71)]
+        )
+        ax6.scatter(xy[:, 0], xy[:, 1], c=col_arr[order], s=config.point_size,
+                    alpha=0.5, cmap=lin_cmap, rasterized=True, linewidths=0,
+                    vmin=0, vmax=1)
+        ax6.legend(
+            handles=[
+                Patch(facecolor=(0.85, 0.85, 0.85), label=f"Other  ({n - n_on:,})"),
+                Patch(facecolor=(0.13, 0.47, 0.71), label=f"L2-3 lineage  ({n_on:,})"),
+            ],
+            fontsize=6, frameon=True, framealpha=0.7, loc="lower right",
+        )
+    else:
+        ax6.text(0.5, 0.5, f"'{fate_key}' not found", transform=ax6.transAxes,
+                 ha="center", va="center", fontsize=8, color="red")
+
+    # tight_layout works correctly now: all legends are inside axes and all
+    # colorbars are inset_axes, so nothing external steals layout space.
+    fig.tight_layout(rect=[0, 0, 1, 0.97])
+    out = plots_dir / "umap_panel_excitatory.png"
+    fig.savefig(str(out), dpi=200, bbox_inches="tight")
+    logger.info(f"Saved: {out}")
+    plt.close(fig)

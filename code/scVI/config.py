@@ -61,8 +61,10 @@ class PipelineConfig:
     # -- UMAP --
     umap_n_neighbors: int = 30
     umap_min_dist: float = 0.3
+    # umap_color_vars is kept for backward compat but not used by plot_umap_grids.
+    # The 4×3 grid rows are fixed: batch_key, age_years, cell_class, cell_type_aligned.
     umap_color_vars: List[str] = field(
-        default_factory=lambda: ["source", "chemistry", "cell_class", "cell_type_aligned", "age_years"]
+        default_factory=lambda: ["age_years", "cell_class", "cell_type_aligned"]
     )
     umap_point_size: float = 1.0
     umap_log2_vars: List[str] = field(

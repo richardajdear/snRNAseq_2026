@@ -44,6 +44,68 @@ from pipeline.label_transfer.transfer import aligned_to_class
 from pipeline.label_transfer import diagnostics as diag
 
 
+def _compute_inferred_umap(adata, all_df, n_pcs=50):
+    """Add inferred_umap_1/2 to all_df via PCA on scanvi_normalized layer.
+
+    PCA is computed on highly-variable genes (adata.var['highly_variable'] if
+    available, otherwise all genes).  Falls back gracefully if the layer is
+    absent or X_umap_inferred is already stored in obsm.
+
+    Returns all_df with columns added in-place (or unchanged on failure).
+    """
+    if 'X_umap_inferred' in adata.obsm:
+        print("  Using pre-computed X_umap_inferred from obsm …")
+        umap = np.array(adata.obsm['X_umap_inferred'])
+        all_df['inferred_umap_1'] = umap[:, 0]
+        all_df['inferred_umap_2'] = umap[:, 1]
+        return all_df
+
+    if 'scanvi_normalized' not in adata.layers:
+        print("  scanvi_normalized layer not found — skipping inferred UMAP.")
+        return all_df
+
+    try:
+        from sklearn.decomposition import PCA
+        from umap import UMAP as UMAPReducer
+    except ImportError as e:
+        print(f"  sklearn / umap-learn not available ({e}) — skipping inferred UMAP.")
+        return all_df
+
+    try:
+        # Determine gene subset
+        if 'highly_variable' in adata.var.columns:
+            hvg_mask = adata.var['highly_variable'].values
+            print(f"  Inferred UMAP: loading scanvi_normalized for "
+                  f"{hvg_mask.sum():,} HVGs × {adata.n_obs:,} cells …")
+        else:
+            hvg_mask = np.ones(adata.n_vars, dtype=bool)
+            print(f"  Inferred UMAP: loading scanvi_normalized "
+                  f"({adata.n_obs:,} cells × all {adata.n_vars:,} genes) …")
+
+        hvg_idx = np.where(hvg_mask)[0]
+        import scipy.sparse as sp
+        X = adata.layers['scanvi_normalized'][:, hvg_idx]
+        if sp.issparse(X):
+            X = X.toarray()
+        X = np.asarray(X, dtype=np.float32)
+
+        print(f"  Running PCA (n_components={n_pcs}) …")
+        pcs = PCA(n_components=min(n_pcs, X.shape[1] - 1)).fit_transform(X)
+
+        print(f"  Running UMAP on PCA …")
+        coords = UMAPReducer(n_neighbors=30, min_dist=0.3,
+                             random_state=42).fit_transform(pcs)
+
+        all_df['inferred_umap_1'] = coords[:, 0]
+        all_df['inferred_umap_2'] = coords[:, 1]
+        print("  Inferred UMAP computed and stored in all_df.")
+
+    except Exception as e:
+        print(f"  Warning: inferred UMAP computation failed ({e}) — skipping.")
+
+    return all_df
+
+
 def _build_dataframes(adata, umap_key='X_umap_scanvi', confidence_threshold=0.5,
                       include_wang_target=False):
     """Build all_df and tf_df compatible with diagnostics.py from integrated.h5ad.
@@ -361,6 +423,8 @@ def main():
                    help='Embedding key for per-class UMAP recomputation')
     p.add_argument('--include_wang_target', action='store_true',
                    help='Also generate full per-source diagnostics for WANG')
+    p.add_argument('--skip_inferred_umap', action='store_true',
+                   help='Skip PCA+UMAP on scanvi_normalized (saves memory)')
     args = p.parse_args()
 
     os.makedirs(args.output_dir, exist_ok=True)
@@ -390,6 +454,12 @@ def main():
     print(f"  all_df: {len(all_df):,} cells")
     print(f"  tf_df:  {len(tf_df):,} target cells")
 
+    # ── Inferred UMAP from PCA on scanvi_normalized ───────────────────────────
+    if not args.skip_inferred_umap:
+        print("\nComputing inferred UMAP (PCA on scanvi_normalized) …")
+        all_df = _compute_inferred_umap(adata, all_df)
+    _has_inferred = 'inferred_umap_1' in all_df.columns
+
     # ── WANG self-check ───────────────────────────────────────────────────────
     wang_out = os.path.join(args.output_dir, 'WANG_REFERENCE')
     os.makedirs(wang_out, exist_ok=True)
@@ -400,7 +470,10 @@ def main():
     make_subtype_distribution(all_df, wang_out)
 
     # ── Per-source diagnostics ────────────────────────────────────────────────
-    deprecated_outputs = ['umap_global.png', 'umap_perclass.png']
+    deprecated_outputs = [
+        'umap_global.png', 'umap_perclass.png',
+        'umap_all.png', 'umap_excitatory.png', 'umap_inhibitory.png',
+    ]
     for src in target_sources:
         tf_src = tf_df[tf_df['source'] == src].copy()
         if tf_src.empty:
@@ -437,14 +510,25 @@ def main():
         print("\n── Age vs confidence density ──")
         diag.make_age_confidence_density(tf_src, src_out)
 
-        print("\n── All-cells UMAP ──")
-        diag.make_umap_all(all_df, src_out, target_source=src)
+        print("\n── Latent-space UMAPs (scANVI embedding) ──")
+        diag.make_umap_all(all_df, src_out, target_source=src,
+                           name='umap_latent_all')
+        diag.make_umap_excitatory(all_df, src_out, target_source=src,
+                                  name='umap_latent_excitatory')
+        diag.make_umap_inhibitory(all_df, src_out, target_source=src,
+                                  name='umap_latent_inhibitory')
 
-        print("\n── Excitatory-cells UMAP ──")
-        diag.make_umap_excitatory(all_df, src_out, target_source=src)
-
-        print("\n── Inhibitory-cells UMAP ──")
-        diag.make_umap_inhibitory(all_df, src_out, target_source=src)
+        if _has_inferred:
+            print("\n── Inferred UMAPs (PCA on scanvi_normalized) ──")
+            diag.make_umap_all(all_df, src_out, target_source=src,
+                               umap_cols=('inferred_umap_1', 'inferred_umap_2'),
+                               name='umap_inferred_all')
+            diag.make_umap_excitatory(all_df, src_out, target_source=src,
+                                      umap_cols=('inferred_umap_1', 'inferred_umap_2'),
+                                      name='umap_inferred_excitatory')
+            diag.make_umap_inhibitory(all_df, src_out, target_source=src,
+                                      umap_cols=('inferred_umap_1', 'inferred_umap_2'),
+                                      name='umap_inferred_inhibitory')
 
         print("\n── Sankey diagram ──")
         diag.make_sankey(tf_src, src_out, source_label=src)
@@ -459,6 +543,12 @@ def main():
                                         age_lo=-np.inf, age_hi=0,
                                         suffix='_prenatal',
                                         period_label=f'{src} prenatal (age < 0y)')
+            print("\n── Marker scatter validation (prenatal, ref=WANG) ──")
+            diag.make_marker_scatter_validation(tf_src, adata, src_out,
+                                               ref_sources=['WANG'],
+                                               age_lo=-np.inf, age_hi=0,
+                                               suffix='_prenatal',
+                                               period_label=f'{src} prenatal (age < 0y)')
         if has_postnatal:
             print("\n── Marker validation (postnatal, ref=WANG) ──")
             diag.make_marker_validation(tf_src, adata, src_out,
@@ -466,6 +556,12 @@ def main():
                                         age_lo=0, age_hi=np.inf,
                                         suffix='_postnatal',
                                         period_label=f'{src} postnatal (age ≥ 0y)')
+            print("\n── Marker scatter validation (postnatal, ref=WANG) ──")
+            diag.make_marker_scatter_validation(tf_src, adata, src_out,
+                                               ref_sources=['WANG'],
+                                               age_lo=0, age_hi=np.inf,
+                                               suffix='_postnatal',
+                                               period_label=f'{src} postnatal (age ≥ 0y)')
 
     print("\nDone.")
 

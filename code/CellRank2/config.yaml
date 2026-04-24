@@ -1,34 +1,32 @@
 # CellRank 2 Pipeline — main config
 #
-# Dataset: VelWangPsychAD_100k (source-chemistry normalisation)
-#   300 000 cells  ×  15 540 genes
-#   Ages: -0.47 (GW ~14) to 89 years; ~123k prenatal cells
+# Dataset: VelWangPsychAD_100k (all ages, source-chemistry normalisation)
+#   Prenatal + postnatal cells required for meaningful L2-3 lineage tracing:
+#   progenitors in prenatal data → committed L2-3 neurons in postnatal data.
+#   Harmony batch correction (source-chemistry) applied on top of PCA of
+#   scanvi_normalized to handle encoder-level residual batch effects.
 #
 # Submit:
 #   cd /home/rajd2/rds/hpc-work/snRNAseq_2026
-#   sbatch code/CellRank2/slurm/run_full.sh    # full run
-#   sbatch code/CellRank2/slurm/run_test.sh    # 5k-cell smoke test
+#   sbatch code/CellRank2/slurm/run_full.sh
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
-input_h5ad: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/VelWangPsychAD_100k_source-chemistry/scvi_output/integrated.h5ad
-output_dir: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/VelWangPsychAD_100k_source-chemistry/cellrank_output_v6
+input_h5ad: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/VelWangPsychAD_100k_prepost_tuning3/scvi_output/integrated.h5ad
+output_dir: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/VelWangPsychAD_100k_prepost_tuning3/cellrank_output_v9
 
 # ── Cell type pre-filter ──────────────────────────────────────────────────────
-# Subset to excitatory neurons before all CellRank steps.
-# Matches: EN-L2_3-IT, EN-L4-IT, EN-L5-IT, EN-L6-IT, EN-L6b, EN-L6-CT,
-#          EN-L5_6-NP, EN-Newborn, EN-IT-Immature, EN-Non-IT-Immature
 cell_type_filter_pattern: "EN-"
 
 # ── Data keys ─────────────────────────────────────────────────────────────────
-# X_scANVI removes age as an explicit covariate → no age gradient in the latent
-# space. We instead compute PCA on scanvi_normalized (which retains age variation)
-# and use that for kNN, OT, and UMAP. latent_key is overwritten by the PCA step.
 latent_key: X_pca_scnorm
 norm_layer_key: scanvi_normalized
 n_pca_comps: 50
 time_key: age_years
 cell_type_key: cell_type_aligned
 batch_key: source
+# harmony_batch_key: use source-chemistry (library prep + sequencing batch)
+# which more precisely captures technical variation than source alone.
+harmony_batch_key: source-chemistry
 
 # ── Neighbour graph ───────────────────────────────────────────────────────────
 n_neighbors: 30
@@ -36,34 +34,24 @@ neighbors_key: neighbors_scnorm
 
 # ── Age binning ───────────────────────────────────────────────────────────────
 # 8 bins spanning prenatal (~GW14) through older adult.
-# Prenatal is split into two bins to capture early vs. late neurogenesis:
-#   [-0.50, -0.30)  early prenatal  (GW ~14-26)
-#   [-0.30,  0.00)  late prenatal   (GW ~26-40)
-# Bin edges in years (0 = birth; negative = gestational).
 age_bin_edges: [-0.50, -0.30, 0.00, 0.50, 2.00, 8.00, 20.00, 50.00, 90.00]
 age_bin_key: age_bin
 
 # ── Optimal transport ─────────────────────────────────────────────────────────
 ot_epsilon: 0.05
 ot_max_iterations: 2000
-ot_device: auto         # "cuda" if GPU available, else "cpu"
+ot_device: auto
 
 # ── Kernel combination ────────────────────────────────────────────────────────
-rtk_weight: 0.4         # RealTimeKernel (temporal) weight
-cytotrace_weight: 0.4   # CytoTRACEKernel (cell-intrinsic directionality) weight; CK = 0.2
-cytotrace_layer: counts # adata layer for gene-count computation
+rtk_weight: 0.4
+cytotrace_weight: 0.4
+cytotrace_layer: counts
 
 # ── GPCCA ─────────────────────────────────────────────────────────────────────
-# 14 macrostates: 11 mature EN subtypes + EN-IT-Immature + EN-Newborn +
-# EN-Non-IT-Immature (the three progenitor/immature classes in this dataset).
 n_macrostates: 14
 use_minchi: false
 cluster_key: cell_type_aligned
-# Pattern-based state assignment (Priority 1): macrostates whose names match
-# this regex become INITIAL states; all others become TERMINAL states.
-# This bypasses GPCCA's stability auto-prediction, which fails on this dataset.
 immature_state_pattern: "Immature|Newborn"
-# Explicit overrides (Priority 2) — leave empty to use pattern above.
 terminal_states: []
 initial_states: []
 
@@ -73,24 +61,16 @@ lineage_targets: []
 fate_prob_threshold: 0.1
 
 # ── Pseudotime ────────────────────────────────────────────────────────────────
-# pseudotime_l23: L2-3 fate probability summed over matching terminal states,
-# normalised to [0,1].  This is a fate *commitment* score (how likely is this
-# cell to end up as L2-3?), not a trajectory position.
 pseudotime_key: pseudotime_l23
-l23_lineage_pattern: "L2_3"        # matches "EN-L2_3-IT"
-# pseudotime_absorption: DPT from the youngest progenitor root cell.
-# Correlated with donor age; 0 = progenitor, 1 = most mature.
+l23_lineage_pattern: "L2_3"
 absorption_pseudotime_key: pseudotime_absorption
 dpt_root_cell_type: "Immature|Newborn"
 
 # ── Plots ─────────────────────────────────────────────────────────────────────
 save_plots: true
-plot_color_vars:
-  - cell_type_aligned
-  - age_years
-  - source
+plot_color_vars: []
 umap_key: X_umap_scanvi
-recompute_umap: true          # recompute UMAP from X_scANVI on EN-only subset
+recompute_umap: true
 lineage_umap_key: X_umap_lineage
 point_size: 1.0
 excitatory_cell_type_pattern: "EN-"

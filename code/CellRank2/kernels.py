@@ -42,12 +42,13 @@ def compute_scnorm_pca(
     config: CellRankConfig,
     logger: logging.Logger,
 ) -> None:
-    """Compute PCA on the scanvi_normalized layer for an age-aware representation.
+    """Compute PCA on scanvi_normalized, then Harmony batch correction.
 
     X_scANVI explicitly removes age as a model covariate, so cells are
     ordered only by cell-type identity in that space.  PCA on the
-    scanvi_normalized layer retains developmental-stage variation, giving
-    the kNN graph, OT couplings, and UMAP an age gradient.
+    scanvi_normalized layer retains developmental-stage variation.  Harmony
+    then removes cross-batch technical effects (source/chemistry) while
+    preserving biological gradients including age.
 
     Result stored in adata.obsm[config.latent_key] (overwriting the placeholder
     so that all downstream steps — kNN, OT, UMAP — automatically use it).
@@ -82,16 +83,48 @@ def compute_scnorm_pca(
                 svd_solver="arpack",
                 random_state=config.random_seed,
             )
-            adata.obsm[out_key] = adata.obsm.pop("X_pca")
+            pca_result = adata.obsm.pop("X_pca")
             adata.varm.pop("PCs", None)
             adata.uns.pop("pca", None)
         finally:
             adata.X = orig_X
 
     logger.info(
-        f"  Age-aware PCA stored as '{out_key}' "
-        f"({adata.n_obs} cells × {n_comps} PCs)"
+        f"  PCA computed: {adata.n_obs} cells × {n_comps} PCs"
     )
+
+    # ── Harmony batch correction ───────────────────────────────────────────────
+    # Removes technical source/chemistry effects from the PCA embedding while
+    # preserving biological gradients (age, cell type).  Operates on the PCA
+    # coordinates, not on raw expression, so it is fast (~1 min on 80k cells).
+    harmony_batch_key = getattr(config, "harmony_batch_key", "") or getattr(config, "batch_key", None)
+    if harmony_batch_key and harmony_batch_key in adata.obs.columns:
+        try:
+            import harmonypy
+            with Timer(f"Harmony batch correction (batch_key='{harmony_batch_key}')", logger):
+                ho = harmonypy.run_harmony(
+                    pca_result,
+                    adata.obs,
+                    vars_use=[harmony_batch_key],
+                    random_state=config.random_seed,
+                    verbose=False,
+                )
+                adata.obsm[out_key] = ho.Z_corr.T
+            logger.info(
+                f"  Harmony-corrected PCA stored as '{out_key}' "
+                f"({adata.n_obs} cells × {n_comps} dims)"
+            )
+        except Exception as exc:
+            logger.warning(
+                f"  Harmony failed ({exc}); falling back to uncorrected PCA."
+            )
+            adata.obsm[out_key] = pca_result
+    else:
+        logger.warning(
+            f"  harmony_batch_key '{harmony_batch_key}' not in adata.obs; "
+            "skipping Harmony (storing uncorrected PCA)."
+        )
+        adata.obsm[out_key] = pca_result
 
 
 # ── Neighbour graph ────────────────────────────────────────────────────────────
@@ -318,6 +351,7 @@ def build_realtime_kernel(
             self_transitions="connectivities",
             conn_kwargs={
                 "key_added": config.neighbors_key,
+                "use_rep": config.latent_key,
             },
         )
 

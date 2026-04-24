@@ -219,11 +219,12 @@ def step_scvi(cfg: dict, output_dir: Path, combined_path: Path,
         scvi_cfg['predict_cell_types'] = True
         if 'max_epochs_scanvi' in slt:
             scvi_cfg['max_epochs_scanvi'] = slt['max_epochs_scanvi']
-        # scANVI is the primary inference output: it conditions expression on both
-        # batch AND cell type, giving better cell-type-aware batch correction.
-        # scVI inference is redundant when scANVI is available.
+        # Run both scVI and scANVI inference so that:
+        #   scvi_normalized  → inferred UMAP column showing age gradient without
+        #                       cell-type conditioning (useful diagnostic)
+        #   scanvi_normalized → primary batch-corrected layer for downstream analysis
         scvi_cfg['run_scanvi_inference'] = True
-        scvi_cfg['run_scvi_inference'] = False
+        scvi_cfg['run_scvi_inference'] = True
         # Default transform_batch to WANG (reference dataset) so all cells are
         # normalized as if WANG cells of their type — ideal for cross-dataset GRN scoring.
         scvi_cfg.setdefault('transform_batch', 'WANG')
@@ -278,12 +279,23 @@ def step_scanvi(cfg: dict, output_dir: Path, combined_path: Path,
     integrated_path = scvi_output_dir / 'integrated.h5ad'
     scvi_model_dir = scvi_output_dir / 'scvi_model'
 
-    if not combined_path.exists():
+    # combined.h5ad is deleted after step_scvi to save space; fall back to
+    # integrated.h5ad which contains the same cells + all required metadata.
+    if combined_path.exists():
+        input_h5ad = combined_path
+    elif integrated_path.exists():
+        logger.info(
+            f"  combined.h5ad not found; using integrated.h5ad as input "
+            f"({integrated_path})"
+        )
+        input_h5ad = integrated_path
+    else:
         logger.error(
-            f"Combined input missing: {combined_path}. "
-            f"Run --steps combine (or downsample+combine) first."
+            f"Neither combined.h5ad nor integrated.h5ad found in {scvi_output_dir}. "
+            f"Run --steps combine (or downsample+combine) and --steps scvi first."
         )
         sys.exit(1)
+
     if not scvi_model_dir.exists():
         logger.error(
             f"scVI model missing: {scvi_model_dir}. "
@@ -297,7 +309,7 @@ def step_scanvi(cfg: dict, output_dir: Path, combined_path: Path,
         return integrated_path
 
     scvi_cfg = {
-        'input_h5ad': str(combined_path),
+        'input_h5ad': str(input_h5ad),
         'output_dir': str(scvi_output_dir),
         'batch_key': 'source',
         'cell_type_key': 'cell_class',
@@ -308,7 +320,7 @@ def step_scanvi(cfg: dict, output_dir: Path, combined_path: Path,
     scvi_cfg['steps'] = ['prep', 'train_scanvi', 'infer', 'umap', 'plot', 'save']
     scvi_cfg['run_scanvi'] = True
     scvi_cfg['run_scanvi_inference'] = True
-    scvi_cfg['run_scvi_inference'] = False
+    scvi_cfg['run_scvi_inference'] = True   # keep scvi_normalized for inferred UMAPs
     scvi_cfg['predict_cell_types'] = True
 
     slt = cfg.get('scanvi_label_transfer', {})
