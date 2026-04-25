@@ -1282,13 +1282,14 @@ def run_tuning(config_path: Path):
                     norm_constants=norm_constants,
                 )
                 delta = scanvi_metrics["objective"] - scvi_obj
+                # Retrieve actual metric values from the results list (more accurate
+                # than prelim_score which was only used for buffer management).
+                scvi_row = next((r for r in results if r["trial"] == t), {})
                 scanvi_results.append({
                     "trial":                           t,
                     "scvi_objective":                  scvi_obj,
-                    "scvi_batch_mixing_pca_score":     rec.get("prelim_score", float("nan")),
-                    "scvi_recon_error":                next(
-                        (r["recon_error"] for r in results if r["trial"] == t), float("nan")
-                    ),
+                    "scvi_batch_mixing_pca_score":     scvi_row.get("batch_mixing_pca_score", float("nan")),
+                    "scvi_recon_error":                scvi_row.get("recon_error", float("nan")),
                     "scanvi_objective":                scanvi_metrics["objective"],
                     "scanvi_batch_mixing_pca_score":   scanvi_metrics["batch_mixing_pca_score"],
                     "scanvi_recon_error":              scanvi_metrics["recon_error"],

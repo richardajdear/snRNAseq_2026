@@ -178,8 +178,9 @@ def fig_trial_ranking(df: pd.DataFrame) -> plt.Figure:
 
     # Right: batch_mixing_pca_score (y) vs decoder_score_norm (x)
     ax2 = axes[1]
-    bm_col = "batch_mixing_pca_score" if "batch_mixing_pca_score" in df.columns else "batch_mixing_pca_score"
-    dec_col = "decoder_score_norm" if "decoder_score_norm" in df.columns else None
+    # Use whichever column is present; None means no data available for that axis.
+    bm_col  = "batch_mixing_pca_score" if "batch_mixing_pca_score" in df.columns else None
+    dec_col = "decoder_score_norm"     if "decoder_score_norm"     in df.columns else None
 
     x_vals = (
         df[dec_col].values if dec_col and dec_col in df.columns
@@ -333,11 +334,12 @@ def fig_parameter_effects(df: pd.DataFrame) -> plt.Figure:
         ax.set_title(f"Effect of {param}")
 
     # Combined legend: metric colour + n_layers dot colour
-    bm_label = bm_col if bm_col else "batch_mixing_score"
+    bm_label = bm_col if bm_col else "batch mixing (no column)"
     metric_handles = [
         mpatches.Patch(color=cmap(0), label="objective (filled)"),
-        mpatches.Patch(color=cmap(1), label=f"{bm_label} (filled)"),
     ]
+    if bm_col:
+        metric_handles.append(mpatches.Patch(color=cmap(1), label=f"{bm_label} (filled)"))
     layer_handles = [
         mpatches.Patch(color=c, label=f"n_layers={lay}")
         for lay, c in sorted(PALETTE.items()) if lay in df["n_layers"].astype(int).values
@@ -453,7 +455,7 @@ def fig_scanvi_comparison(df: pd.DataFrame, scanvi: pd.DataFrame) -> plt.Figure:
     ax2 = axes[1]
     # Show batch mixing PCA scores side by side (scVI vs scANVI)
     # Use whichever column name is present for backward compatibility.
-    scvi_bm_col  = "scvi_batch_mixing_pca_score"
+    scvi_bm_col = "scvi_batch_mixing_pca_score"
     scanvi_bm_col = "scanvi_batch_mixing_pca_score"
     has_bm = scvi_bm_col in merged.columns and scanvi_bm_col in merged.columns
 
