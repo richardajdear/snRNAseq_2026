@@ -52,8 +52,20 @@ JID3=$(sbatch --parsable \
     "${WORK_DIR}/code/pipeline/slurm/step4_pseudobulk.sh")
 echo "Step 3 (pseudobulk)        submitted: job ${JID3}  [depends on ${JID2}]"
 
+# Step 4: Notebook render (CPU) — depends on pseudobulk, only if config has notebook: section
+CHAIN="${JID1} → ${JID2} → ${JID3}"
+if grep -q '^notebook:' "${WORK_DIR}/${CONFIG}" 2>/dev/null; then
+    JID4=$(sbatch --parsable \
+        --dependency=afterok:${JID3} \
+        --job-name=snrna_notebook \
+        --export=ALL,WORK_DIR="${WORK_DIR}",CONFIG="${CONFIG}" \
+        "${WORK_DIR}/code/pipeline/slurm/step5_notebook.sh")
+    echo "Step 4 (notebook)          submitted: job ${JID4}  [depends on ${JID3}]"
+    CHAIN="${CHAIN} → ${JID4}"
+fi
+
 echo ""
-echo "Pipeline chain: ${JID1} → ${JID2} → ${JID3}"
+echo "Pipeline chain: ${CHAIN}"
 echo "Optional scanvi-only rerun (after step 2):"
 echo "  sbatch --dependency=afterok:${JID2} --job-name=snrna_scanvi \
     --export=ALL,WORK_DIR=${WORK_DIR},CONFIG=${CONFIG} \

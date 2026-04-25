@@ -12,15 +12,21 @@
 #   model cannot learn structured geometry.  The resulting diffuse latent cloud
 #   maximises neighbourhood batch-mixing entropy by accident, gaming the objective.
 #   The downstream UMAP showed large structureless blobs confirming the collapse.
-# Run 2 (scvi_tuning_round3, this config): n_hidden constrained to [128, 256] so
-#   n_hidden >= 2×n_latent for all combinations.  batch_size=256 dropped (no
-#   meaningful effect at this scale with early stopping).  silhouette_weight raised
-#   from 0.2 → 0.35 for a stronger biological-preservation signal.  kNN cell-type
-#   purity was considered but deferred: computing it requires scANVI-derived unified
-#   labels, creating a circular dependency with the latent space being optimised.
+# Run 2 (scvi_tuning_round3): n_hidden constrained to [128, 256] so n_hidden >= 2×n_latent
+#   for all combinations.  batch_size=256 dropped (no meaningful effect at this scale with
+#   early stopping).  silhouette_weight raised from 0.2 → 0.35 for a stronger
+#   biological-preservation signal.  Metric still evaluated in the latent space.
+# Run 3 (scvi_tuning_round4, this config): objective redesigned — latent space dropped as
+#   the evaluation space.  New metric: 50:50 cross-trial normalized combination of (1) age-
+#   binned batch mixing on PCA of batch-corrected normalized expression (get_normalized_
+#   expression with transform_batch=WANG-multiome) and (2) decoder reconstruction accuracy
+#   (get_reconstruction_error without transform_batch).  The expression-space mixing directly
+#   measures integration quality in the production output layer (scanvi_normalized).  The
+#   decoder term prevents architectures that game batch mixing by latent-space collapse.
+#   Cell-type silhouette dropped — the decoder term now serves the anti-collapse role.
 
 input_h5ad: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/VelWangPsychAD_100k_source-chemistry/combined.h5ad
-output_dir: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/VelWangPsychAD_100k_source-chemistry/scvi_tuning_round3
+output_dir: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/VelWangPsychAD_100k_source-chemistry/scvi_tuning_round4
 
 batch_key: source-chemistry
 age_key: age_years
