@@ -12,7 +12,7 @@ Produces a multi-page PDF and individual PNGs covering:
   - Prenatal vs postnatal mixing comparison
   - scVI vs scANVI objective comparison for top-k trials
   - Per-batch global mixing scores (identifies which batches are poorly integrated)
-  - UMAP grid: top-5 vs bottom-5 trials coloured by batch (2 rows × 5 cols)
+  - UMAP grid: top-5 vs bottom-5 trials coloured by batch, embedded in expression PCA space (2 rows × 5 cols)
 """
 
 from __future__ import annotations
@@ -494,7 +494,7 @@ def fig_batch_mixing(df: pd.DataFrame) -> plt.Figure | None:
     """Heatmap showing how well each individual batch mixes with others.
 
     Uses global k-NN (not age-bin-restricted) so a batch that is globally
-    isolated in latent space — not just in one age bin — gets a low score.
+    isolated in expression PCA space — not just in one age bin — gets a low score.
     Wang batches are highlighted with a blue border.
     """
     batch_cols = sorted(c for c in df.columns if c.startswith("batch__"))
@@ -517,7 +517,7 @@ def fig_batch_mixing(df: pd.DataFrame) -> plt.Figure | None:
     fig, ax = plt.subplots(figsize=(FIGURE_WIDTH, fig_h))
     fig.suptitle(
         "Per-Batch Global Mixing Score  (k-NN entropy, higher = better integrated)\n"
-        "Global k-NN — identifies batches isolated across the whole latent space, not just within one age bin.",
+        "Global k-NN — identifies batches isolated across the whole expression PCA space, not just within one age bin.",
         fontsize=11, fontweight="bold",
     )
 
@@ -575,10 +575,11 @@ def fig_umap_grid(
 ) -> plt.Figure | None:
     """2-row × 5-col UMAP grid: top-n (row 1) and bottom-n (row 2) trials coloured by batch.
 
-    Requires trial_XX_latent.npy and obs_tuning.csv produced by tune_scvi_batch.py.
-    A fixed random subsample of n_cells is used across all panels so batch colour
-    proportions are directly comparable; only the UMAP layout differs between panels.
-    Returns None when latent files are absent (e.g. older run results).
+    Prefers trial_XX_expr_pca.npy + trial_XX_expr_pca_idx.npy (expression PCA space,
+    same space used by the batch-mixing metric) when present.  Falls back to
+    trial_XX_latent.npy (scVI latent space) for legacy run results.
+    Requires obs_tuning.csv produced by tune_scvi_batch.py.
+    Returns None when neither file type is found (e.g. older run results).
     """
     try:
         import anndata as ad
@@ -594,6 +595,12 @@ def fig_umap_grid(
     if batch_key not in obs_full.columns:
         return None
 
+    def _expr_pca_path(t: int) -> Path:
+        return input_dir / f"trial_{t:02d}_expr_pca.npy"
+
+    def _expr_pca_idx_path(t: int) -> Path:
+        return input_dir / f"trial_{t:02d}_expr_pca_idx.npy"
+
     def _latent_path(t: int) -> Path:
         return input_dir / f"trial_{t:02d}_latent.npy"
 
@@ -602,36 +609,63 @@ def fig_umap_grid(
     top_rows = df.head(n_top)
     bot_rows = df.tail(n_bot)
 
-    top_mask = [_latent_path(int(r["trial"])).exists() for _, r in top_rows.iterrows()]
-    bot_mask = [_latent_path(int(r["trial"])).exists() for _, r in bot_rows.iterrows()]
+    # Prefer expression PCA files; fall back to latent files.
+    def _has_data(t: int) -> bool:
+        return _expr_pca_path(t).exists() or _latent_path(t).exists()
+
+    def _uses_expr_pca(t: int) -> bool:
+        return _expr_pca_path(t).exists()
+
+    top_mask = [_has_data(int(r["trial"])) for _, r in top_rows.iterrows()]
+    bot_mask = [_has_data(int(r["trial"])) for _, r in bot_rows.iterrows()]
     top_rows = top_rows[top_mask].reset_index(drop=True)
     bot_rows = bot_rows[bot_mask].reset_index(drop=True)
 
     if len(top_rows) == 0 and len(bot_rows) == 0:
         return None
 
-    # Fixed subsample index shared across all panels
+    # Determine the predominant representation for the suptitle label.
+    all_trials = list(top_rows["trial"]) + list(bot_rows["trial"])
+    use_expr_pca_any = any(_uses_expr_pca(int(t)) for t in all_trials)
+    embed_label = (
+        "expression PCA (batch-corrected, WANG-multiome reference)"
+        if use_expr_pca_any
+        else "scVI latent space (legacy)"
+    )
+
+    # Fixed shared random state for consistent subsampling across panels.
     rng = np.random.default_rng(seed)
     n_full = len(obs_full)
-    n_sub = min(n_cells, n_full)
-    sub_idx = np.sort(rng.choice(n_full, n_sub, replace=False))
-    batch_sub = obs_full[batch_key].astype(str).iloc[sub_idx].values
 
     batches = sorted(obs_full[batch_key].astype(str).unique())
     tab_cmap = plt.cm.get_cmap("tab10", len(batches))
     batch_colors = {b: tab_cmap(i) for i, b in enumerate(batches)}
 
     n_cols = 5
-    fig, axes = plt.subplots(2, n_cols, figsize=(FIGURE_WIDTH, 6.5))
+    fig, axes = plt.subplots(2, n_cols, figsize=(FIGURE_WIDTH, 7.0))
     fig.suptitle(
         f"UMAP coloured by batch — top {len(top_rows)} trials (row 1) vs bottom {len(bot_rows)} trials (row 2)\n"
-        f"Fixed {n_sub:,}-cell subsample per panel; each UMAP is independent — compare clustering, not coordinates",
+        f"Embedding: {embed_label}",
         fontsize=10, fontweight="bold",
     )
 
     def _plot_one(ax: plt.Axes, trial_row: pd.Series) -> None:
         t = int(trial_row["trial"])
-        X = np.load(str(_latent_path(t)))[sub_idx].astype(np.float32)
+        if _uses_expr_pca(t):
+            # Use expression PCA (preferred): subsample from the metric evaluation cells.
+            X_full_pca = np.load(str(_expr_pca_path(t)))
+            cell_indices = np.load(str(_expr_pca_idx_path(t)))
+            n_avail = len(cell_indices)
+            n_sub = min(n_cells, n_avail)
+            local_sub = np.sort(rng.choice(n_avail, n_sub, replace=False))
+            X = X_full_pca[local_sub].astype(np.float32)
+            batch_sub = obs_full[batch_key].astype(str).iloc[cell_indices[local_sub]].values
+        else:
+            # Fall back to scVI latent space (legacy runs without expr_pca files).
+            n_sub = min(n_cells, n_full)
+            sub_idx = np.sort(rng.choice(n_full, n_sub, replace=False))
+            X = np.load(str(_latent_path(t)))[sub_idx].astype(np.float32)
+            batch_sub = obs_full[batch_key].astype(str).iloc[sub_idx].values
 
         adata_tmp = ad.AnnData(X=X)
         sc.pp.neighbors(adata_tmp, use_rep="X", n_neighbors=15, random_state=seed)
@@ -735,14 +769,14 @@ def run_diagnostics(
             if umap_fig is not None:
                 figs["7_umap_grid"] = umap_fig
             else:
-                _log("  UMAP grid skipped (latent files not found; run produced by newer code only)")
+                _log("  UMAP grid skipped (expr_pca/latent .npy files not found)")
         return figs
 
     # Write individual PNGs
     figures = _build_figures()
     for name, fig in figures.items():
         png_path = output_dir / f"{name}.png"
-        fig.savefig(png_path, dpi=150, bbox_inches="tight")
+        fig.savefig(png_path, dpi=300, bbox_inches="tight")
         _log(f"  Wrote {png_path}")
         plt.close(fig)
 

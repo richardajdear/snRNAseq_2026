@@ -452,6 +452,7 @@ def _evaluate_trial_components(
     metric_cfg: dict[str, Any],
     n_batches_global: int,
     logger: logging.Logger,
+    npy_prefix: "Path | None" = None,
 ) -> dict[str, Any]:
     """Evaluate a trial with the expression-based metric.
 
@@ -532,6 +533,12 @@ def _evaluate_trial_components(
     explained_var = float(np.sum(pca.explained_variance_ratio_))
     logger.info(f"  PCA explained variance (first {n_components} PCs): {explained_var:.3f}")
     del expr  # free memory before batch mixing
+
+    # Save expression PCA + cell indices for UMAP diagnostics.
+    if npy_prefix is not None:
+        cell_idx = keep_idx_arr if n_cells > max_cells else np.arange(n_cells, dtype=np.int32)
+        np.save(str(npy_prefix) + "_expr_pca.npy",     X_pca)
+        np.save(str(npy_prefix) + "_expr_pca_idx.npy", cell_idx.astype(np.int32))
 
     # Age-binned batch mixing on the PCA embedding.
     latent_key_pca = "_X_expr_pca_tmp"
@@ -1065,6 +1072,7 @@ def run_tuning(config_path: Path):
                 metric_cfg=metric_cfg,
                 n_batches_global=n_batches_global,
                 logger=logger,
+                npy_prefix=output_dir / f"trial_{trial:02d}",
             )
             status = "ok"
             error = ""
@@ -1360,13 +1368,17 @@ def run_tuning(config_path: Path):
             exc_info=True,
         )
 
-    # Remove per-trial latent .npy files — they are only needed during the diagnostic
-    # UMAP step above and consume significant disk space (n_cells × n_latent × float32).
-    npy_files = sorted(output_dir.glob("trial_*_latent.npy"))
+    # Remove per-trial latent and expression PCA .npy files — they are only needed
+    # during the diagnostic UMAP step above and consume significant disk space.
+    npy_files = (
+        sorted(output_dir.glob("trial_*_latent.npy"))
+        + sorted(output_dir.glob("trial_*_expr_pca.npy"))
+        + sorted(output_dir.glob("trial_*_expr_pca_idx.npy"))
+    )
     if npy_files:
         for npy in npy_files:
             npy.unlink()
-        logger.info(f"Deleted {len(npy_files)} trial latent .npy file(s)")
+        logger.info(f"Deleted {len(npy_files)} trial latent/expr-PCA .npy file(s)")
 
 
 def main():
