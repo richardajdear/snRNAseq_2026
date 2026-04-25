@@ -1,4 +1,4 @@
-"""Hyperparameter tuning for scVI batch correction with age-aware integration metrics.
+"""Hyperparameter tuning for scVI batch correction with expression-based integration metrics.
 
 This script is intentionally separate from `code/pipeline/` so tuning can run as an
 overnight optimization job and then feed best parameters back into the pipeline config.
@@ -8,6 +8,19 @@ n_layers, gene_likelihood, batch_size).  Training-schedule knobs (lr, weight_dec
 dropout_rate) are left at scVI defaults: they are secondary to architecture for batch
 integration quality and work well with early stopping at the production epoch horizon.
 The output best_hyperparameters.yaml maps directly to fields in scVI/config.py.
+
+Optimization objective (50:50 cross-trial normalized combination):
+  1. Age-binned batch mixing computed on PCA of batch-corrected normalized expression
+     (get_normalized_expression with transform_batch), not the latent space.  This
+     directly measures integration quality in the expression space that is used in
+     production (scanvi_normalized), rather than in the latent representation.
+  2. Decoder reconstruction accuracy (get_reconstruction_error without transform_batch).
+     Including this term prevents architectures that improve batch mixing by collapsing
+     the latent space at the expense of accurate generative modeling.
+
+Both components are min-max normalized across all successful trials so they contribute
+equally to the final objective regardless of their absolute scales.  The raw component
+values are also recorded so the user can inspect trade-offs.
 
 After all scVI trials, the top-k models are evaluated with scANVI (using
 SCANVI.from_scvi_model) to report whether scANVI fine-tuning changes integration
@@ -34,10 +47,10 @@ import scvi
 import torch
 import yaml
 from scvi.model import SCANVI, SCVI
-from sklearn.metrics import silhouette_score
+from sklearn.decomposition import PCA
 from sklearn.neighbors import NearestNeighbors
 
-SILHOUETTE_SEED_OFFSET = 1000
+EXPRESSION_PCA_SEED_OFFSET = 2000
 
 
 # ---------------------------------------------------------------------------
@@ -395,51 +408,139 @@ def _evaluate_age_aware_batch_score(
     return float(numer / max(denom, 1.0)), details
 
 
-def _bin_silhouette(
-    X_bin: np.ndarray,
-    labels: np.ndarray | pd.Series,
-    max_n: int,
-    seed: int,
-) -> float:
-    """Cell-type silhouette within a single age bin, normalised to [0, 1].
-
-    Computing silhouette per-bin avoids the age-composition artefact where a
-    global silhouette would be dominated by adult/prenatal class-distribution
-    differences rather than within-stage cell-type separation.
-
-    Returns 0.5 (neutral) when fewer than two classes are present.
-    """
-    labels_arr = np.asarray(labels, dtype=str)
-    if np.unique(labels_arr).size < 2:
-        return 0.5
-
-    n = X_bin.shape[0]
-    if n > max_n:
-        rng = np.random.default_rng(seed)
-        chosen = rng.choice(n, size=max_n, replace=False)
-        X_bin = X_bin[chosen]
-        labels_arr = labels_arr[chosen]
-
-    sil = silhouette_score(X_bin, labels_arr)
-    return float((sil + 1.0) / 2.0)
-
-
 # ---------------------------------------------------------------------------
-# Trial evaluation (batch mixing + per-bin silhouette)
+# Trial evaluation: expression-based metric
 # ---------------------------------------------------------------------------
 
-def _evaluate_trial(
+def _get_normalized_expr_chunked(
+    model,
     adata,
-    latent_key: str,
+    transform_batch: str | None,
+    n_samples: int = 1,
+    chunk_size: int = 2000,
+    logger: logging.Logger | None = None,
+) -> np.ndarray:
+    """Get normalized expression for all cells in `adata`, processing in chunks.
+
+    Returns a (n_cells, n_genes) float32 array.  Chunking avoids OOM when
+    the full expression matrix is larger than available GPU/CPU memory.
+    """
+    n_cells = adata.n_obs
+    n_chunks = math.ceil(n_cells / chunk_size)
+    chunks: list[np.ndarray] = []
+
+    for i, start in enumerate(range(0, n_cells, chunk_size)):
+        end = min(start + chunk_size, n_cells)
+        chunk_adata = adata[start:end].copy()
+        kwargs: dict[str, Any] = {"n_samples": n_samples}
+        if transform_batch is not None:
+            kwargs["transform_batch"] = transform_batch
+        result = model.get_normalized_expression(adata=chunk_adata, **kwargs)
+        chunks.append(result.values.astype(np.float32))
+        if logger and (i + 1) % max(1, n_chunks // 5) == 0:
+            logger.info(f"    expr chunk {i + 1}/{n_chunks}: [{start}:{end}) done")
+
+    return np.vstack(chunks)
+
+
+def _evaluate_trial_components(
+    model,
+    adata,
     batch_key: str,
     age_key: str,
     cell_type_key: str | None,
     metric_cfg: dict[str, Any],
     n_batches_global: int,
+    logger: logging.Logger,
 ) -> dict[str, Any]:
+    """Evaluate a trial with the expression-based metric.
+
+    Returns raw metric components; the combined objective is computed post-hoc
+    by _normalize_trial_objectives() so both components are on the same scale.
+
+    Components:
+    - batch_mixing_pca_score : age-binned batch mixing on PCA of batch-corrected
+                               normalized expression (transform_batch applied).
+                               Higher is better; already in [0, 1].
+    - recon_error            : mean reconstruction error on the full tuning set
+                               without transform_batch.  Lower is better.
+    - age_bin_scores         : per-bin batch mixing details dict.
+    - batch_scores           : per-batch global mixing scores dict.
+    - pca_explained_variance : cumulative variance explained by the PCA (info only).
+    """
+    transform_batch = metric_cfg.get("transform_batch")
+    if not transform_batch:
+        raise ValueError(
+            "metric.transform_batch is required for the expression-based metric"
+        )
+
+    n_pca        = int(metric_cfg.get("n_pca_components",     50))
+    n_samples    = int(metric_cfg.get("n_normalized_samples",  1))
+    max_cells    = int(metric_cfg.get("max_cells_expr",    20000))
+    chunk_size   = int(metric_cfg.get("expr_chunk_size",    2000))
+    subsamp_seed = int(metric_cfg.get("expr_subsample_seed",  42))
+
+    # -----------------------------------------------------------------------
+    # Component 1: batch mixing on PCA of normalized expression
+    # -----------------------------------------------------------------------
+    n_cells = adata.n_obs
+    if n_cells > max_cells:
+        # Stratified subsample so all batches and age bins are represented.
+        rng = np.random.default_rng(subsamp_seed)
+        obs = adata.obs.copy()
+        age_bins = _make_age_bins(obs, age_key, metric_cfg["age_bin_edges"])
+        obs["_expr_age_bin"] = age_bins.astype(str)
+        group_key = obs[[batch_key, "_expr_age_bin"]].astype(str).agg("|".join, axis=1)
+        group_counts = group_key.value_counts()
+        frac = max_cells / n_cells
+        keep_idx: list[int] = []
+        for group, n in group_counts.items():
+            idx = np.where(group_key.values == group)[0]
+            n_take = max(1, int(round(n * frac)))
+            n_take = min(n_take, idx.size)
+            keep_idx.extend(rng.choice(idx, size=n_take, replace=False).tolist())
+        keep_idx_arr = np.array(sorted(set(keep_idx)), dtype=int)
+        if keep_idx_arr.size > max_cells:
+            keep_idx_arr = np.sort(rng.choice(keep_idx_arr, size=max_cells, replace=False))
+        adata_expr = adata[keep_idx_arr].copy()
+        logger.info(
+            f"  Expression PCA subsample: {n_cells:,} → {adata_expr.n_obs:,} cells"
+        )
+    else:
+        adata_expr = adata
+
+    logger.info(
+        f"  Computing normalized expression "
+        f"(transform_batch={transform_batch!r}, n_samples={n_samples}, "
+        f"chunk_size={chunk_size}) ..."
+    )
+    expr = _get_normalized_expr_chunked(
+        model=model,
+        adata=adata_expr,
+        transform_batch=transform_batch,
+        n_samples=n_samples,
+        chunk_size=chunk_size,
+        logger=logger,
+    )
+    logger.info(f"  Normalized expression shape: {expr.shape}")
+
+    # Fit PCA on the normalized expression.
+    n_components = min(n_pca, expr.shape[1], expr.shape[0] - 1)
+    logger.info(f"  Fitting PCA (n_components={n_components}) ...")
+    pca = PCA(n_components=n_components, random_state=0)
+    X_pca = pca.fit_transform(expr).astype(np.float32)
+    explained_var = float(np.sum(pca.explained_variance_ratio_))
+    logger.info(f"  PCA explained variance (first {n_components} PCs): {explained_var:.3f}")
+    del expr  # free memory before batch mixing
+
+    # Age-binned batch mixing on the PCA embedding.
+    latent_key_pca = "_X_expr_pca_tmp"
+    adata_expr = adata_expr.copy()
+    adata_expr.obsm[latent_key_pca] = X_pca
+
     age_score, age_details = _evaluate_age_aware_batch_score(
-        adata=adata,
-        latent_key=latent_key,
+        adata=adata_expr,
+        latent_key=latent_key_pca,
         batch_key=batch_key,
         age_key=age_key,
         age_bin_edges=metric_cfg["age_bin_edges"],
@@ -451,59 +552,116 @@ def _evaluate_trial(
         n_batches_global=n_batches_global,
     )
 
-    # Per-age-bin silhouette: measures cell-type preservation within each
-    # developmental context rather than globally (global silhouette is dominated
-    # by adult/prenatal class-distribution differences, not model quality).
-    sil_weight = float(metric_cfg.get("silhouette_weight", 0.2))
-    max_sil_per_bin = int(metric_cfg.get("max_silhouette_cells_per_bin", 5000))
-    sil_seed_base = int(metric_cfg.get("silhouette_seed", 42 + SILHOUETTE_SEED_OFFSET))
-
-    bin_sil_scores: list[tuple[float, float]] = []
-    if cell_type_key and cell_type_key in adata.obs.columns:
-        obs = adata.obs.copy()
-        X = np.asarray(adata.obsm[latent_key])
-        age_bins = _make_age_bins(obs, age_key, metric_cfg["age_bin_edges"])
-        obs = obs.assign(_age_bin=age_bins)
-        min_cells = int(metric_cfg.get("min_cells_per_bin", 200))
-        prenatal_w = float(metric_cfg.get("prenatal_weight", 2.0))
-
-        for i, (age_bin, idx) in enumerate(obs.groupby("_age_bin", observed=True).indices.items()):
-            if pd.isna(age_bin):
-                continue
-            idx = np.asarray(idx, dtype=int)
-            if idx.size < min_cells:
-                continue
-            age_left = float(age_bin.left)
-            bin_weight = prenatal_w if age_left < 0 else 1.0
-            labels_bin = adata.obs.iloc[idx][cell_type_key].astype(object).fillna("Unknown").astype(str)
-            sil_bin = _bin_silhouette(X[idx], labels_bin, max_n=max_sil_per_bin, seed=sil_seed_base + i)
-            bin_sil_scores.append((sil_bin, bin_weight))
-
-    if bin_sil_scores:
-        sil_score_norm = float(
-            sum(s * w for s, w in bin_sil_scores) / max(sum(w for _, w in bin_sil_scores), 1.0)
-        )
-    else:
-        sil_score_norm = 0.5  # neutral when no cell-type info available
-
-    total = (1.0 - sil_weight) * age_score + sil_weight * sil_score_norm
-
-    # Global per-batch mixing scores (uses a single global k-NN, not per-bin)
-    X_all = np.asarray(adata.obsm[latent_key])
-    batch_labels_all = np.asarray(adata.obs[batch_key].astype(str))
+    # Per-batch global mixing scores (single global k-NN on expression PCA).
+    batch_labels_expr = np.asarray(adata_expr.obs[batch_key].astype(str))
     batch_scores = _per_batch_mixing_scores(
-        X_all, batch_labels_all,
+        X_pca, batch_labels_expr,
         k_neighbors=int(metric_cfg.get("k_neighbors", 20)),
         n_batches_global=n_batches_global,
     )
 
+    # -----------------------------------------------------------------------
+    # Component 2: decoder reconstruction error (no transform_batch)
+    # -----------------------------------------------------------------------
+    logger.info("  Computing reconstruction error (no transform_batch) ...")
+    recon_raw = model.get_reconstruction_error()
+    if isinstance(recon_raw, dict):
+        # scvi-tools ≥1.x may return a dict; prefer "reconstruction_loss" key
+        recon_error = float(
+            recon_raw.get("reconstruction_loss", next(iter(recon_raw.values())))
+        )
+    else:
+        recon_error = float(recon_raw)
+    logger.info(f"  Reconstruction error: {recon_error:.4f}")
+
     return {
-        "objective":                      float(total),
-        "age_batch_score":                float(age_score),
-        "celltype_silhouette_score_norm": float(sil_score_norm),
-        "age_bin_scores":                 age_details,
-        "batch_scores":                   batch_scores,
+        "batch_mixing_pca_score": float(age_score),
+        "recon_error":            float(recon_error),
+        "age_bin_scores":         age_details,
+        "batch_scores":           batch_scores,
+        "pca_explained_variance": float(explained_var),
     }
+
+
+def _normalize_trial_objectives(
+    results: list[dict[str, Any]],
+) -> None:
+    """Compute 50:50 cross-trial normalized objectives in place.
+
+    Both components are min-max normalized across all successful trials so
+    they contribute equally to the final objective regardless of absolute scale:
+
+        bm_pca_norm   = (bm - bm_min) / (bm_max - bm_min)
+        decoder_norm  = 1 - (recon - recon_min) / (recon_max - recon_min)
+        objective     = 0.5 * bm_pca_norm + 0.5 * decoder_norm
+
+    When all trials share the same value for a component (range ≈ 0), that
+    component contributes a neutral 0.5 to every trial so ranking is driven
+    entirely by the other component.
+    """
+    valid = [
+        r for r in results
+        if r["status"] == "ok"
+        and np.isfinite(r.get("batch_mixing_pca_score", float("nan")))
+        and np.isfinite(r.get("recon_error", float("nan")))
+    ]
+
+    for r in results:
+        r.setdefault("batch_mixing_pca_norm", float("nan"))
+        r.setdefault("decoder_score_norm",    float("nan"))
+        r.setdefault("objective",             float("-inf"))
+
+    if not valid:
+        return
+
+    bm_vals = [r["batch_mixing_pca_score"] for r in valid]
+    re_vals = [r["recon_error"]             for r in valid]
+
+    bm_min, bm_max = min(bm_vals), max(bm_vals)
+    re_min, re_max = min(re_vals), max(re_vals)
+    bm_range = bm_max - bm_min
+    re_range = re_max - re_min
+
+    for r in valid:
+        bm_norm = (
+            (r["batch_mixing_pca_score"] - bm_min) / bm_range
+            if bm_range > 1e-8 else 0.5
+        )
+        dec_norm = (
+            1.0 - (r["recon_error"] - re_min) / re_range
+            if re_range > 1e-8 else 0.5
+        )
+        r["batch_mixing_pca_norm"] = float(bm_norm)
+        r["decoder_score_norm"]    = float(dec_norm)
+        r["objective"]             = float(0.5 * bm_norm + 0.5 * dec_norm)
+
+
+def _compute_objective_with_norms(
+    batch_mixing_pca_score: float,
+    recon_error: float,
+    bm_min: float,
+    bm_max: float,
+    re_min: float,
+    re_max: float,
+) -> tuple[float, float, float]:
+    """Compute objective for an out-of-sample model using scVI normalization constants.
+
+    Used to put scANVI objectives on the same scale as the scVI trial objectives so
+    the scVI→scANVI delta is directly interpretable.  The scANVI values are clamped
+    to [0, 1] before combining in case they fall outside the scVI range.
+    """
+    bm_range = bm_max - bm_min
+    re_range = re_max - re_min
+
+    bm_norm = (
+        (batch_mixing_pca_score - bm_min) / bm_range if bm_range > 1e-8 else 0.5
+    )
+    dec_norm = (
+        1.0 - (recon_error - re_min) / re_range if re_range > 1e-8 else 0.5
+    )
+    bm_norm  = max(0.0, min(1.0, bm_norm))
+    dec_norm = max(0.0, min(1.0, dec_norm))
+    return float(0.5 * bm_norm + 0.5 * dec_norm), float(bm_norm), float(dec_norm)
 
 
 # ---------------------------------------------------------------------------
@@ -522,6 +680,7 @@ def _train_and_evaluate_scanvi(
     max_epochs_scanvi: int,
     accel: dict[str, Any],
     logger: logging.Logger,
+    norm_constants: dict[str, float] | None = None,
 ) -> dict[str, Any]:
     """Load a saved scVI model, initialise scANVI from it, train, and evaluate.
 
@@ -529,6 +688,11 @@ def _train_and_evaluate_scanvi(
     with cell-type supervision, which is exactly what production does.  Evaluating
     the top scVI trials with scANVI reveals whether scANVI changes the relative
     ranking and quantifies the delta in batch-mixing quality.
+
+    The expression-based metric (PCA of normalized expression + reconstruction error)
+    is used so the scANVI objective is on the same scale as the scVI trial objectives.
+    If norm_constants is provided (bm_min, bm_max, re_min, re_max from the scVI
+    cross-trial normalization), the scANVI objective is computed on the same scale.
     """
     scvi_model = SCVI.load(str(scvi_model_dir), adata=adata)
 
@@ -553,16 +717,35 @@ def _train_and_evaluate_scanvi(
         **accel,
     )
 
+    # Keep latent representation for potential diagnostics.
     adata.obsm[latent_key_scanvi] = scanvi_model.get_latent_representation()
-    return _evaluate_trial(
+
+    components = _evaluate_trial_components(
+        model=scanvi_model,
         adata=adata,
-        latent_key=latent_key_scanvi,
         batch_key=batch_key,
         age_key=age_key,
         cell_type_key=cell_type_key,
         metric_cfg=metric_cfg,
         n_batches_global=n_batches_global,
+        logger=logger,
     )
+
+    if norm_constants is not None:
+        obj, bm_norm, dec_norm = _compute_objective_with_norms(
+            batch_mixing_pca_score=components["batch_mixing_pca_score"],
+            recon_error=components["recon_error"],
+            **norm_constants,
+        )
+        components["objective"]             = obj
+        components["batch_mixing_pca_norm"] = bm_norm
+        components["decoder_score_norm"]    = dec_norm
+    else:
+        components["objective"]             = float("nan")
+        components["batch_mixing_pca_norm"] = float("nan")
+        components["decoder_score_norm"]    = float("nan")
+
+    return components
 
 
 # ---------------------------------------------------------------------------
@@ -661,7 +844,12 @@ def run_tuning(config_path: Path):
     metric_cfg = cfg.get("metric", {})
     if "age_bin_edges" not in metric_cfg:
         raise ValueError("metric.age_bin_edges is required in the config")
-    metric_cfg.setdefault("silhouette_seed", random_seed + SILHOUETTE_SEED_OFFSET)
+    if "transform_batch" not in metric_cfg:
+        raise ValueError(
+            "metric.transform_batch is required (the reference batch for normalized expression, "
+            "e.g. 'WANG-multiome').  Set it in the metric: section of your tuning YAML config."
+        )
+    metric_cfg.setdefault("expr_subsample_seed", random_seed + EXPRESSION_PCA_SEED_OFFSET)
 
     search_space = cfg.get("search_space", {})
 
@@ -709,10 +897,23 @@ def run_tuning(config_path: Path):
     if missing:
         raise ValueError(f"Required obs columns missing: {missing}. Available: {list(adata.obs.columns)}")
 
+    # Validate that transform_batch is a known batch value (warn, not error, to allow
+    # cases where a batch only appears in some age ranges or is spelled differently).
+    transform_batch_ref = metric_cfg["transform_batch"]
+    if batch_key in adata.obs.columns:
+        known_batches = sorted(adata.obs[batch_key].astype(str).unique().tolist())
+        if transform_batch_ref not in known_batches:
+            logger.warning(
+                f"metric.transform_batch='{transform_batch_ref}' not found in "
+                f"obs['{batch_key}'].  Available values: {known_batches}.  "
+                "get_normalized_expression will raise at evaluation time if this is wrong."
+            )
+
     if cell_type_key not in adata.obs.columns:
         logger.warning(
             f"cell_type_key='{cell_type_key}' not in obs; "
-            "silhouette scoring will use the neutral default (0.5) and scANVI evaluation will be skipped."
+            "within-cell-type batch mixing will fall back to per-bin mixing and "
+            "scANVI evaluation will be skipped."
         )
         cell_type_key = None
 
@@ -800,9 +1001,13 @@ def run_tuning(config_path: Path):
     # Trial loop
     # -----------------------------------------------------------------------
     results: list[dict[str, Any]] = []
-    best: dict[str, Any] | None = None
 
-    # top_model_records: sorted ascending by objective so index-0 is the worst kept model.
+    # During the loop we track top models by batch_mixing_pca_score (a preliminary
+    # rank that is already in [0, 1]).  We save a double-size buffer so that
+    # post-loop cross-trial normalization can reshuffle the final top-k without
+    # losing any candidate model.
+    max_saved_k = max(scanvi_top_k * 2, scanvi_top_k + 3) if scanvi_top_k > 0 else 0
+    # top_model_records: sorted ascending by prelim_score so index-0 is the worst kept.
     top_model_records: list[dict[str, Any]] = []
 
     start = time.time()
@@ -843,17 +1048,23 @@ def run_tuning(config_path: Path):
                 train_kwargs["early_stopping_patience"] = early_stopping_patience
             model.train(**train_kwargs)
 
+            # Save latent representation for the UMAP diagnostic step.
             adata.obsm["X_scVI"] = model.get_latent_representation()
             np.save(str(output_dir / f"trial_{trial:02d}_latent.npy"),
                     adata.obsm["X_scVI"].astype(np.float32))
-            metrics = _evaluate_trial(
+
+            # Expression-based metric evaluation (the objective components are
+            # stored as raw values; the combined objective is computed post-hoc
+            # once all trials are done via cross-trial normalization).
+            components = _evaluate_trial_components(
+                model=model,
                 adata=adata,
-                latent_key="X_scVI",
                 batch_key=batch_key,
                 age_key=age_key,
                 cell_type_key=cell_type_key,
                 metric_cfg=metric_cfg,
                 n_batches_global=n_batches_global,
+                logger=logger,
             )
             status = "ok"
             error = ""
@@ -862,57 +1073,73 @@ def run_tuning(config_path: Path):
         except (RuntimeError, FloatingPointError, torch.cuda.OutOfMemoryError) as e:
             status = "failed"
             error = repr(e)
-            metrics = {
-                "objective": float("-inf"),
-                "age_batch_score": float("nan"),
-                "celltype_silhouette_score_norm": float("nan"),
-                "age_bin_scores": {},
-                "batch_scores": {},
+            components = {
+                "batch_mixing_pca_score": float("nan"),
+                "recon_error":            float("nan"),
+                "age_bin_scores":         {},
+                "batch_scores":           {},
+                "pca_explained_variance": float("nan"),
             }
             logger.exception(f"Trial {trial} failed")
 
         duration_min = (time.time() - trial_t0) / 60.0
         row: dict[str, Any] = {
-            "trial":          trial,
-            "status":         status,
-            "error":          error,
-            "duration_min":   round(duration_min, 2),
+            "trial":                    trial,
+            "status":                   status,
+            "error":                    error,
+            "duration_min":             round(duration_min, 2),
             **params,
-            "objective":                      metrics["objective"],
-            "age_batch_score":                metrics["age_batch_score"],
-            "celltype_silhouette_score_norm": metrics["celltype_silhouette_score_norm"],
-            "age_bin_scores_json":            json.dumps(metrics["age_bin_scores"], sort_keys=True),
-            "batch_scores_json":              json.dumps(metrics.get("batch_scores", {}), sort_keys=True),
+            # Raw metric components (objective computed post-hoc)
+            "batch_mixing_pca_score":   components["batch_mixing_pca_score"],
+            "recon_error":              components["recon_error"],
+            "pca_explained_variance":   components.get("pca_explained_variance", float("nan")),
+            "age_bin_scores_json":      json.dumps(components["age_bin_scores"], sort_keys=True),
+            "batch_scores_json":        json.dumps(components.get("batch_scores", {}), sort_keys=True),
+            # Placeholders filled by _normalize_trial_objectives after the loop
+            "objective":                float("nan"),
+            "batch_mixing_pca_norm":    float("nan"),
+            "decoder_score_norm":       float("nan"),
         }
         results.append(row)
 
-        if status == "ok" and (best is None or row["objective"] > best["objective"]):
-            best = row
-            logger.info(
-                f"New best  trial={trial}  objective={row['objective']:.4f}  "
-                f"(age={row['age_batch_score']:.4f}  silhouette={row['celltype_silhouette_score_norm']:.4f})"
-            )
+        logger.info(
+            f"Trial {trial} done: "
+            f"bm_pca={row['batch_mixing_pca_score']:.4f}  "
+            f"recon={row['recon_error']:.4f}  "
+            f"({duration_min:.1f} min)"
+        )
 
-        # Save model if it enters the top-k (needed for post-loop scANVI evaluation).
-        if status == "ok" and model is not None and scanvi_top_k > 0:
+        # Save model if it enters the preliminary top-k (by batch_mixing_pca_score).
+        # The double-buffer (max_saved_k = 2 × scanvi_top_k) ensures that post-loop
+        # normalization can reshuffle the final ranking without losing candidate models.
+        if status == "ok" and model is not None and max_saved_k > 0:
+            prelim_score = row["batch_mixing_pca_score"]
             enters_top_k = (
-                len(top_model_records) < scanvi_top_k
-                or row["objective"] > top_model_records[0]["objective"]
+                np.isfinite(prelim_score)
+                and (
+                    len(top_model_records) < max_saved_k
+                    or prelim_score > top_model_records[0].get("prelim_score", float("-inf"))
+                )
             )
             if enters_top_k:
                 model_dir = output_dir / f"trial_{trial:02d}_scvi_model"
                 model.save(str(model_dir), overwrite=True)
                 top_model_records.append({
-                    "trial": trial,
-                    "objective": row["objective"],
-                    "model_dir": model_dir,
-                    "params": params,
+                    "trial":       trial,
+                    "prelim_score": prelim_score,
+                    "objective":   float("nan"),  # updated after normalization
+                    "model_dir":   model_dir,
+                    "params":      params,
                 })
-                top_model_records.sort(key=lambda x: x["objective"])  # ascending: index 0 = worst kept
-                if len(top_model_records) > scanvi_top_k:
+                # Keep ascending by prelim_score: index 0 is the worst kept model.
+                top_model_records.sort(key=lambda x: x.get("prelim_score", float("-inf")))
+                if len(top_model_records) > max_saved_k:
                     evicted = top_model_records.pop(0)
                     shutil.rmtree(evicted["model_dir"], ignore_errors=True)
-                    logger.info(f"  Evicted trial {evicted['trial']} model from top-{scanvi_top_k} cache")
+                    logger.info(
+                        f"  Evicted trial {evicted['trial']} model from "
+                        f"top-{max_saved_k} buffer (prelim_score={evicted['prelim_score']:.4f})"
+                    )
 
         # Checkpoint after every trial so a walltime kill doesn't lose results.
         pd.DataFrame(results).to_csv(output_dir / "trial_results.csv", index=False)
@@ -922,29 +1149,64 @@ def run_tuning(config_path: Path):
     if not results:
         raise RuntimeError("No trials were executed.")
 
-    df = pd.DataFrame(results).sort_values("objective", ascending=False)
-    df.to_csv(output_dir / "trial_results.csv", index=False)
+    # -----------------------------------------------------------------------
+    # Post-loop: cross-trial normalization → final combined objectives
+    # -----------------------------------------------------------------------
+    logger.info("=" * 80)
+    logger.info("Computing cross-trial normalized objectives (50:50 bm_pca + decoder) ...")
+    _normalize_trial_objectives(results)
 
+    best = max(
+        (r for r in results if r["status"] == "ok" and np.isfinite(r.get("objective", float("nan")))),
+        key=lambda r: r["objective"],
+        default=None,
+    )
     if best is None:
         raise RuntimeError("All trials failed; no best hyperparameters available.")
+
+    logger.info(
+        f"Best trial: {best['trial']}  objective={best['objective']:.4f}  "
+        f"bm_pca={best['batch_mixing_pca_score']:.4f} (norm={best['batch_mixing_pca_norm']:.4f})  "
+        f"recon={best['recon_error']:.4f} (dec_norm={best['decoder_score_norm']:.4f})"
+    )
+
+    # Update final objectives in top_model_records and trim to the true top-k.
+    trial_obj = {r["trial"]: r.get("objective", float("-inf")) for r in results}
+    for rec in top_model_records:
+        rec["objective"] = trial_obj.get(rec["trial"], float("-inf"))
+    top_model_records.sort(key=lambda x: x.get("objective", float("-inf")))  # ascending
+
+    while len(top_model_records) > scanvi_top_k:
+        evicted = top_model_records.pop(0)  # remove the worst
+        shutil.rmtree(evicted["model_dir"], ignore_errors=True)
+        logger.info(
+            f"  Post-normalization: evicted trial {evicted['trial']} "
+            f"(objective={evicted['objective']:.4f}, not in final top-{scanvi_top_k})"
+        )
+
+    # Save final results (sorted best → worst by combined objective).
+    df = pd.DataFrame(results).sort_values("objective", ascending=False)
+    df.to_csv(output_dir / "trial_results.csv", index=False)
 
     # Build best_hyperparameters.yaml with keys that map directly to scVI/config.py fields.
     best_params: dict[str, Any] = {
         "scvi": {
-            "n_latent":                  int(best["n_latent"]),
-            "n_hidden":                  int(best["n_hidden"]),
-            "n_layers":                  int(best["n_layers"]),
-            "gene_likelihood":           str(best["gene_likelihood"]),
-            "batch_size":                int(best["batch_size"]),
-            "max_epochs_scvi":           max_epochs,
-            "early_stopping":            early_stopping,
-            "early_stopping_patience":   early_stopping_patience,
+            "n_latent":                int(best["n_latent"]),
+            "n_hidden":                int(best["n_hidden"]),
+            "n_layers":                int(best["n_layers"]),
+            "gene_likelihood":         str(best["gene_likelihood"]),
+            "batch_size":              int(best["batch_size"]),
+            "max_epochs_scvi":         max_epochs,
+            "early_stopping":          early_stopping,
+            "early_stopping_patience": early_stopping_patience,
         },
         "best_metrics": {
-            "objective":                        float(best["objective"]),
-            "age_batch_score":                  float(best["age_batch_score"]),
-            "celltype_silhouette_score_norm":   float(best["celltype_silhouette_score_norm"]),
-            "age_bin_scores":                   json.loads(best["age_bin_scores_json"]),
+            "objective":               float(best["objective"]),
+            "batch_mixing_pca_score":  float(best["batch_mixing_pca_score"]),
+            "batch_mixing_pca_norm":   float(best["batch_mixing_pca_norm"]),
+            "recon_error":             float(best["recon_error"]),
+            "decoder_score_norm":      float(best["decoder_score_norm"]),
+            "age_bin_scores":          json.loads(best["age_bin_scores_json"]),
         },
     }
 
@@ -966,6 +1228,23 @@ def run_tuning(config_path: Path):
         )
 
     if run_scanvi_eval:
+        # Build normalization constants from scVI trials so the scANVI objectives
+        # are on the same scale and the scVI→scANVI delta is directly interpretable.
+        valid_results = [
+            r for r in results
+            if r["status"] == "ok"
+            and np.isfinite(r.get("batch_mixing_pca_score", float("nan")))
+            and np.isfinite(r.get("recon_error", float("nan")))
+        ]
+        bm_vals = [r["batch_mixing_pca_score"] for r in valid_results]
+        re_vals = [r["recon_error"]             for r in valid_results]
+        norm_constants: dict[str, float] = {
+            "bm_min": min(bm_vals) if bm_vals else 0.0,
+            "bm_max": max(bm_vals) if bm_vals else 1.0,
+            "re_min": min(re_vals) if re_vals else 0.0,
+            "re_max": max(re_vals) if re_vals else 1.0,
+        }
+
         logger.info("=" * 80)
         logger.info(
             f"scANVI EVALUATION — top {len(top_model_records)} scVI trials "
@@ -973,15 +1252,20 @@ def run_tuning(config_path: Path):
         )
         logger.info(
             "Production inference uses scANVI (not scVI). These metrics quantify "
-            "how scANVI fine-tuning changes batch-integration quality for each trial."
+            "how scANVI fine-tuning changes batch-integration quality for each trial. "
+            "scANVI objectives are computed on the same scale as scVI using the "
+            "cross-trial normalization constants from the scVI runs."
         )
         # Evaluate best → worst so the most important result appears first in the log.
-        scanvi_records_to_eval = sorted(top_model_records, key=lambda x: x["objective"], reverse=True)
+        scanvi_records_to_eval = sorted(
+            top_model_records, key=lambda x: x.get("objective", float("-inf")), reverse=True
+        )
         scanvi_results: list[dict[str, Any]] = []
 
         for rec in scanvi_records_to_eval:
             t = rec["trial"]
-            logger.info(f"  Trial {t}  scVI obj={rec['objective']:.4f} ...")
+            scvi_obj = rec["objective"]
+            logger.info(f"  Trial {t}  scVI obj={scvi_obj:.4f} ...")
             try:
                 scanvi_metrics = _train_and_evaluate_scanvi(
                     adata=adata,
@@ -995,46 +1279,51 @@ def run_tuning(config_path: Path):
                     max_epochs_scanvi=max_epochs_scanvi,
                     accel=accel,
                     logger=logger,
+                    norm_constants=norm_constants,
                 )
-                delta = scanvi_metrics["objective"] - rec["objective"]
+                delta = scanvi_metrics["objective"] - scvi_obj
                 scanvi_results.append({
-                    "trial":                         t,
-                    "scvi_objective":                rec["objective"],
-                    "scanvi_objective":              scanvi_metrics["objective"],
-                    "scanvi_age_batch_score":        scanvi_metrics["age_batch_score"],
-                    "scanvi_celltype_silhouette_norm": scanvi_metrics["celltype_silhouette_score_norm"],
-                    "delta_objective":               delta,
+                    "trial":                           t,
+                    "scvi_objective":                  scvi_obj,
+                    "scvi_batch_mixing_pca_score":     rec.get("prelim_score", float("nan")),
+                    "scvi_recon_error":                next(
+                        (r["recon_error"] for r in results if r["trial"] == t), float("nan")
+                    ),
+                    "scanvi_objective":                scanvi_metrics["objective"],
+                    "scanvi_batch_mixing_pca_score":   scanvi_metrics["batch_mixing_pca_score"],
+                    "scanvi_recon_error":              scanvi_metrics["recon_error"],
+                    "delta_objective":                 delta,
                 })
                 logger.info(
-                    f"    scVI={rec['objective']:.4f}  →  scANVI={scanvi_metrics['objective']:.4f}  "
+                    f"    scVI={scvi_obj:.4f}  →  scANVI={scanvi_metrics['objective']:.4f}  "
                     f"(Δ={delta:+.4f})"
                 )
             except Exception:
                 logger.exception(f"  scANVI evaluation failed for trial {t}")
                 scanvi_results.append({
-                    "trial":                         t,
-                    "scvi_objective":                rec["objective"],
-                    "scanvi_objective":              float("nan"),
-                    "scanvi_age_batch_score":        float("nan"),
-                    "scanvi_celltype_silhouette_norm": float("nan"),
-                    "delta_objective":               float("nan"),
+                    "trial":                           t,
+                    "scvi_objective":                  scvi_obj,
+                    "scvi_batch_mixing_pca_score":     float("nan"),
+                    "scvi_recon_error":                float("nan"),
+                    "scanvi_objective":                float("nan"),
+                    "scanvi_batch_mixing_pca_score":   float("nan"),
+                    "scanvi_recon_error":              float("nan"),
+                    "delta_objective":                 float("nan"),
                 })
 
         if scanvi_results:
             pd.DataFrame(scanvi_results).to_csv(output_dir / "scanvi_comparison.csv", index=False)
             logger.info(f"Wrote: {output_dir / 'scanvi_comparison.csv'}")
 
-            # Annotate best_hyperparameters.yaml with the scANVI objective for the
-            # top scVI trial, and the scVI→scANVI delta, so the user can judge whether
-            # scANVI consistently improves integration.
+            # Annotate best_hyperparameters.yaml with the best scANVI objective.
             best_scanvi = max(
                 (r for r in scanvi_results if np.isfinite(r["scanvi_objective"])),
                 key=lambda r: r["scanvi_objective"],
                 default=None,
             )
             if best_scanvi is not None:
-                best_params["best_metrics"]["scanvi_objective"]       = float(best_scanvi["scanvi_objective"])
-                best_params["best_metrics"]["scvi_vs_scanvi_delta"]   = float(best_scanvi["delta_objective"])
+                best_params["best_metrics"]["scanvi_objective"]     = float(best_scanvi["scanvi_objective"])
+                best_params["best_metrics"]["scvi_vs_scanvi_delta"] = float(best_scanvi["delta_objective"])
                 with open(output_dir / "best_hyperparameters.yaml", "w") as f:
                     yaml.safe_dump(best_params, f, sort_keys=False)
 

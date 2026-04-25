@@ -72,28 +72,47 @@ search_space:
   gene_likelihood: ["nb", "zinb"]
   batch_size: [512]
 
-# Objective = weighted age-bin batch mixing (65%) + per-age-bin cell-type silhouette (35%).
-# silhouette_weight raised from 0.2 → 0.35 to strengthen the biological-preservation
-# signal and reduce susceptibility to architectures that game mixing entropy via
-# latent-space collapse.  cell_type_key=cell_class (Excitatory/Inhibitory/Non-neuronal)
-# provides a batch-consistent cell-type label without requiring scANVI label transfer.
-# Prenatal bins are upweighted because this is currently the least integrated region.
-# Entropy is normalised by log(n_batches_global) so prenatal bins with fewer batches
-# present are NOT artificially inflated relative to postnatal bins.
+# Objective = 50:50 cross-trial normalized combination of:
+#   1. Age-binned batch mixing of cells when PCA is applied to the batch-corrected
+#      normalized expression (get_normalized_expression with transform_batch set to
+#      WANG-multiome).  This directly measures integration quality in the expression
+#      space used in production (scanvi_normalized), rather than in the latent space.
+#   2. Decoder reconstruction accuracy (get_reconstruction_error without transform_batch).
+#      Including this term prevents architectures that improve batch mixing by latent
+#      space collapse at the expense of accurate generative modelling.
 #
-# Prenatal bin edges are set finer than run 1 (~5-7 gestational week windows) to
-# co-locate Wang donors (discrete GW ages) with Velmeshev donors at similar ages.
-# Run the job once with the prenatal age distribution log (printed at startup) to
-# verify that Wang and Velmeshev cells share each bin; adjust edges if they don't.
+# Both components are min-max normalized across all successful trials so they contribute
+# equally regardless of absolute scale.  The raw values are also recorded in
+# trial_results.csv so trade-offs can be inspected post-hoc.
 #
-# GW↔age_years mapping (age = (GW - 40) / 52, negative = before birth):
-#   GW14 ≈ -0.50    GW20 ≈ -0.38    GW26 ≈ -0.27
-#   GW33 ≈ -0.13    GW37 ≈ -0.06    GW40 =  0.00
+# transform_batch: the reference batch to use for get_normalized_expression.
+#   All cells are decoded as if they came from this batch, giving a common expression
+#   reference for the PCA-based batch mixing evaluation.
+#   WANG-multiome is used because it spans the broadest developmental age range
+#   (prenatal GW14–40 + postnatal), making it the most representative reference.
+#
+# n_pca_components: number of PCA components to retain from the normalized expression
+#   before computing the k-NN batch mixing entropy.  50 captures the dominant
+#   expression variation while discarding low-variance noise.
+#
+# n_normalized_samples: MC samples for get_normalized_expression during tuning.
+#   1 is sufficient for ranking purposes (avoids 10× overhead vs production).
+#
+# max_cells_expr: cells used for the expression PCA step per trial.
+#   The expression matrix (max_cells_expr × n_HVGs × float32) must fit in RAM.
+#   For 30,000 cells × 15,000 genes: ~1.8 GB; safe for most HPC nodes.
+#   Stratified subsampling ensures all batches and age bins are represented.
+#
+# Prenatal bins are upweighted (prenatal_weight: 2.0) because this is currently the
+# least integrated developmental window.  Entropy is normalised by log(n_batches_global)
+# so prenatal bins with fewer batches present are NOT artificially inflated.
 metric:
+  transform_batch: "WANG-multiome"
+  n_pca_components: 50
+  n_normalized_samples: 1
+  max_cells_expr: 30000
   age_bin_edges: [-1.0, -0.5, -0.38, -0.27, -0.15, -0.05, 0.0, 1.0, 5.0, 12.0, 20.0, 40.0, 90.0]
   prenatal_weight: 2.0
   k_neighbors: 20
   min_cells_per_bin: 100      # lowered from 200 to capture finer prenatal bins
   min_cells_per_group: 75
-  silhouette_weight: 0.35
-  max_silhouette_cells_per_bin: 5000   # per-bin cap; avoids global silhouette age artefact

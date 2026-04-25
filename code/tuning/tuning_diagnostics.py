@@ -150,8 +150,12 @@ def fig_trial_ranking(df: pd.DataFrame) -> plt.Figure:
     colors = [PALETTE.get(v, "#888888") for v in n_layers_vals]
     y = np.arange(len(df))
     ax.barh(y, df["objective"], color=colors, edgecolor="white", height=0.7)
-    ax.barh(y, df["age_batch_score"] * 0.8, color=[c + "88" for c in colors],
-            edgecolor="none", height=0.3, label="_batch component")
+
+    # Overlay the batch-mixing-PCA component as a lighter inner bar (80% scaled)
+    bm_col = "batch_mixing_pca_score" if "batch_mixing_pca_score" in df.columns else None
+    if bm_col:
+        ax.barh(y, df[bm_col] * 0.8, color=[c + "88" for c in colors],
+                edgecolor="none", height=0.3, label="_bm_pca component")
 
     for i, (_, row) in enumerate(df.iterrows()):
         ax.text(row["objective"] + 0.002, i, _param_label(row),
@@ -172,25 +176,36 @@ def fig_trial_ranking(df: pd.DataFrame) -> plt.Figure:
     ]
     ax.legend(handles=legend_patches, fontsize=8, loc="lower right")
 
-    # Right: age_batch_score (y) vs silhouette (x) — age batch score is primary
+    # Right: batch_mixing_pca_score (y) vs decoder_score_norm (x)
     ax2 = axes[1]
+    bm_col = "batch_mixing_pca_score" if "batch_mixing_pca_score" in df.columns else "batch_mixing_pca_score"
+    dec_col = "decoder_score_norm" if "decoder_score_norm" in df.columns else None
+
+    x_vals = (
+        df[dec_col].values if dec_col and dec_col in df.columns
+        else np.full(len(df), float("nan"))
+    )
+    y_vals = (
+        df[bm_col].values if bm_col and bm_col in df.columns
+        else np.full(len(df), float("nan"))
+    )
+
     sc = ax2.scatter(
-        df["celltype_silhouette_score_norm"],
-        df["age_batch_score"],
+        x_vals, y_vals,
         c=df["objective"], cmap="RdYlGn",
         vmin=df["objective"].min(), vmax=df["objective"].max(),
         s=80, edgecolors="gray", linewidths=0.5, zorder=3,
     )
-    for _, row in df.iterrows():
+    for i, (_, row) in enumerate(df.iterrows()):
         ax2.annotate(
             f"T{int(row['trial'])}",
-            (row["celltype_silhouette_score_norm"], row["age_batch_score"]),
+            (x_vals[i], y_vals[i]),
             fontsize=6.5, ha="left", va="bottom",
         )
     fig.colorbar(sc, ax=ax2, label="Objective")
-    ax2.set_xlabel("Silhouette norm (35%)")
-    ax2.set_ylabel("Age batch score (65%)")
-    ax2.set_title("Score components")
+    ax2.set_xlabel("Decoder score norm (50%)")
+    ax2.set_ylabel("Batch mixing PCA score (50%)")
+    ax2.set_title("Score components\n(50:50 cross-trial normalized)")
     ax2.grid(alpha=0.3)
 
     fig.tight_layout()
@@ -280,7 +295,14 @@ def fig_parameter_effects(df: pd.DataFrame) -> plt.Figure:
     def _jitter(vals, scale=0.08):
         return vals + np.random.default_rng(0).uniform(-scale, scale, len(vals))
 
-    metrics = ["objective", "age_batch_score"]
+    # Use whichever batch mixing column is present (new runs: batch_mixing_pca_score,
+    # old runs: age_batch_score for backward compatibility).
+    bm_col = (
+        "batch_mixing_pca_score" if "batch_mixing_pca_score" in df.columns
+        else "age_batch_score" if "age_batch_score" in df.columns
+        else None
+    )
+    metrics = ["objective"] + ([bm_col] if bm_col else [])
     cmap = plt.cm.Set2
 
     for ax_idx, param in enumerate(PARAM_COLS):
@@ -311,9 +333,10 @@ def fig_parameter_effects(df: pd.DataFrame) -> plt.Figure:
         ax.set_title(f"Effect of {param}")
 
     # Combined legend: metric colour + n_layers dot colour
+    bm_label = bm_col if bm_col else "batch_mixing_score"
     metric_handles = [
         mpatches.Patch(color=cmap(0), label="objective (filled)"),
-        mpatches.Patch(color=cmap(1), label="age_batch_score (filled)"),
+        mpatches.Patch(color=cmap(1), label=f"{bm_label} (filled)"),
     ]
     layer_handles = [
         mpatches.Patch(color=c, label=f"n_layers={lay}")
@@ -407,7 +430,7 @@ def fig_scanvi_comparison(df: pd.DataFrame, scanvi: pd.DataFrame) -> plt.Figure:
     merged = merged.sort_values("scvi_objective", ascending=False).reset_index(drop=True)
 
     fig, axes = plt.subplots(1, 2, figsize=(FIGURE_WIDTH, 5))
-    fig.suptitle("scVI vs scANVI: Objective and Delta", fontsize=13, fontweight="bold")
+    fig.suptitle("scVI vs scANVI: Objective and Component Scores", fontsize=13, fontweight="bold")
 
     ax = axes[0]
     x = np.arange(len(merged))
@@ -417,32 +440,45 @@ def fig_scanvi_comparison(df: pd.DataFrame, scanvi: pd.DataFrame) -> plt.Figure:
     ax.set_xticks(x)
     ax.set_xticklabels([f"T{int(r['trial'])}\n{r['gene_likelihood']} L={int(r['n_latent'])}"
                         for _, r in merged.iterrows()], fontsize=8)
-    ax.set_ylabel("Objective score")
-    ax.set_title("scVI → scANVI: scANVI consistently\nimproves batch integration (small Δ)")
+    ax.set_ylabel("Objective score (50:50 normalized)")
+    ax.set_title("scVI → scANVI: objective comparison\n(same scVI cross-trial normalization scale)")
     ax.legend()
     ax.grid(axis="y", alpha=0.3)
     for b1, b2 in zip(bars1, bars2):
         delta = b2.get_height() - b1.get_height()
+        sign = "+" if delta >= 0 else ""
         ax.text(b2.get_x() + b2.get_width() / 2, b2.get_height() + 0.001,
-                f"+{delta:.3f}", ha="center", va="bottom", fontsize=7.5, color="#D65F5F")
+                f"{sign}{delta:.3f}", ha="center", va="bottom", fontsize=7.5, color="#D65F5F")
 
     ax2 = axes[1]
-    scvi_sil = (
-        df[df["trial"].isin(merged["trial"])]
-        .set_index("trial")
-        .loc[merged["trial"], "celltype_silhouette_score_norm"]
-        .values
-    )
-    ax2.bar(x - w / 2, scvi_sil, w, label="scVI silhouette", color="#AAB66A", alpha=0.85)
-    ax2.bar(x + w / 2, merged["scanvi_celltype_silhouette_norm"], w,
-            label="scANVI silhouette", color="#6AAB6A", alpha=0.85)
+    # Show batch mixing PCA scores side by side (scVI vs scANVI)
+    # Use whichever column name is present for backward compatibility.
+    scvi_bm_col  = "scvi_batch_mixing_pca_score"
+    scanvi_bm_col = "scanvi_batch_mixing_pca_score"
+    has_bm = scvi_bm_col in merged.columns and scanvi_bm_col in merged.columns
+
+    if has_bm:
+        ax2.bar(x - w / 2, merged[scvi_bm_col],  w, label="scVI bm_pca",   color="#4878CF88", alpha=0.85)
+        ax2.bar(x + w / 2, merged[scanvi_bm_col], w, label="scANVI bm_pca", color="#D65F5F88", alpha=0.85)
+        ax2.set_ylabel("Batch mixing PCA score (expression space)")
+        ax2.set_title("Batch mixing in expression PCA space\n(higher = better integrated)")
+        ax2.set_ylim(0, 1.0)
+    else:
+        # Fallback for old runs that recorded recon_error instead
+        scvi_re_col  = "scvi_recon_error"
+        scanvi_re_col = "scanvi_recon_error"
+        if scvi_re_col in merged.columns and scanvi_re_col in merged.columns:
+            ax2.bar(x - w / 2, merged[scvi_re_col],  w, label="scVI recon",   color="#4878CF88", alpha=0.85)
+            ax2.bar(x + w / 2, merged[scanvi_re_col], w, label="scANVI recon", color="#D65F5F88", alpha=0.85)
+            ax2.set_ylabel("Reconstruction error (lower = better)")
+            ax2.set_title("Decoder reconstruction error\n(lower = better generative model)")
+        else:
+            ax2.set_title("No component breakdown available")
+
     ax2.set_xticks(x)
     ax2.set_xticklabels([f"T{int(r['trial'])}" for _, r in merged.iterrows()], fontsize=8)
-    ax2.set_ylabel("Silhouette norm (cell-type preservation)")
-    ax2.set_title("scANVI notably improves cell-type\ncoherence (silhouette) for all top trials")
     ax2.legend()
     ax2.grid(axis="y", alpha=0.3)
-    ax2.set_ylim(0, 0.75)
 
     fig.tight_layout()
     return fig

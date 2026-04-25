@@ -38,10 +38,12 @@ search_space:
   batch_size: [256]
 
 metric:
+  transform_batch: "WANG-multiome"
+  n_pca_components: 10
+  n_normalized_samples: 1
+  max_cells_expr: 1000
   age_bin_edges: [-1.0, -0.5, -0.38, -0.27, -0.15, -0.05, 0.0, 1.0, 5.0, 12.0, 20.0, 40.0, 90.0]
   prenatal_weight: 2.0
   k_neighbors: 10
   min_cells_per_bin: 10
   min_cells_per_group: 10
-  silhouette_weight: 0.2
-  max_silhouette_cells_per_bin: 500
