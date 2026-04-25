@@ -12,7 +12,7 @@ Produces a multi-page PDF and individual PNGs covering:
   - Prenatal vs postnatal mixing comparison
   - scVI vs scANVI objective comparison for top-k trials
   - Per-batch global mixing scores (identifies which batches are poorly integrated)
-  - UMAP grid: top-5 vs bottom-5 trials coloured by batch (2 rows × 5 cols)
+  - UMAP grid: top-5 vs bottom-5 trials coloured by batch, embedded in expression PCA space (2 rows × 5 cols)
 """
 
 from __future__ import annotations
@@ -150,8 +150,12 @@ def fig_trial_ranking(df: pd.DataFrame) -> plt.Figure:
     colors = [PALETTE.get(v, "#888888") for v in n_layers_vals]
     y = np.arange(len(df))
     ax.barh(y, df["objective"], color=colors, edgecolor="white", height=0.7)
-    ax.barh(y, df["age_batch_score"] * 0.8, color=[c + "88" for c in colors],
-            edgecolor="none", height=0.3, label="_batch component")
+
+    # Overlay the batch-mixing-PCA component as a lighter inner bar (80% scaled)
+    bm_col = "batch_mixing_pca_score" if "batch_mixing_pca_score" in df.columns else None
+    if bm_col:
+        ax.barh(y, df[bm_col] * 0.8, color=[c + "88" for c in colors],
+                edgecolor="none", height=0.3, label="_bm_pca component")
 
     for i, (_, row) in enumerate(df.iterrows()):
         ax.text(row["objective"] + 0.002, i, _param_label(row),
@@ -172,25 +176,37 @@ def fig_trial_ranking(df: pd.DataFrame) -> plt.Figure:
     ]
     ax.legend(handles=legend_patches, fontsize=8, loc="lower right")
 
-    # Right: age_batch_score (y) vs silhouette (x) — age batch score is primary
+    # Right: batch_mixing_pca_score (y) vs decoder_score_norm (x)
     ax2 = axes[1]
+    # Use whichever column is present; None means no data available for that axis.
+    bm_col  = "batch_mixing_pca_score" if "batch_mixing_pca_score" in df.columns else None
+    dec_col = "decoder_score_norm"     if "decoder_score_norm"     in df.columns else None
+
+    x_vals = (
+        df[dec_col].values if dec_col and dec_col in df.columns
+        else np.full(len(df), float("nan"))
+    )
+    y_vals = (
+        df[bm_col].values if bm_col and bm_col in df.columns
+        else np.full(len(df), float("nan"))
+    )
+
     sc = ax2.scatter(
-        df["celltype_silhouette_score_norm"],
-        df["age_batch_score"],
+        x_vals, y_vals,
         c=df["objective"], cmap="RdYlGn",
         vmin=df["objective"].min(), vmax=df["objective"].max(),
         s=80, edgecolors="gray", linewidths=0.5, zorder=3,
     )
-    for _, row in df.iterrows():
+    for i, (_, row) in enumerate(df.iterrows()):
         ax2.annotate(
             f"T{int(row['trial'])}",
-            (row["celltype_silhouette_score_norm"], row["age_batch_score"]),
+            (x_vals[i], y_vals[i]),
             fontsize=6.5, ha="left", va="bottom",
         )
     fig.colorbar(sc, ax=ax2, label="Objective")
-    ax2.set_xlabel("Silhouette norm (35%)")
-    ax2.set_ylabel("Age batch score (65%)")
-    ax2.set_title("Score components")
+    ax2.set_xlabel("Decoder score norm (50%)")
+    ax2.set_ylabel("Batch mixing PCA score (50%)")
+    ax2.set_title("Score components\n(50:50 cross-trial normalized)")
     ax2.grid(alpha=0.3)
 
     fig.tight_layout()
@@ -280,7 +296,14 @@ def fig_parameter_effects(df: pd.DataFrame) -> plt.Figure:
     def _jitter(vals, scale=0.08):
         return vals + np.random.default_rng(0).uniform(-scale, scale, len(vals))
 
-    metrics = ["objective", "age_batch_score"]
+    # Use whichever batch mixing column is present (new runs: batch_mixing_pca_score,
+    # old runs: age_batch_score for backward compatibility).
+    bm_col = (
+        "batch_mixing_pca_score" if "batch_mixing_pca_score" in df.columns
+        else "age_batch_score" if "age_batch_score" in df.columns
+        else None
+    )
+    metrics = ["objective"] + ([bm_col] if bm_col else [])
     cmap = plt.cm.Set2
 
     for ax_idx, param in enumerate(PARAM_COLS):
@@ -311,10 +334,12 @@ def fig_parameter_effects(df: pd.DataFrame) -> plt.Figure:
         ax.set_title(f"Effect of {param}")
 
     # Combined legend: metric colour + n_layers dot colour
+    bm_label = bm_col if bm_col else "batch mixing (no column)"
     metric_handles = [
         mpatches.Patch(color=cmap(0), label="objective (filled)"),
-        mpatches.Patch(color=cmap(1), label="age_batch_score (filled)"),
     ]
+    if bm_col:
+        metric_handles.append(mpatches.Patch(color=cmap(1), label=f"{bm_label} (filled)"))
     layer_handles = [
         mpatches.Patch(color=c, label=f"n_layers={lay}")
         for lay, c in sorted(PALETTE.items()) if lay in df["n_layers"].astype(int).values
@@ -407,7 +432,7 @@ def fig_scanvi_comparison(df: pd.DataFrame, scanvi: pd.DataFrame) -> plt.Figure:
     merged = merged.sort_values("scvi_objective", ascending=False).reset_index(drop=True)
 
     fig, axes = plt.subplots(1, 2, figsize=(FIGURE_WIDTH, 5))
-    fig.suptitle("scVI vs scANVI: Objective and Delta", fontsize=13, fontweight="bold")
+    fig.suptitle("scVI vs scANVI: Objective and Component Scores", fontsize=13, fontweight="bold")
 
     ax = axes[0]
     x = np.arange(len(merged))
@@ -417,32 +442,45 @@ def fig_scanvi_comparison(df: pd.DataFrame, scanvi: pd.DataFrame) -> plt.Figure:
     ax.set_xticks(x)
     ax.set_xticklabels([f"T{int(r['trial'])}\n{r['gene_likelihood']} L={int(r['n_latent'])}"
                         for _, r in merged.iterrows()], fontsize=8)
-    ax.set_ylabel("Objective score")
-    ax.set_title("scVI → scANVI: scANVI consistently\nimproves batch integration (small Δ)")
+    ax.set_ylabel("Objective score (50:50 normalized)")
+    ax.set_title("scVI → scANVI: objective comparison\n(same scVI cross-trial normalization scale)")
     ax.legend()
     ax.grid(axis="y", alpha=0.3)
     for b1, b2 in zip(bars1, bars2):
         delta = b2.get_height() - b1.get_height()
+        sign = "+" if delta >= 0 else ""
         ax.text(b2.get_x() + b2.get_width() / 2, b2.get_height() + 0.001,
-                f"+{delta:.3f}", ha="center", va="bottom", fontsize=7.5, color="#D65F5F")
+                f"{sign}{delta:.3f}", ha="center", va="bottom", fontsize=7.5, color="#D65F5F")
 
     ax2 = axes[1]
-    scvi_sil = (
-        df[df["trial"].isin(merged["trial"])]
-        .set_index("trial")
-        .loc[merged["trial"], "celltype_silhouette_score_norm"]
-        .values
-    )
-    ax2.bar(x - w / 2, scvi_sil, w, label="scVI silhouette", color="#AAB66A", alpha=0.85)
-    ax2.bar(x + w / 2, merged["scanvi_celltype_silhouette_norm"], w,
-            label="scANVI silhouette", color="#6AAB6A", alpha=0.85)
+    # Show batch mixing PCA scores side by side (scVI vs scANVI)
+    # Use whichever column name is present for backward compatibility.
+    scvi_bm_col = "scvi_batch_mixing_pca_score"
+    scanvi_bm_col = "scanvi_batch_mixing_pca_score"
+    has_bm = scvi_bm_col in merged.columns and scanvi_bm_col in merged.columns
+
+    if has_bm:
+        ax2.bar(x - w / 2, merged[scvi_bm_col],  w, label="scVI bm_pca",   color="#4878CF88", alpha=0.85)
+        ax2.bar(x + w / 2, merged[scanvi_bm_col], w, label="scANVI bm_pca", color="#D65F5F88", alpha=0.85)
+        ax2.set_ylabel("Batch mixing PCA score (expression space)")
+        ax2.set_title("Batch mixing in expression PCA space\n(higher = better integrated)")
+        ax2.set_ylim(0, 1.0)
+    else:
+        # Fallback for old runs that recorded recon_error instead
+        scvi_re_col  = "scvi_recon_error"
+        scanvi_re_col = "scanvi_recon_error"
+        if scvi_re_col in merged.columns and scanvi_re_col in merged.columns:
+            ax2.bar(x - w / 2, merged[scvi_re_col],  w, label="scVI recon",   color="#4878CF88", alpha=0.85)
+            ax2.bar(x + w / 2, merged[scanvi_re_col], w, label="scANVI recon", color="#D65F5F88", alpha=0.85)
+            ax2.set_ylabel("Reconstruction error (lower = better)")
+            ax2.set_title("Decoder reconstruction error\n(lower = better generative model)")
+        else:
+            ax2.set_title("No component breakdown available")
+
     ax2.set_xticks(x)
     ax2.set_xticklabels([f"T{int(r['trial'])}" for _, r in merged.iterrows()], fontsize=8)
-    ax2.set_ylabel("Silhouette norm (cell-type preservation)")
-    ax2.set_title("scANVI notably improves cell-type\ncoherence (silhouette) for all top trials")
     ax2.legend()
     ax2.grid(axis="y", alpha=0.3)
-    ax2.set_ylim(0, 0.75)
 
     fig.tight_layout()
     return fig
@@ -456,7 +494,7 @@ def fig_batch_mixing(df: pd.DataFrame) -> plt.Figure | None:
     """Heatmap showing how well each individual batch mixes with others.
 
     Uses global k-NN (not age-bin-restricted) so a batch that is globally
-    isolated in latent space — not just in one age bin — gets a low score.
+    isolated in expression PCA space — not just in one age bin — gets a low score.
     Wang batches are highlighted with a blue border.
     """
     batch_cols = sorted(c for c in df.columns if c.startswith("batch__"))
@@ -479,7 +517,7 @@ def fig_batch_mixing(df: pd.DataFrame) -> plt.Figure | None:
     fig, ax = plt.subplots(figsize=(FIGURE_WIDTH, fig_h))
     fig.suptitle(
         "Per-Batch Global Mixing Score  (k-NN entropy, higher = better integrated)\n"
-        "Global k-NN — identifies batches isolated across the whole latent space, not just within one age bin.",
+        "Global k-NN — identifies batches isolated across the whole expression PCA space, not just within one age bin.",
         fontsize=11, fontweight="bold",
     )
 
@@ -537,10 +575,11 @@ def fig_umap_grid(
 ) -> plt.Figure | None:
     """2-row × 5-col UMAP grid: top-n (row 1) and bottom-n (row 2) trials coloured by batch.
 
-    Requires trial_XX_latent.npy and obs_tuning.csv produced by tune_scvi_batch.py.
-    A fixed random subsample of n_cells is used across all panels so batch colour
-    proportions are directly comparable; only the UMAP layout differs between panels.
-    Returns None when latent files are absent (e.g. older run results).
+    Prefers trial_XX_expr_pca.npy + trial_XX_expr_pca_idx.npy (expression PCA space,
+    same space used by the batch-mixing metric) when present.  Falls back to
+    trial_XX_latent.npy (scVI latent space) for legacy run results.
+    Requires obs_tuning.csv produced by tune_scvi_batch.py.
+    Returns None when neither file type is found (e.g. older run results).
     """
     try:
         import anndata as ad
@@ -556,6 +595,12 @@ def fig_umap_grid(
     if batch_key not in obs_full.columns:
         return None
 
+    def _expr_pca_path(t: int) -> Path:
+        return input_dir / f"trial_{t:02d}_expr_pca.npy"
+
+    def _expr_pca_idx_path(t: int) -> Path:
+        return input_dir / f"trial_{t:02d}_expr_pca_idx.npy"
+
     def _latent_path(t: int) -> Path:
         return input_dir / f"trial_{t:02d}_latent.npy"
 
@@ -564,36 +609,63 @@ def fig_umap_grid(
     top_rows = df.head(n_top)
     bot_rows = df.tail(n_bot)
 
-    top_mask = [_latent_path(int(r["trial"])).exists() for _, r in top_rows.iterrows()]
-    bot_mask = [_latent_path(int(r["trial"])).exists() for _, r in bot_rows.iterrows()]
+    # Prefer expression PCA files; fall back to latent files.
+    def _has_data(t: int) -> bool:
+        return _expr_pca_path(t).exists() or _latent_path(t).exists()
+
+    def _uses_expr_pca(t: int) -> bool:
+        return _expr_pca_path(t).exists()
+
+    top_mask = [_has_data(int(r["trial"])) for _, r in top_rows.iterrows()]
+    bot_mask = [_has_data(int(r["trial"])) for _, r in bot_rows.iterrows()]
     top_rows = top_rows[top_mask].reset_index(drop=True)
     bot_rows = bot_rows[bot_mask].reset_index(drop=True)
 
     if len(top_rows) == 0 and len(bot_rows) == 0:
         return None
 
-    # Fixed subsample index shared across all panels
+    # Determine the predominant representation for the suptitle label.
+    all_trials = list(top_rows["trial"]) + list(bot_rows["trial"])
+    use_expr_pca_any = any(_uses_expr_pca(int(t)) for t in all_trials)
+    embed_label = (
+        "expression PCA (batch-corrected, WANG-multiome reference)"
+        if use_expr_pca_any
+        else "scVI latent space (legacy)"
+    )
+
+    # Fixed shared random state for consistent subsampling across panels.
     rng = np.random.default_rng(seed)
     n_full = len(obs_full)
-    n_sub = min(n_cells, n_full)
-    sub_idx = np.sort(rng.choice(n_full, n_sub, replace=False))
-    batch_sub = obs_full[batch_key].astype(str).iloc[sub_idx].values
 
     batches = sorted(obs_full[batch_key].astype(str).unique())
     tab_cmap = plt.cm.get_cmap("tab10", len(batches))
     batch_colors = {b: tab_cmap(i) for i, b in enumerate(batches)}
 
     n_cols = 5
-    fig, axes = plt.subplots(2, n_cols, figsize=(FIGURE_WIDTH, 6.5))
+    fig, axes = plt.subplots(2, n_cols, figsize=(FIGURE_WIDTH, 7.0))
     fig.suptitle(
         f"UMAP coloured by batch — top {len(top_rows)} trials (row 1) vs bottom {len(bot_rows)} trials (row 2)\n"
-        f"Fixed {n_sub:,}-cell subsample per panel; each UMAP is independent — compare clustering, not coordinates",
+        f"Embedding: {embed_label}",
         fontsize=10, fontweight="bold",
     )
 
     def _plot_one(ax: plt.Axes, trial_row: pd.Series) -> None:
         t = int(trial_row["trial"])
-        X = np.load(str(_latent_path(t)))[sub_idx].astype(np.float32)
+        if _uses_expr_pca(t):
+            # Use expression PCA (preferred): subsample from the metric evaluation cells.
+            X_full_pca = np.load(str(_expr_pca_path(t)))
+            cell_indices = np.load(str(_expr_pca_idx_path(t)))
+            n_avail = len(cell_indices)
+            n_sub = min(n_cells, n_avail)
+            local_sub = np.sort(rng.choice(n_avail, n_sub, replace=False))
+            X = X_full_pca[local_sub].astype(np.float32)
+            batch_sub = obs_full[batch_key].astype(str).iloc[cell_indices[local_sub]].values
+        else:
+            # Fall back to scVI latent space (legacy runs without expr_pca files).
+            n_sub = min(n_cells, n_full)
+            sub_idx = np.sort(rng.choice(n_full, n_sub, replace=False))
+            X = np.load(str(_latent_path(t)))[sub_idx].astype(np.float32)
+            batch_sub = obs_full[batch_key].astype(str).iloc[sub_idx].values
 
         adata_tmp = ad.AnnData(X=X)
         sc.pp.neighbors(adata_tmp, use_rep="X", n_neighbors=15, random_state=seed)
@@ -697,14 +769,14 @@ def run_diagnostics(
             if umap_fig is not None:
                 figs["7_umap_grid"] = umap_fig
             else:
-                _log("  UMAP grid skipped (latent files not found; run produced by newer code only)")
+                _log("  UMAP grid skipped (expr_pca/latent .npy files not found)")
         return figs
 
     # Write individual PNGs
     figures = _build_figures()
     for name, fig in figures.items():
         png_path = output_dir / f"{name}.png"
-        fig.savefig(png_path, dpi=150, bbox_inches="tight")
+        fig.savefig(png_path, dpi=300, bbox_inches="tight")
         _log(f"  Wrote {png_path}")
         plt.close(fig)
 
