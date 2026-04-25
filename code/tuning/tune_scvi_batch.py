@@ -292,8 +292,9 @@ def _per_batch_mixing_scores(
     """Global k-NN batch mixing: for each batch, mean normalised entropy of its cells' neighbourhoods.
 
     Unlike the age-bin metric (per-bin k-NN), this uses a single global k-NN so a batch
-    that is globally isolated in latent space gets a low score regardless of age bin.
+    that is globally isolated gets a low score regardless of age bin.
     Helps identify which specific batches (e.g. Wang) are poorly integrated.
+    X is the embedding (latent or expression PCA) for all cells.
     """
     rng = np.random.default_rng(seed)
     n_all = X.shape[0]
@@ -329,7 +330,7 @@ def _per_batch_mixing_scores(
 
 def _evaluate_age_aware_batch_score(
     adata,
-    latent_key: str,
+    X: np.ndarray,
     batch_key: str,
     age_key: str,
     age_bin_edges: list[float],
@@ -341,7 +342,7 @@ def _evaluate_age_aware_batch_score(
     n_batches_global: int,
 ) -> tuple[float, dict[str, Any]]:
     obs = adata.obs.copy()
-    X = np.asarray(adata.obsm[latent_key])
+    X = np.asarray(X)
 
     age_bins = _make_age_bins(obs, age_key=age_key, edges=age_bin_edges)
     obs = obs.assign(_age_bin=age_bins)
@@ -534,20 +535,16 @@ def _evaluate_trial_components(
     del expr  # free memory before batch mixing
 
     # Age-binned batch mixing on the PCA embedding.
-    latent_key_pca = "_X_expr_pca_tmp"
-    adata_expr = adata_expr.copy()
-    adata_expr.obsm[latent_key_pca] = X_pca
-
     age_score, age_details = _evaluate_age_aware_batch_score(
         adata=adata_expr,
-        latent_key=latent_key_pca,
+        X=X_pca,
         batch_key=batch_key,
         age_key=age_key,
         age_bin_edges=metric_cfg["age_bin_edges"],
         prenatal_weight=float(metric_cfg.get("prenatal_weight", 2.0)),
         cell_type_key=cell_type_key,
         k_neighbors=int(metric_cfg.get("k_neighbors", 20)),
-        min_cells_per_bin=int(metric_cfg.get("min_cells_per_bin", 200)),
+        min_cells_per_bin=int(metric_cfg.get("min_cells_per_bin", 100)),
         min_cells_per_group=int(metric_cfg.get("min_cells_per_group", 75)),
         n_batches_global=n_batches_global,
     )

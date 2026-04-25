@@ -494,7 +494,7 @@ def fig_batch_mixing(df: pd.DataFrame) -> plt.Figure | None:
     """Heatmap showing how well each individual batch mixes with others.
 
     Uses global k-NN (not age-bin-restricted) so a batch that is globally
-    isolated in latent space — not just in one age bin — gets a low score.
+    isolated in expression PCA space — not just in one age bin — gets a low score.
     Wang batches are highlighted with a blue border.
     """
     batch_cols = sorted(c for c in df.columns if c.startswith("batch__"))
@@ -517,7 +517,7 @@ def fig_batch_mixing(df: pd.DataFrame) -> plt.Figure | None:
     fig, ax = plt.subplots(figsize=(FIGURE_WIDTH, fig_h))
     fig.suptitle(
         "Per-Batch Global Mixing Score  (k-NN entropy, higher = better integrated)\n"
-        "Global k-NN — identifies batches isolated across the whole latent space, not just within one age bin.",
+        "Global k-NN on expression PCA — identifies batches isolated across the whole space, not just within one age bin.",
         fontsize=11, fontweight="bold",
     )
 
