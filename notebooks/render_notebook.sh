@@ -21,9 +21,10 @@ NOTEBOOK="${1:-}"
 PARAMS_FILE="${2:-}"
 OUTPUT_DIR="${3:-}"
 FORCE="${4:-}"
+OUTPUT_FILE="${5:-}"  # Optional: override output filename (e.g. my_config.html)
 
 if [[ -z "$NOTEBOOK" ]]; then
-    echo "Usage: $0 <path/to/notebook.qmd> [params.yaml] [output_dir]" >&2
+    echo "Usage: $0 <path/to/notebook.qmd> [params.yaml] [output_dir] [--force] [output_file.html]" >&2
     exit 1
 fi
 
@@ -43,7 +44,10 @@ PARAMS_ENV=""
 [[ -n "$PARAMS_FILE" ]] && PARAMS_ENV="NOTEBOOK_PARAMS=${PARAMS_FILE}"
 
 OUTPUT_ARG=""
-if [[ -n "$OUTPUT_DIR" ]]; then
+if [[ -n "$OUTPUT_DIR" && -n "$OUTPUT_FILE" ]]; then
+    mkdir -p "$OUTPUT_DIR"
+    OUTPUT_ARG="--output-dir '${OUTPUT_DIR}' --output '${OUTPUT_FILE}'"
+elif [[ -n "$OUTPUT_DIR" ]]; then
     mkdir -p "$OUTPUT_DIR"
     OUTPUT_ARG="--output-dir '${OUTPUT_DIR}'"
 fi
@@ -58,8 +62,9 @@ PYTHON_BIN="/opt/micromamba/envs/${CONDA_ENV}/bin/python3"
 
 echo "========================================"
 echo "Rendering: $NOTEBOOK"
-[[ -n "$PARAMS_FILE" ]] && echo "Params:    $PARAMS_FILE"
-[[ -n "$OUTPUT_DIR"  ]] && echo "Output:    $OUTPUT_DIR"
+[[ -n "$PARAMS_FILE"  ]] && echo "Params:    $PARAMS_FILE"
+[[ -n "$OUTPUT_DIR"   ]] && echo "Output:    $OUTPUT_DIR"
+[[ -n "$OUTPUT_FILE"  ]] && echo "Filename:  $OUTPUT_FILE"
 echo "Job ID:    ${SLURM_JOB_ID:-local}"
 echo "Node:      $(hostname)"
 echo "Start:     $(date)"

@@ -67,12 +67,12 @@ else:
     print("No NOTEBOOK_PARAMS set — using defaults (interactive mode)")
 
 # --- Experiment identity ---
-EXPERIMENT_NAME = _cfg.get('EXPERIMENT_NAME', 'grn_dev')
+EXPERIMENT_NAME = _cfg.get('EXPERIMENT_NAME', 'grn_dev_excitatory_prepost_tuning3')
 
 # --- Data: pseudobulk file ---
 _pb_default = os.path.join(
     rds_dir,
-    'Cam_snRNAseq/integrated/VelWangPsychAD_100k_postnatal_chemistry',
+    'Cam_snRNAseq/integrated/VelWangPsychAD_100k_prepost_tuning3',
     'pseudobulk_output/by_cell_class.h5ad')
 PSEUDOBULK_FILE = _cfg.get('PSEUDOBULK_FILE', _pb_default)
 
@@ -86,13 +86,13 @@ CELL_CLASS_VALUE = _cfg.get('CELL_CLASS_VALUE', 'Excitatory') or ''
 # --- HVG selection ---
 # N_VALUES: top-N gene counts for Pearson residuals HVG conditions.
 # An all-gene (no filtering) condition is always included.
-N_VALUES = _cfg.get('N_VALUES', [1000, 2000, 4000, 8000])
+N_VALUES = _cfg.get('N_VALUES', [2000, 4000, 8000])
 
 # --- 4D sensitivity axes ---
 CHILD_STARTS = _cfg.get('CHILD_STARTS', [1, 2, 3, 4, 5])
-GAP_STARTS   = _cfg.get('GAP_STARTS',   [9, 10, 11, 12, 13])  # = childhood upper bound
-GAP_LENGTHS  = _cfg.get('GAP_LENGTHS',  [1, 2, 3, 4, 5])      # adol_start = gap_start + gap_length
-ADOL_ENDS    = _cfg.get('ADOL_ENDS',    [20, 22, 24, 26])
+GAP_STARTS   = _cfg.get('GAP_STARTS',   [10, 11, 12, 13, 14])  # = childhood upper bound
+GAP_LENGTHS  = _cfg.get('GAP_LENGTHS',  [0, 1, 2, 3, 4])       # adol_start = gap_start + gap_length
+ADOL_ENDS    = _cfg.get('ADOL_ENDS',    [18, 20, 22, 24, 26])
 
 print(f"EXPERIMENT_NAME  : {EXPERIMENT_NAME}")
 print(f"PSEUDOBULK_FILE  : {PSEUDOBULK_FILE}")

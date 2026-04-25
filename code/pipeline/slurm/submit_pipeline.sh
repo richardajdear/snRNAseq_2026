@@ -12,14 +12,14 @@
 #   cd /home/rajd2/rds/hpc-work/snRNAseq_2026
 #   bash code/pipeline/slurm/submit_pipeline.sh [config]
 #
-# The config defaults to code/pipeline/hpc_config.yaml.
+# The config defaults to code/pipeline/configs/source_hpc_config.yaml.
 # Individual steps can be resubmitted independently using the step scripts.
 # To run scanvi-only after step 2, submit step3_label_transfer.sh manually.
 
 set -euo pipefail
 
 WORK_DIR="/home/rajd2/rds/hpc-work/snRNAseq_2026"
-CONFIG="${1:-code/pipeline/hpc_config.yaml}"
+CONFIG="${1:-code/pipeline/configs/source_hpc_config.yaml}"
 
 echo "========================================"
 echo "Submitting snRNAseq pipeline"

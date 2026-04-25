@@ -14,7 +14,7 @@ set -euo pipefail
 WORK_DIR="${WORK_DIR:-/home/rajd2/rds/hpc-work/snRNAseq_2026}"
 SIF="${SIF:-/home/rajd2/rds/hpc-work/shortcake_scvi.sif}"
 DATA_DIR="/home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc"
-CONFIG="${CONFIG:-code/pipeline/hpc_config.yaml}"
+CONFIG="${CONFIG:-code/pipeline/configs/source_hpc_config.yaml}"
 
 mkdir -p "${WORK_DIR}/logs"
 
