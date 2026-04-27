@@ -196,19 +196,30 @@ def set_terminal_states_from_cell_types(
     import numpy as np
 
     col = adata.obs[config.cell_type_key].astype(str)
-    cell_types = sorted(col.unique().tolist())
+    all_types = sorted(col.unique().tolist())
     n_cells = config.n_terminal_cells
+    patterns = config.immature_cell_type_patterns
+
+    def _is_immature(ct: str) -> bool:
+        return any(pat in ct for pat in patterns)
+
+    mature_types = [ct for ct in all_types if not _is_immature(ct)]
+    immature_types = [ct for ct in all_types if _is_immature(ct)]
 
     logger.info(
-        f"  Setting terminal states directly from '{config.cell_type_key}' "
-        f"({len(cell_types)} unique types, {n_cells} cells/type — skipping GPCCA Schur decomposition)."
+        f"  Setting terminal states from '{config.cell_type_key}': "
+        f"{len(mature_types)} mature (terminal) + {len(immature_types)} immature (transient) — "
+        f"skipping GPCCA Schur decomposition."
     )
+    if immature_types:
+        logger.info(f"  Immature/transient (not absorbing): {immature_types}")
 
-    # Sample n_cells representative cells per type (rest stay transient).
-    # Uses dict form which does NOT require prior compute_macrostates.
+    # Sample n_cells representative cells per MATURE type only.
+    # Immature cells (RG, IPC, Immature*) are left fully transient so the
+    # solver can assign them fate probabilities towards the mature endpoints.
     rng = np.random.default_rng(0)
     states_dict = {}
-    for ct in cell_types:
+    for ct in mature_types:
         all_names = adata.obs_names[(col == ct).values].tolist()
         n_sample = min(n_cells, len(all_names))
         sampled = rng.choice(all_names, size=n_sample, replace=False).tolist()

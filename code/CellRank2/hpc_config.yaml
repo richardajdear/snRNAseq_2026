@@ -19,7 +19,8 @@ n_neighbors: 30
 neighbors_key: neighbors_scanvi
 
 # ── Age binning ───────────────────────────────────────────────────────────────
-age_bin_edges: [0.0, 0.5, 2.0, 10.0, 20.0, 40.0, 100.0]
+# Lower bound -1.0 captures prenatal cells (negative age = before birth).
+age_bin_edges: [-1.0, 0.5, 2.0, 10.0, 20.0, 40.0, 100.0]
 age_bin_key: age_bin
 
 # ── Optimal transport ─────────────────────────────────────────────────────────
@@ -33,7 +34,8 @@ rtk_weight: 0.8
 # use_cell_type_states: bypass GPCCA Schur decomposition and instead assign
 # one terminal state per unique cell_type_aligned label.
 use_cell_type_states: false
-n_terminal_cells: 30      # cells sampled per type when use_cell_type_states=true
+n_terminal_cells: 30      # cells sampled per mature type when use_cell_type_states=true
+immature_cell_type_patterns: [Immature, IPC, RG]
 n_macrostates: 10
 use_minchi: false
 cluster_key: cell_type_aligned

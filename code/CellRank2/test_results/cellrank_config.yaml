@@ -7,7 +7,7 @@ batch_key: source
 n_neighbors: 15
 neighbors_key: neighbors_scanvi
 age_bin_edges:
-- 0.0
+- -1.0
 - 0.5
 - 2.0
 - 10.0
@@ -25,6 +25,10 @@ use_minchi: false
 cluster_key: cell_type_aligned
 use_cell_type_states: true
 n_terminal_cells: 30
+immature_cell_type_patterns:
+- Immature
+- IPC
+- RG
 terminal_states: []
 initial_states: []
 compute_drivers: false

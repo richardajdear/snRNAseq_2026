@@ -66,24 +66,42 @@ def make_synthetic_adata(
     data = rng_sparse.exponential(2, nnz).astype(np.float32)
     X = sp.csr_matrix((data, (rows, cols)), shape=(n_cells, n_genes))
 
-    # Age spanning prenatal → adult (years)
+    # Age spanning prenatal (negative = before birth) → adult (years)
+    # Prenatal ages are represented as negative fractions of a year:
+    # e.g. -0.5 ≈ GW26 (6 months before birth)
+    n_prenatal = n_cells // 8
+    n_postnatal = n_cells - n_prenatal
     age_values = np.concatenate([
-        rng.uniform(0.0, 0.4, n_cells // 6),    # prenatal (GW as fraction)
-        rng.uniform(0.4, 2.0, n_cells // 6),    # early infancy
-        rng.uniform(2.0, 10.0, n_cells // 6),   # childhood
-        rng.uniform(10.0, 20.0, n_cells // 6),  # adolescence
-        rng.uniform(20.0, 40.0, n_cells // 6),  # adult
-        rng.uniform(40.0, 80.0, n_cells - 5 * (n_cells // 6)),  # older adult
+        rng.uniform(-0.9, -0.05, n_prenatal),              # prenatal (negative age)
+        rng.uniform(0.0, 0.5, n_postnatal // 6),           # neonatal
+        rng.uniform(0.5, 2.0, n_postnatal // 6),           # infancy
+        rng.uniform(2.0, 10.0, n_postnatal // 6),          # childhood
+        rng.uniform(10.0, 20.0, n_postnatal // 6),         # adolescence
+        rng.uniform(20.0, 40.0, n_postnatal // 6),         # adult
+        rng.uniform(40.0, 80.0, n_postnatal - 5 * (n_postnatal // 6)),  # older adult
     ])
     rng.shuffle(age_values)
 
-    # Cell types with realistic proportions including layer-specific excitatory subtypes
-    cell_types_pool = [
+    # Cell types: immature progenitors (prenatal-biased) + mature types
+    # Immature types stay transient in the CellRank pipeline;
+    # mature types are absorbing terminal states.
+    immature_pool = ["RG", "IPC", "Immature_ExcitatoryNeuron"]
+    mature_pool = [
         "ExcitatoryNeuron_L2-3", "ExcitatoryNeuron_L4-6",
         "InhibitoryNeuron", "Astrocyte", "Oligodendrocyte",
     ]
-    cell_types = rng.choice(cell_types_pool, size=n_cells,
-                            p=[0.25, 0.20, 0.20, 0.20, 0.15])
+    # Assign cell types: prenatal cells skewed towards immature progenitors
+    prenatal_cell_types = rng.choice(
+        immature_pool + mature_pool,
+        size=n_prenatal,
+        p=[0.30, 0.25, 0.20, 0.10, 0.08, 0.04, 0.02, 0.01],
+    )
+    postnatal_cell_types = rng.choice(
+        mature_pool,
+        size=n_postnatal,
+        p=[0.25, 0.20, 0.20, 0.20, 0.15],
+    )
+    cell_types = np.concatenate([prenatal_cell_types, postnatal_cell_types])
 
     # Batch (source)
     sources = rng.choice(["WANG", "VELMESHEV", "AGING"], size=n_cells,
@@ -108,6 +126,9 @@ def make_synthetic_adata(
 
     # Synthetic scANVI latent: cell-type mean + age trend + noise
     type_means = {
+        "RG": rng.randn(n_latent) * 2,
+        "IPC": rng.randn(n_latent) * 2,
+        "Immature_ExcitatoryNeuron": rng.randn(n_latent) * 2,
         "ExcitatoryNeuron_L2-3": rng.randn(n_latent) * 2,
         "ExcitatoryNeuron_L4-6": rng.randn(n_latent) * 2,
         "InhibitoryNeuron": rng.randn(n_latent) * 2,
@@ -115,8 +136,9 @@ def make_synthetic_adata(
         "Oligodendrocyte": rng.randn(n_latent) * 2,
     }
     latent = np.zeros((n_cells, n_latent), dtype=np.float32)
+    age_range = age_values.max() - age_values.min()
     for i, ct in enumerate(cell_types):
-        age_effect = (age_values[i] / 80.0) * rng.randn(n_latent) * 0.5
+        age_effect = ((age_values[i] - age_values.min()) / age_range) * rng.randn(n_latent) * 0.5
         latent[i] = type_means[ct] + age_effect + rng.randn(n_latent) * 0.3
     adata.obsm["X_scANVI"] = latent
 
@@ -230,12 +252,13 @@ def main():
         batch_key="source",
         n_neighbors=15,
         neighbors_key="neighbors_scanvi",
-        age_bin_edges=[0.0, 0.5, 2.0, 10.0, 20.0, 40.0, 100.0],
+        age_bin_edges=[-1.0, 0.5, 2.0, 10.0, 20.0, 40.0, 100.0],
         ot_epsilon=0.05,
         ot_max_iterations=500,
         rtk_weight=0.8,
         use_cell_type_states=True,  # synthetic data has 5 exact cell types; use them directly
         cluster_key="cell_type_aligned",
+        n_terminal_cells=1000,
         terminal_states=[],
         initial_states=[],
         compute_drivers=False,

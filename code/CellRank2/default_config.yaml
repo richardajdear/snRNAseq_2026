@@ -21,8 +21,9 @@ n_neighbors: 30
 neighbors_key: neighbors_scanvi
 
 # ── Age binning (for RealTimeKernel OT) ──────────────────────────────────────
-# Bins: prenatal, early infancy, late infancy, child, teen, adult, older adult
-age_bin_edges: [0.0, 0.5, 2.0, 10.0, 20.0, 40.0, 100.0]
+# Lower bound -1.0 captures prenatal cells (negative age = before birth).
+# Bins: prenatal, neonatal, infancy, childhood, adolescence, adult, older adult
+age_bin_edges: [-1.0, 0.5, 2.0, 10.0, 20.0, 40.0, 100.0]
 age_bin_key: age_bin
 
 # ── Optimal transport ─────────────────────────────────────────────────────────
@@ -39,7 +40,10 @@ rtk_weight: 0.8   # 80% RealTimeKernel (age-based directionality)
 # types appear as lineages (e.g. ExcitatoryNeuron_L2-3 is always present).
 # Set to false to use standard GPCCA spectral macrostates instead.
 use_cell_type_states: false
-n_terminal_cells: 30      # cells sampled per type when use_cell_type_states=true
+n_terminal_cells: 1000      # cells sampled per mature type when use_cell_type_states=true
+# Substrings identifying immature/progenitor cell types (case-sensitive).
+# These cells are kept transient (never assigned as terminal states).
+immature_cell_type_patterns: [Immature, IPC, RG]
 n_macrostates: 8
 use_minchi: false
 cluster_key: cell_type_aligned

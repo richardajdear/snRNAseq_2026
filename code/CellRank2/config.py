@@ -27,7 +27,7 @@ class CellRankConfig:
     # Time points are binned from the continuous age_years column.
     # If age_bins is empty, unique values of time_key are used directly.
     age_bin_edges: List[float] = field(
-        default_factory=lambda: [0.0, 0.5, 2.0, 10.0, 20.0, 40.0, 100.0]
+        default_factory=lambda: [-1.0, 0.5, 2.0, 10.0, 20.0, 40.0, 100.0]
     )
     age_bin_key: str = "age_bin"        # new obs column written by the pipeline
     ot_epsilon: float = 0.05            # regularisation strength for OT
@@ -50,9 +50,14 @@ class CellRankConfig:
     # membership arrays.  Terminal-state names will exactly match cell_type_key
     # categories, guaranteeing the L2-3 lineage is always present.
     use_cell_type_states: bool = False
-    # Number of representative cells sampled per cell type when use_cell_type_states=True.
-    # The sampled cells become absorbing terminal states; the rest are transient.
+    # Number of representative cells sampled per mature cell type as terminal states.
     n_terminal_cells: int = 30
+    # Cell type name substrings that identify immature/progenitor cells.
+    # Any cell type containing one of these strings is kept fully transient
+    # (excluded from terminal states) when use_cell_type_states=True.
+    immature_cell_type_patterns: List[str] = field(
+        default_factory=lambda: ["Immature", "IPC", "RG"]
+    )
 
     # -- Terminal / initial state selection --
     # Provide explicit terminal state names (matching cluster labels) when known.
