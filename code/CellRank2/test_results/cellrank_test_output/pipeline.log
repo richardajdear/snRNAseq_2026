@@ -1,0 +1,119 @@
+[2026-04-20 10:12:02] INFO - ============================================================
+[2026-04-20 10:12:02] INFO - CellRank 2 Lineage Tracing Pipeline
+[2026-04-20 10:12:02] INFO - ============================================================
+[2026-04-20 10:12:02] INFO - Output dir: /home/rajd2/rds/hpc-work/snRNAseq_2026/code/CellRank2/test_results/cellrank_test_output
+[2026-04-20 10:12:02] INFO - Config saved to /home/rajd2/rds/hpc-work/snRNAseq_2026/code/CellRank2/test_results/cellrank_test_output/cellrank_config.yaml
+[2026-04-20 10:12:07] INFO - No GPU detected. Using CPU.
+[2026-04-20 10:12:07] INFO - Steps: ['neighbors', 'ot', 'kernels', 'gpcca', 'fate_probs', 'save']
+[2026-04-20 10:12:07] INFO - Loading: /home/rajd2/rds/hpc-work/snRNAseq_2026/code/CellRank2/test_results/source_chemistry_5k_excit_test.h5ad
+[2026-04-20 10:12:07] INFO - Starting: Loading h5ad
+[2026-04-20 10:12:08] INFO - Completed: Loading h5ad [274ms]
+[2026-04-20 10:12:08] INFO -   5000 cells × 15540 genes
+[2026-04-20 10:12:08] INFO - [Memory] After loading: 1.12 GB RSS
+[2026-04-20 10:12:08] INFO -   Age binning: 8 bins (midpoints: [-0.4, -0.15, 0.25, 1.25, 5.0, 14.0, 35.0, 70.0])
+[2026-04-20 10:12:08] INFO -     bin -0.4: 1490 cells
+[2026-04-20 10:12:08] INFO -     bin -0.15: 828 cells
+[2026-04-20 10:12:08] INFO -     bin 0.25: 557 cells
+[2026-04-20 10:12:08] INFO -     bin 1.25: 591 cells
+[2026-04-20 10:12:08] INFO -     bin 5.0: 139 cells
+[2026-04-20 10:12:08] INFO -     bin 14.0: 544 cells
+[2026-04-20 10:12:08] INFO -     bin 35.0: 696 cells
+[2026-04-20 10:12:08] INFO -     bin 70.0: 155 cells
+[2026-04-20 10:12:08] INFO - ────────────────────────────────────────
+[2026-04-20 10:12:08] INFO - STEP: neighbors
+[2026-04-20 10:12:08] WARNING -   Existing neighbour graph 'neighbors_scanvi' is stale/invalid (889 cells have zero connectivity degree); recomputing.
+[2026-04-20 10:12:08] INFO - Starting: Computing kNN graph (n_neighbors=30) on 'X_scANVI'
+[2026-04-20 10:13:51] INFO - Completed: Computing kNN graph (n_neighbors=30) on 'X_scANVI' [0h 1m 42.8s]
+[2026-04-20 10:13:51] INFO -   Stored kNN graph as 'neighbors_scanvi'.
+[2026-04-20 10:13:51] INFO - [Memory] After neighbors: 1.21 GB RSS
+[2026-04-20 10:13:51] INFO - ────────────────────────────────────────
+[2026-04-20 10:13:51] INFO - STEP: ot (moscot optimal transport)
+[2026-04-20 10:15:04] INFO -   Running moscot OT across 8 time points: -0.4, -0.15, 0.25, 1.25, 5.0, 14.0, 35.0, 70.0
+[2026-04-20 10:15:04] INFO -   moscot OT device: cpu
+[2026-04-20 10:15:04] INFO - Starting: moscot TemporalProblem (prepare + solve)
+[2026-04-20 10:15:04] WARNING - /opt/micromamba/envs/shortcake_default/lib/python3.10/site-packages/anndata/_core/anndata.py:401: FutureWarning: The dtype argument is deprecated and will be removed in late 2024.
+  warnings.warn(
+
+[2026-04-20 10:15:08] WARNING - /opt/micromamba/envs/shortcake_default/lib/python3.10/site-packages/anndata/_core/anndata.py:401: FutureWarning: The dtype argument is deprecated and will be removed in late 2024.
+  warnings.warn(
+
+[2026-04-20 10:15:09] WARNING - /opt/micromamba/envs/shortcake_default/lib/python3.10/site-packages/anndata/_core/anndata.py:401: FutureWarning: The dtype argument is deprecated and will be removed in late 2024.
+  warnings.warn(
+
+[2026-04-20 10:15:10] WARNING - /opt/micromamba/envs/shortcake_default/lib/python3.10/site-packages/anndata/_core/anndata.py:401: FutureWarning: The dtype argument is deprecated and will be removed in late 2024.
+  warnings.warn(
+
+[2026-04-20 10:15:12] WARNING - /opt/micromamba/envs/shortcake_default/lib/python3.10/site-packages/anndata/_core/anndata.py:401: FutureWarning: The dtype argument is deprecated and will be removed in late 2024.
+  warnings.warn(
+
+[2026-04-20 10:15:13] WARNING - /opt/micromamba/envs/shortcake_default/lib/python3.10/site-packages/anndata/_core/anndata.py:401: FutureWarning: The dtype argument is deprecated and will be removed in late 2024.
+  warnings.warn(
+
+[2026-04-20 10:15:14] WARNING - /opt/micromamba/envs/shortcake_default/lib/python3.10/site-packages/anndata/_core/anndata.py:401: FutureWarning: The dtype argument is deprecated and will be removed in late 2024.
+  warnings.warn(
+
+[2026-04-20 10:15:20] INFO - Completed: moscot TemporalProblem (prepare + solve) [0h 0m 15.8s]
+[2026-04-20 10:15:20] INFO -   moscot OT solved successfully.
+[2026-04-20 10:15:20] INFO - [Memory] After OT: 1.58 GB RSS
+[2026-04-20 10:15:20] INFO - ────────────────────────────────────────
+[2026-04-20 10:15:20] INFO - STEP: kernels
+[2026-04-20 10:16:56] INFO - Starting: ConnectivityKernel
+[2026-04-20 10:16:56] INFO - Completed: ConnectivityKernel [11ms]
+[2026-04-20 10:16:56] INFO -   ConnectivityKernel: transition matrix shape (5000, 5000)
+[2026-04-20 10:16:56] INFO - Starting: RealTimeKernel (from moscot)
+[2026-04-20 10:16:58] INFO - Completed: RealTimeKernel (from moscot) [0h 0m 2.6s]
+[2026-04-20 10:16:58] INFO -   RealTimeKernel: transition matrix shape (5000, 5000)
+[2026-04-20 10:16:58] INFO -   Combined kernel: RTK weight=0.80, CK weight=0.20
+[2026-04-20 10:16:58] INFO - [Memory] After kernel construction: 1.80 GB RSS
+[2026-04-20 10:16:58] INFO - [Memory] After kernels: 1.80 GB RSS
+[2026-04-20 10:16:58] INFO - ────────────────────────────────────────
+[2026-04-20 10:16:58] INFO - STEP: gpcca
+[2026-04-20 10:16:58] INFO - Building GPCCA estimator...
+[2026-04-20 10:16:58] INFO - Computing macrostates: n_states=6
+[2026-04-20 10:16:58] INFO - Starting: GPCCA compute_macrostates
+[2026-04-20 10:18:58] INFO - Completed: GPCCA compute_macrostates [0h 1m 59.5s]
+[2026-04-20 10:18:58] INFO -   Macrostates identified: 6
+[2026-04-20 10:18:58] INFO -     EN-L2_3-IT_1: 30 cells
+[2026-04-20 10:18:58] INFO -     EN-L2_3-IT_2: 30 cells
+[2026-04-20 10:18:58] INFO -     EN-L6-IT_1: 30 cells
+[2026-04-20 10:18:58] INFO -     EN-L6-IT_2: 30 cells
+[2026-04-20 10:18:58] INFO -     EN-L4-IT: 30 cells
+[2026-04-20 10:18:58] INFO -     EN-L2_3-IT_3: 30 cells
+[2026-04-20 10:18:58] INFO - [Memory] After compute_macrostates: 1.83 GB RSS
+[2026-04-20 10:18:58] INFO - Auto-predicting terminal states...
+[2026-04-20 10:18:58] INFO - Starting: predict_terminal_states
+[2026-04-20 10:18:58] WARNING -   predict_terminal_states(stability, 0.96) failed: No macrostates have been selected.. Trying lower threshold...
+[2026-04-20 10:18:58] INFO - Completed: predict_terminal_states [6ms]
+[2026-04-20 10:18:58] INFO -   Terminal states: ['EN-L2_3-IT_1', 'EN-L2_3-IT_2', 'EN-L2_3-IT_3', 'EN-L4-IT', 'EN-L6-IT_1', 'EN-L6-IT_2']
+[2026-04-20 10:18:58] INFO - Auto-predicting initial states...
+[2026-04-20 10:18:58] INFO - Starting: predict_initial_states
+[2026-04-20 10:18:58] INFO -   Initial states: ['EN-L6-IT_1']
+[2026-04-20 10:18:58] INFO - Completed: predict_initial_states [3ms]
+[2026-04-20 10:18:58] INFO - Starting: Plotting macrostates
+[2026-04-20 10:18:59] INFO - Saved: /home/rajd2/rds/hpc-work/snRNAseq_2026/code/CellRank2/test_results/cellrank_test_output/plots/macrostates.png
+[2026-04-20 10:18:59] INFO - Completed: Plotting macrostates [926ms]
+[2026-04-20 10:18:59] INFO - Starting: Plotting coarse transition matrix
+[2026-04-20 10:18:59] INFO - Saved: /home/rajd2/rds/hpc-work/snRNAseq_2026/code/CellRank2/test_results/cellrank_test_output/plots/coarse_T.png
+[2026-04-20 10:18:59] INFO - Completed: Plotting coarse transition matrix [214ms]
+[2026-04-20 10:18:59] INFO - Saved: /home/rajd2/rds/hpc-work/snRNAseq_2026/code/CellRank2/test_results/cellrank_test_output/plots/umap_cell_type_aligned.png
+[2026-04-20 10:18:59] INFO - Saved: /home/rajd2/rds/hpc-work/snRNAseq_2026/code/CellRank2/test_results/cellrank_test_output/plots/umap_age_years.png
+[2026-04-20 10:18:59] INFO - Saved: /home/rajd2/rds/hpc-work/snRNAseq_2026/code/CellRank2/test_results/cellrank_test_output/plots/umap_source.png
+[2026-04-20 10:18:59] INFO - [Memory] After GPCCA: 1.84 GB RSS
+[2026-04-20 10:18:59] INFO - ────────────────────────────────────────
+[2026-04-20 10:18:59] INFO - STEP: fate_probs
+[2026-04-20 10:18:59] INFO - Starting: compute_fate_probabilities
+[2026-04-20 10:19:00] INFO - Completed: compute_fate_probabilities [609ms]
+[2026-04-20 10:19:00] INFO -   Fate probabilities computed for lineages: ['EN-L2_3-IT_1', 'EN-L2_3-IT_2', 'EN-L6-IT_1', 'EN-L6-IT_2', 'EN-L4-IT', 'EN-L2_3-IT_3']
+[2026-04-20 10:19:00] INFO -   Pseudotime 'pseudotime_l23' written from L2-3 terminal states: ['EN-L2_3-IT_1', 'EN-L2_3-IT_2', 'EN-L2_3-IT_3']
+[2026-04-20 10:19:00] INFO - [Memory] After compute_fate_probabilities: 1.87 GB RSS
+[2026-04-20 10:19:01] INFO - Saved: /home/rajd2/rds/hpc-work/snRNAseq_2026/code/CellRank2/test_results/cellrank_test_output/plots/fate_probabilities.png
+[2026-04-20 10:19:01] INFO - Saved: /home/rajd2/rds/hpc-work/snRNAseq_2026/code/CellRank2/test_results/cellrank_test_output/plots/umap_pseudotime_l23.png
+[2026-04-20 10:19:01] INFO -   Excitatory neurons: 5000; L2-3 lineage (pseudotime > 0.635): 4500
+[2026-04-20 10:19:01] INFO - Saved: /home/rajd2/rds/hpc-work/snRNAseq_2026/code/CellRank2/test_results/cellrank_test_output/plots/umap_excitatory_l23_pseudotime.png
+[2026-04-20 10:19:01] INFO - [Memory] After fate_probs: 1.87 GB RSS
+[2026-04-20 10:19:01] INFO - ────────────────────────────────────────
+[2026-04-20 10:19:01] INFO - STEP: save
+[2026-04-20 10:20:53] INFO -   Saved: /home/rajd2/rds/hpc-work/snRNAseq_2026/code/CellRank2/test_results/cellrank_test_output/cellrank_output.h5ad
+[2026-04-20 10:20:53] INFO - ============================================================
+[2026-04-20 10:20:53] INFO - CellRank 2 pipeline complete.
+[2026-04-20 10:20:53] INFO - ============================================================

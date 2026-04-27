@@ -77,6 +77,149 @@ def compute_macrostates(
     return g
 
 
+def _find_progenitor_macrostates(g, pattern: str, config, logger) -> list:
+    """Identify macrostates enriched for progenitor cells by cell-type composition.
+
+    For each macrostate, computes the fraction of member cells whose
+    cell_type_key label matches *pattern*.  Returns macrostates where that
+    fraction exceeds 30%.  Used as a fallback when name-based pattern matching
+    finds no initial states (e.g., when RealTimeKernel prevents GPCCA from
+    forming progenitor macrostates with progenitor-like names).
+    """
+    import re
+
+    if config is None or config.cell_type_key not in g.adata.obs.columns:
+        return []
+
+    rx = re.compile(pattern, re.IGNORECASE)
+    is_prog = g.adata.obs[config.cell_type_key].astype(str).apply(
+        lambda x: bool(rx.search(x))
+    )
+
+    progenitor_ms = []
+    logger.info("  Composition-based macrostate analysis:")
+    for state in g.macrostates.cat.categories:
+        state_mask = g.macrostates == state
+        if state_mask.sum() == 0:
+            continue
+        frac = float(is_prog[state_mask].mean())
+        logger.info(f"    '{state}': {frac:.1%} progenitor cells")
+        if frac >= 0.30:
+            progenitor_ms.append(state)
+
+    return progenitor_ms
+
+
+def _youngest_macrostate_as_initial(g, config, logger) -> list:
+    """Return the macrostate whose member cells have the lowest median age.
+
+    Used as a last-resort fallback when neither name-pattern nor composition
+    matching can identify progenitor/initial macrostates (e.g., postnatal
+    datasets where all GPCCA macrostates are mature EN subtypes).
+
+    The rationale: in postnatal maturational data the chronologically youngest
+    cells are the closest to a progenitor state, so the macrostate dominated by
+    the youngest donors is the most sensible initial state.
+    """
+    time_key = getattr(config, "time_key", "age_years") if config else "age_years"
+    adata = g.adata
+
+    if time_key not in adata.obs.columns:
+        logger.warning(
+            f"  time_key '{time_key}' not in adata.obs; "
+            "cannot use age-based initial state fallback."
+        )
+        return []
+
+    all_states = list(g.macrostates.cat.categories)
+    median_ages = {}
+    for state in all_states:
+        mask = g.macrostates == state
+        if mask.sum() == 0:
+            continue
+        ages = adata.obs.loc[mask, time_key].astype(float)
+        median_ages[state] = float(ages.median())
+
+    if not median_ages:
+        return []
+
+    age_str = ", ".join(
+        f"'{s}'={v:.2f}" for s, v in sorted(median_ages.items(), key=lambda x: x[1])
+    )
+    logger.info(f"  Macrostate median ages: {age_str}")
+
+    youngest = min(median_ages, key=median_ages.get)
+    logger.info(
+        f"  Age-based fallback: selecting '{youngest}' as initial state "
+        f"(median age = {median_ages[youngest]:.2f})"
+    )
+    return [youngest]
+
+
+def _assign_states_by_pattern(g, pattern: str, logger, config=None) -> None:
+    """Classify macrostates into initial/terminal using a regex pattern.
+
+    Macrostates whose names match *pattern* (case-insensitive) become initial
+    states (progenitors); all others become terminal states (mature cell types).
+    This bypasses GPCCA's stability-based auto-prediction, which fails when the
+    transition matrix lacks strong absorbing states.
+
+    If name matching finds no initial states, falls back to composition-based
+    detection: any macrostate with >30% progenitor cells becomes initial.
+    """
+    import re
+
+    all_states = list(g.macrostates.cat.categories)
+    rx = re.compile(pattern, re.IGNORECASE)
+    initial = [s for s in all_states if rx.search(s)]
+    terminal = [s for s in all_states if not rx.search(s)]
+
+    logger.info(f"  Pattern '{pattern}' classified macrostates:")
+    logger.info(f"    Initial  (progenitor): {initial}")
+    logger.info(f"    Terminal (mature):     {terminal}")
+
+    if not terminal:
+        logger.warning(
+            "  Pattern matched ALL macrostates as initial — no terminal states. "
+            "Falling back to auto-prediction."
+        )
+        _predict_terminal_states_robust(g, logger)
+        return
+
+    if not initial:
+        logger.warning(
+            "  Pattern matched NO macrostates as initial. "
+            "Trying composition-based detection (>30% progenitor cells)..."
+        )
+        initial = _find_progenitor_macrostates(g, pattern, config, logger)
+        if initial:
+            terminal = [s for s in all_states if s not in initial]
+            logger.info(
+                f"  Composition fallback: initial={initial}, terminal={terminal}"
+            )
+        else:
+            logger.warning(
+                "  No progenitor-enriched macrostates found. "
+                "Trying age-based fallback (youngest macrostate as initial)..."
+            )
+            initial = _youngest_macrostate_as_initial(g, config, logger)
+            if initial:
+                terminal = [s for s in all_states if s not in initial]
+                logger.info(
+                    f"  Age-based fallback: initial={initial}, terminal={terminal}"
+                )
+            else:
+                logger.warning(
+                    "  Age-based fallback also failed. "
+                    "Falling back to auto-prediction."
+                )
+                _predict_terminal_states_robust(g, logger)
+                return
+
+    g.set_terminal_states(states=terminal)
+    g.set_initial_states(states=initial)
+
+
 def _predict_terminal_states_robust(g, logger: logging.Logger) -> None:
     """Try several methods to auto-select terminal states, falling back gracefully.
 
@@ -135,12 +278,29 @@ def set_terminal_and_initial_states(
 
     Same logic applies to ``config.initial_states``.
     """
-    # Terminal states
-    if config.terminal_states:
+    # Priority 1: explicit lists override everything
+    if config.terminal_states or config.initial_states:
+        if config.terminal_states:
+            logger.info(
+                f"Setting terminal states explicitly: {config.terminal_states}"
+            )
+            g.set_terminal_states(states=config.terminal_states)
+        if config.initial_states:
+            logger.info(
+                f"Setting initial states explicitly: {config.initial_states}"
+            )
+            g.set_initial_states(states=config.initial_states)
+
+    # Priority 2: pattern-based classification (recommended default)
+    elif config.immature_state_pattern:
         logger.info(
-            f"Setting terminal states explicitly: {config.terminal_states}"
+            f"Assigning states by immature_state_pattern: "
+            f"'{config.immature_state_pattern}'"
         )
-        g.set_terminal_states(states=config.terminal_states)
+        with Timer("assign_states_by_pattern", logger):
+            _assign_states_by_pattern(g, config.immature_state_pattern, logger, config=config)
+
+    # Priority 3: fully automatic (fallback — unreliable for this dataset)
     else:
         logger.info("Auto-predicting terminal states...")
         with Timer("predict_terminal_states", logger):
@@ -150,14 +310,6 @@ def set_terminal_and_initial_states(
                 f"  Terminal states: "
                 f"{sorted(g.terminal_states.cat.categories.tolist())}"
             )
-
-    # Initial states
-    if config.initial_states:
-        logger.info(
-            f"Setting initial states explicitly: {config.initial_states}"
-        )
-        g.set_initial_states(states=config.initial_states)
-    else:
         logger.info("Auto-predicting initial states...")
         with Timer("predict_initial_states", logger):
             try:
@@ -241,14 +393,130 @@ def compute_fate_probabilities(
     logger: logging.Logger,
 ) -> None:
     """Compute per-cell fate probabilities towards terminal states."""
+    import numpy as np
+
     with Timer("compute_fate_probabilities", logger):
         g.compute_fate_probabilities()
 
-    if g.fate_probabilities is not None:
-        lineages = list(g.fate_probabilities.names)
-        logger.info(f"  Fate probabilities computed for lineages: {lineages}")
+    if g.fate_probabilities is None:
+        log_memory("After compute_fate_probabilities", logger)
+        return
+
+    lineages = list(g.fate_probabilities.names)
+    logger.info(f"  Fate probabilities computed for lineages: {lineages}")
+
+    # Write L2-3 pseudotime: sum of fate probs for all L2-3-matching terminal
+    # states, normalised to [0, 1].  Higher value = more committed to L2-3 fate.
+    if config.pseudotime_key:
+        l23_indices = [
+            i for i, name in enumerate(lineages)
+            if config.l23_lineage_pattern.lower() in name.lower()
+        ]
+        if l23_indices:
+            probs = g.fate_probabilities.X
+            raw = probs[:, l23_indices].sum(axis=1)
+            mn, mx = raw.min(), raw.max()
+            g.adata.obs[config.pseudotime_key] = (raw - mn) / (mx - mn + 1e-9)
+            g.adata.obs["fate_prob_l23"] = raw
+            logger.info(
+                f"  Pseudotime '{config.pseudotime_key}' written from L2-3 "
+                f"terminal states: {[lineages[i] for i in l23_indices]}"
+            )
+        else:
+            logger.warning(
+                f"  No terminal states matched l23_lineage_pattern "
+                f"'{config.l23_lineage_pattern}' in {lineages}; "
+                f"'{config.pseudotime_key}' not written."
+            )
 
     log_memory("After compute_fate_probabilities", logger)
+
+
+def compute_absorption_pseudotime(
+    g,
+    config: CellRankConfig,
+    logger: logging.Logger,
+) -> None:
+    """Compute DPT pseudotime from the youngest progenitor root cell.
+
+    Uses scanpy's diffusion pseudotime (sc.tl.dpt) which runs in < 2 minutes
+    on the existing kNN graph — replacing the GPCCA absorption-time approach
+    which was unreliable (NaN, 2-hour runtime) when terminal states were degenerate.
+
+    Root cell: the cell matching config.dpt_root_cell_type with minimum age_years.
+    Result written to adata.obs[config.absorption_pseudotime_key].
+    """
+    import re
+    import numpy as np
+    import scanpy as sc
+
+    if not config.absorption_pseudotime_key:
+        return
+
+    adata = g.adata
+
+    if config.cell_type_key not in adata.obs.columns:
+        logger.warning(
+            f"  '{config.cell_type_key}' not in adata.obs; "
+            "cannot identify DPT root cell. Skipping DPT pseudotime."
+        )
+        return
+
+    root_pattern = getattr(config, "dpt_root_cell_type", config.immature_state_pattern)
+    rx = re.compile(root_pattern, re.IGNORECASE)
+    root_mask = adata.obs[config.cell_type_key].astype(str).apply(
+        lambda x: bool(rx.search(x))
+    )
+
+    if not root_mask.any():
+        logger.warning(
+            f"  No cells match dpt_root_cell_type '{root_pattern}'; "
+            "skipping DPT pseudotime."
+        )
+        return
+
+    # Youngest progenitor = root
+    if config.time_key in adata.obs.columns:
+        ages = adata.obs.loc[root_mask, config.time_key].astype(float)
+        root_cell = ages.idxmin()
+        root_idx = int(np.where(adata.obs_names == root_cell)[0][0])
+        root_age = float(ages.min())
+    else:
+        root_idx = int(np.where(root_mask.values)[0][0])
+        root_age = None
+
+    ct_label = adata.obs[config.cell_type_key].iloc[root_idx]
+    logger.info(
+        f"  DPT root: index={root_idx}, cell_type='{ct_label}', "
+        f"age={root_age if root_age is not None else 'N/A'}"
+    )
+
+    try:
+        # sc.tl.dpt() hardcodes a check for adata.uns['neighbors'] regardless
+        # of the neighbors_key used for diffmap. Expose our graph under the
+        # standard key for the duration of this call.
+        _prior_neighbors = adata.uns.get("neighbors")
+        adata.uns["neighbors"] = adata.uns[config.neighbors_key]
+        try:
+            with Timer("Diffusion map + DPT pseudotime", logger):
+                sc.tl.diffmap(adata, n_comps=15, neighbors_key=config.neighbors_key)
+                adata.uns["iroot"] = root_idx
+                sc.tl.dpt(adata, n_dcs=10)
+        finally:
+            if _prior_neighbors is not None:
+                adata.uns["neighbors"] = _prior_neighbors
+            else:
+                adata.uns.pop("neighbors", None)
+
+        adata.obs[config.absorption_pseudotime_key] = adata.obs["dpt_pseudotime"]
+        pt = adata.obs[config.absorption_pseudotime_key]
+        logger.info(
+            f"  DPT pseudotime written to '{config.absorption_pseudotime_key}' "
+            f"(range [{pt.min():.3f}, {pt.max():.3f}])."
+        )
+
+    except Exception as exc:
+        logger.warning(f"  DPT pseudotime failed: {exc}")
 
 
 def compute_lineage_drivers(

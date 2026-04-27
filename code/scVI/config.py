@@ -20,6 +20,8 @@ class PipelineConfig:
     batch_key: str = "source"
     cell_type_key: str = "cell_class"
     counts_layer: str = "counts"
+    continuous_covariate_keys: Optional[List[str]] = None
+    categorical_covariate_keys: Optional[List[str]] = None
 
     # -- Preprocessing --
     n_top_genes: int = 10000
@@ -30,6 +32,7 @@ class PipelineConfig:
     n_latent: int = 30
     n_hidden: int = 128
     n_layers: int = 2
+    gene_likelihood: str = "zinb"  # "nb" or "zinb"; tunable via scvi_tuning/best_hyperparameters.yaml
 
     # -- Training --
     max_epochs_scvi: int = 400
@@ -53,13 +56,15 @@ class PipelineConfig:
     max_chunk_size: int = 50000
     output_layer_scvi: str = "scvi_normalized"
     output_layer_scanvi: str = "scanvi_normalized"
-    save_npy_backup: bool = True
+    save_npy_backup: bool = False
 
     # -- UMAP --
     umap_n_neighbors: int = 30
     umap_min_dist: float = 0.3
+    # umap_color_vars is kept for backward compat but not used by plot_umap_grids.
+    # The 4×3 grid rows are fixed: batch_key, age_years, cell_class, cell_type_aligned.
     umap_color_vars: List[str] = field(
-        default_factory=lambda: ["source", "cell_class", "age_years"]
+        default_factory=lambda: ["age_years", "cell_class", "cell_type_aligned"]
     )
     umap_point_size: float = 1.0
     umap_log2_vars: List[str] = field(

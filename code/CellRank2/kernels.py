@@ -1,6 +1,6 @@
 """Kernel construction and combination for CellRank 2 lineage tracing.
 
-Two kernels are built and combined:
+Three kernels are built and combined:
 
   ConnectivityKernel (CK)
     Captures transcriptomic similarity via a kNN graph computed on the
@@ -13,7 +13,13 @@ Two kernels are built and combined:
     consecutive age bins, producing asymmetric couplings that drive the
     transition matrix forward in developmental / maturational time.
 
-Combined kernel = rtk_weight * RTK + (1 - rtk_weight) * CK
+  CytoTRACEKernel (CTK)  [optional, enabled when cytotrace_weight > 0]
+    Captures cell-intrinsic developmental directionality from transcriptomic
+    complexity: cells expressing more genes are less differentiated.  Drives
+    the Markov chain from high-complexity progenitors to low-complexity mature
+    neurons without relying on age-bin OT couplings.
+
+Combined kernel = cytotrace_weight * CTK + rtk_weight * RTK + (1-both) * CK
 """
 
 import logging
@@ -27,6 +33,98 @@ import scanpy as sc
 
 from .config import CellRankConfig
 from .utils import Timer, log_memory
+
+
+# ── Age-aware PCA (scanvi_normalized) ─────────────────────────────────────────
+
+def compute_scnorm_pca(
+    adata: ad.AnnData,
+    config: CellRankConfig,
+    logger: logging.Logger,
+) -> None:
+    """Compute PCA on scanvi_normalized, then Harmony batch correction.
+
+    X_scANVI explicitly removes age as a model covariate, so cells are
+    ordered only by cell-type identity in that space.  PCA on the
+    scanvi_normalized layer retains developmental-stage variation.  Harmony
+    then removes cross-batch technical effects (source/chemistry) while
+    preserving biological gradients including age.
+
+    Result stored in adata.obsm[config.latent_key] (overwriting the placeholder
+    so that all downstream steps — kNN, OT, UMAP — automatically use it).
+    """
+    layer = getattr(config, "norm_layer_key", "scanvi_normalized")
+    n_comps = getattr(config, "n_pca_comps", 50)
+    out_key = config.latent_key  # kNN + OT will pick it up via this key
+
+    if layer not in adata.layers:
+        logger.warning(
+            f"  Layer '{layer}' not in adata.layers; "
+            "skipping age-aware PCA (keeping X_scANVI)."
+        )
+        return
+
+    if out_key in adata.obsm and not config.overwrite:
+        logger.info(
+            f"  '{out_key}' already in adata.obsm; skipping PCA recomputation."
+        )
+        return
+
+    use_hvg = "highly_variable" in adata.var.columns
+
+    with Timer(f"PCA on '{layer}' ({n_comps} PCs)", logger):
+        orig_X = adata.X
+        adata.X = adata.layers[layer]
+        try:
+            sc.pp.pca(
+                adata,
+                n_comps=n_comps,
+                use_highly_variable=use_hvg,
+                svd_solver="arpack",
+                random_state=config.random_seed,
+            )
+            pca_result = adata.obsm.pop("X_pca")
+            adata.varm.pop("PCs", None)
+            adata.uns.pop("pca", None)
+        finally:
+            adata.X = orig_X
+
+    logger.info(
+        f"  PCA computed: {adata.n_obs} cells × {n_comps} PCs"
+    )
+
+    # ── Harmony batch correction ───────────────────────────────────────────────
+    # Removes technical source/chemistry effects from the PCA embedding while
+    # preserving biological gradients (age, cell type).  Operates on the PCA
+    # coordinates, not on raw expression, so it is fast (~1 min on 80k cells).
+    harmony_batch_key = getattr(config, "harmony_batch_key", "") or getattr(config, "batch_key", None)
+    if harmony_batch_key and harmony_batch_key in adata.obs.columns:
+        try:
+            import harmonypy
+            with Timer(f"Harmony batch correction (batch_key='{harmony_batch_key}')", logger):
+                ho = harmonypy.run_harmony(
+                    pca_result,
+                    adata.obs,
+                    vars_use=[harmony_batch_key],
+                    random_state=config.random_seed,
+                    verbose=False,
+                )
+                adata.obsm[out_key] = ho.Z_corr.T
+            logger.info(
+                f"  Harmony-corrected PCA stored as '{out_key}' "
+                f"({adata.n_obs} cells × {n_comps} dims)"
+            )
+        except Exception as exc:
+            logger.warning(
+                f"  Harmony failed ({exc}); falling back to uncorrected PCA."
+            )
+            adata.obsm[out_key] = pca_result
+    else:
+        logger.warning(
+            f"  harmony_batch_key '{harmony_batch_key}' not in adata.obs; "
+            "skipping Harmony (storing uncorrected PCA)."
+        )
+        adata.obsm[out_key] = pca_result
 
 
 # ── Neighbour graph ────────────────────────────────────────────────────────────
@@ -50,11 +148,42 @@ def ensure_neighbors(
 
     uns_key = config.neighbors_key
     if uns_key in adata.uns and not config.overwrite:
-        logger.info(
-            f"  Neighbour graph '{uns_key}' already present, skipping "
-            "(set overwrite=True to recompute)."
+        neigh_meta = adata.uns.get(uns_key, {})
+        conn_key = neigh_meta.get("connectivities_key", f"{uns_key}_connectivities")
+        dist_key = neigh_meta.get("distances_key", f"{uns_key}_distances")
+
+        stale_reason = None
+        if conn_key not in adata.obsp:
+            stale_reason = f"missing connectivities '{conn_key}'"
+        else:
+            conn = adata.obsp[conn_key]
+            if conn.shape != (adata.n_obs, adata.n_obs):
+                stale_reason = (
+                    f"connectivity matrix shape {conn.shape} does not match "
+                    f"current cells ({adata.n_obs}, {adata.n_obs})"
+                )
+            else:
+                row_sums = np.asarray(conn.sum(axis=1)).ravel()
+                n_zero = int(np.sum(row_sums <= 0))
+                if n_zero > 0:
+                    stale_reason = (
+                        f"{n_zero} cells have zero connectivity degree"
+                    )
+
+        if stale_reason is None:
+            logger.info(
+                f"  Neighbour graph '{uns_key}' already present, skipping "
+                "(set overwrite=True to recompute)."
+            )
+            return
+
+        logger.warning(
+            f"  Existing neighbour graph '{uns_key}' is stale/invalid "
+            f"({stale_reason}); recomputing."
         )
-        return
+        adata.uns.pop(uns_key, None)
+        adata.obsp.pop(conn_key, None)
+        adata.obsp.pop(dist_key, None)
 
     with Timer(
         f"Computing kNN graph (n_neighbors={config.n_neighbors}) "
@@ -151,14 +280,33 @@ def run_moscot_ot(
         + ", ".join(str(t) for t in sorted_times)
     )
 
+    # Resolve device: "auto" → "cuda" if available, else "cpu"
+    device = config.ot_device
+    if device == "auto":
+        try:
+            import torch
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+        except ImportError:
+            device = "cpu"
+    logger.info(f"  moscot OT device: {device}")
+
+    # Use the batch-corrected latent embedding (X_scANVI, 30D) as the OT cost
+    # rather than adata.X (15,540D → PCA fallback). This makes couplings
+    # transcriptomically specific: prenatal cells couple to the adult cells they
+    # most resemble in the corrected latent space.
+    joint_attr = {"attr": "obsm", "key": config.latent_key}
+    logger.info(f"  OT joint_attr: obsm['{config.latent_key}']")
+
     with Timer("moscot TemporalProblem (prepare + solve)", logger):
         problem = mp.TemporalProblem(adata)
         problem = problem.prepare(
             time_key=time_col,
+            joint_attr=joint_attr,
         )
         problem = problem.solve(
             epsilon=config.ot_epsilon,
             max_iterations=config.ot_max_iterations,
+            device=device,
         )
 
     logger.info("  moscot OT solved successfully.")
@@ -203,6 +351,7 @@ def build_realtime_kernel(
             self_transitions="connectivities",
             conn_kwargs={
                 "key_added": config.neighbors_key,
+                "use_rep": config.latent_key,
             },
         )
 
@@ -213,24 +362,156 @@ def build_realtime_kernel(
     return rtk
 
 
+def build_cytotrace_kernel(
+    adata: ad.AnnData,
+    config: CellRankConfig,
+    logger: logging.Logger,
+):
+    """Build CytoTRACEKernel using transcriptomic complexity (genes per cell).
+
+    Drives the Markov chain from high-complexity progenitors toward
+    low-complexity mature neurons, providing cell-intrinsic directionality
+    that the RealTimeKernel alone cannot supply.
+
+    Returns None if CytoTRACEKernel is not available in the installed
+    CellRank version.
+    """
+    try:
+        from cellrank.kernels import CytoTRACEKernel
+    except ImportError:
+        logger.warning(
+            "CytoTRACEKernel not available in this CellRank version; "
+            "set cytotrace_weight=0 to silence this warning."
+        )
+        return None
+
+    try:
+        # CytoTRACEKernel hardcodes the obsp key as 'neighbors_connectivities'
+        # and also checks adata.uns['neighbors'] — both ignore our custom key.
+        # Temporarily expose full aliases under the standard names.
+        our_conn = f"{config.neighbors_key}_connectivities"
+        our_dist = f"{config.neighbors_key}_distances"
+
+        _prior_uns  = adata.uns.get("neighbors")
+        _prior_conn = adata.obsp.get("neighbors_connectivities")
+        _prior_dist = adata.obsp.get("neighbors_distances")
+
+        # Build a uns entry that points to the aliased obsp keys
+        neighbors_info = dict(adata.uns[config.neighbors_key])
+        neighbors_info["connectivities_key"] = "neighbors_connectivities"
+        neighbors_info["distances_key"]      = "neighbors_distances"
+        adata.uns["neighbors"] = neighbors_info
+        adata.obsp["neighbors_connectivities"] = adata.obsp[our_conn]
+        if our_dist in adata.obsp:
+            adata.obsp["neighbors_distances"] = adata.obsp[our_dist]
+
+        try:
+            with Timer("CytoTRACEKernel", logger):
+                ctk = CytoTRACEKernel(adata)
+                ctk.compute_cytotrace(layer=config.cytotrace_layer)
+                ctk.compute_transition_matrix(threshold_scheme="soft")
+        finally:
+            # Restore original state
+            if _prior_uns is not None:
+                adata.uns["neighbors"] = _prior_uns
+            else:
+                adata.uns.pop("neighbors", None)
+            if _prior_conn is not None:
+                adata.obsp["neighbors_connectivities"] = _prior_conn
+            else:
+                adata.obsp.pop("neighbors_connectivities", None)
+            if _prior_dist is not None:
+                adata.obsp["neighbors_distances"] = _prior_dist
+            else:
+                adata.obsp.pop("neighbors_distances", None)
+
+        logger.info(
+            f"  CytoTRACEKernel: transition matrix shape "
+            f"{ctk.transition_matrix.shape}"
+        )
+        return ctk
+    except Exception as exc:
+        logger.warning(
+            f"  CytoTRACEKernel.compute_transition_matrix failed ({exc}); "
+            "continuing without CytoTRACEKernel."
+        )
+        return None
+
+
 def combine_kernels(
     rtk,
     ck,
     config: CellRankConfig,
     logger: logging.Logger,
+    ctk=None,
 ):
-    """Combine RealTimeKernel and ConnectivityKernel into a weighted sum.
+    """Combine kernels into a weighted sum.
 
-    Combined = rtk_weight * RTK + (1 - rtk_weight) * CK
+    With CytoTRACEKernel:
+        combined = cytotrace_weight * CTK + rtk_weight * RTK + (1-both) * CK
+    Without:
+        combined = rtk_weight * RTK + (1 - rtk_weight) * CK
     """
     w_rtk = config.rtk_weight
-    w_ck = 1.0 - w_rtk
-    combined = w_rtk * rtk + w_ck * ck
-    logger.info(
-        f"  Combined kernel: "
-        f"RTK weight={w_rtk:.2f}, CK weight={w_ck:.2f}"
-    )
+    w_ctk = config.cytotrace_weight if ctk is not None else 0.0
+    w_ck = 1.0 - w_rtk - w_ctk
+
+    if ctk is not None:
+        combined = w_ctk * ctk + w_rtk * rtk + w_ck * ck
+        logger.info(
+            f"  Combined kernel: "
+            f"CTK weight={w_ctk:.2f}, RTK weight={w_rtk:.2f}, CK weight={w_ck:.2f}"
+        )
+    else:
+        combined = w_rtk * rtk + w_ck * ck
+        logger.info(
+            f"  Combined kernel: "
+            f"RTK weight={w_rtk:.2f}, CK weight={w_ck:.2f}"
+        )
     return combined
+
+
+def compute_lineage_umap(
+    adata: ad.AnnData,
+    config: CellRankConfig,
+    logger: logging.Logger,
+) -> None:
+    """Recompute UMAP on the EN-only subset from the existing kNN graph.
+
+    The neighbours graph (config.neighbors_key) was computed on X_scANVI of
+    the filtered EN subset, so this UMAP focuses all dimensionality-reduction
+    budget on within-EN developmental variance rather than cross-cell-type
+    separation.  Result stored in adata.obsm[config.lineage_umap_key].
+    """
+    if not config.recompute_umap:
+        return
+
+    if config.lineage_umap_key in adata.obsm and not config.overwrite:
+        logger.info(
+            f"  '{config.lineage_umap_key}' already present; "
+            "skipping UMAP recomputation (set overwrite=True to redo)."
+        )
+        return
+
+    if config.neighbors_key not in adata.uns:
+        logger.warning(
+            f"  '{config.neighbors_key}' not in adata.uns; "
+            "cannot recompute UMAP — run neighbors step first."
+        )
+        return
+
+    with Timer("UMAP on EN-only subset", logger):
+        sc.tl.umap(
+            adata,
+            neighbors_key=config.neighbors_key,
+            random_state=config.random_seed,
+        )
+
+    adata.obsm[config.lineage_umap_key] = adata.obsm["X_umap"].copy()
+    logger.info(
+        f"  EN-only UMAP stored as '{config.lineage_umap_key}' "
+        f"({adata.n_obs} cells × 2 dims)"
+    )
 
 
 # ── Public entry point ─────────────────────────────────────────────────────────
@@ -241,26 +522,38 @@ def build_kernels(
     logger: logging.Logger,
     moscot_problem=None,
 ):
-    """Build the ConnectivityKernel, optionally combine with RealTimeKernel.
+    """Build and combine kernels for GPCCA.
 
-    If ``moscot_problem`` is provided (from a prior ``run_moscot_ot`` call),
-    the function builds and combines both kernels.  Otherwise, only the
-    ConnectivityKernel is built (useful for testing without age data).
+    Always builds ConnectivityKernel.  If ``moscot_problem`` is provided,
+    also builds RealTimeKernel.  If ``config.cytotrace_weight > 0``, also
+    builds CytoTRACEKernel for cell-intrinsic developmental directionality.
 
     Returns
     -------
     combined_kernel
-        The final kernel expression passed to the GPCCA estimator.
+        The final weighted kernel expression for the GPCCA estimator.
     ck
-        The raw ConnectivityKernel (stored separately for diagnostics).
+        The raw ConnectivityKernel.
     rtk
         The raw RealTimeKernel, or None if not built.
+    ctk
+        The raw CytoTRACEKernel, or None if not built.
     """
     ck = build_connectivity_kernel(adata, config, logger)
 
+    # CytoTRACEKernel (optional — provides cell-intrinsic directionality)
+    ctk = None
+    if config.cytotrace_weight > 0:
+        ctk = build_cytotrace_kernel(adata, config, logger)
+        if ctk is None:
+            logger.warning(
+                "  CytoTRACEKernel build failed; proceeding without it. "
+                "Kernel weights will be renormalised automatically."
+            )
+
     if moscot_problem is not None:
         rtk = build_realtime_kernel(adata, moscot_problem, config, logger)
-        combined = combine_kernels(rtk, ck, config, logger)
+        combined = combine_kernels(rtk, ck, config, logger, ctk=ctk)
     else:
         logger.warning(
             "No moscot problem provided; using ConnectivityKernel only. "
@@ -270,4 +563,4 @@ def build_kernels(
         rtk = None
 
     log_memory("After kernel construction", logger)
-    return combined, ck, rtk
+    return combined, ck, rtk, ctk

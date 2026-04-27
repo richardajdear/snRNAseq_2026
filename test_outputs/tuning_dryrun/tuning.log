@@ -1,0 +1,40 @@
+2026-04-19 06:32:33,200 | INFO | Config:     code/tuning/test_tuning_config.yaml
+2026-04-19 06:32:33,201 | INFO | Output dir: /home/rajd2/rds/hpc-work/snRNAseq_2026/test_outputs/tuning_dryrun
+2026-04-19 06:32:33,271 | INFO | Input: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/VelWangPsychAD_100k_source-chemistry/combined.h5ad
+2026-04-19 06:32:33,271 | INFO | Loading AnnData ...
+2026-04-19 06:32:48,680 | INFO | Selecting HVGs (once before trials) ...
+2026-04-19 06:32:48,681 | INFO |   hvg_batch_key='source-chemistry' is ignored for pearson_residuals (not supported by sc.experimental.pp.highly_variable_genes)
+2026-04-19 06:33:19,265 | INFO | HVG AnnData: 300,000 cells × 2,000 genes
+2026-04-19 06:33:20,571 | INFO | Subsampled for tuning: 300,000 → 4,997 cells (stratified on ['source-chemistry', '_tune_age_bin'])
+2026-04-19 06:33:20,601 | INFO | Global batch count (for entropy normalisation): 4
+2026-04-19 06:33:20,601 | INFO | Setting up AnnData for scVI (covariates: {'continuous_covariate_keys': ['age_log_pc'], 'categorical_covariate_keys': ['sex']}) ...
+2026-04-19 06:33:21,049 | INFO | Trainer accelerator: {'accelerator': 'gpu', 'devices': 1}
+2026-04-19 06:33:21,050 | INFO | Search space: 16 combinations (n_latent × n_hidden × n_layers × gene_likelihood × batch_size). Running up to 2 random trials.
+2026-04-19 06:33:21,050 | INFO | Using production epoch horizon: max_epochs=10, early_stopping_patience=5. (Optimal architecture at shorter horizons can differ from production.)
+2026-04-19 06:33:21,050 | INFO | --------------------------------------------------------------------------------
+2026-04-19 06:33:21,051 | INFO | Trial 1/2 | elapsed=0.00h | params={'n_latent': 10, 'n_hidden': 128, 'n_layers': 2, 'gene_likelihood': 'nb', 'batch_size': 256}
+2026-04-19 06:33:25,610 | INFO | New best  trial=1  objective=0.3940  (age=0.3151  silhouette=0.7096)
+2026-04-19 06:33:25,783 | INFO | --------------------------------------------------------------------------------
+2026-04-19 06:33:25,783 | INFO | Trial 2/2 | elapsed=0.00h | params={'n_latent': 10, 'n_hidden': 128, 'n_layers': 1, 'gene_likelihood': 'zinb', 'batch_size': 256}
+2026-04-19 06:33:28,120 | INFO | ================================================================================
+2026-04-19 06:33:28,120 | INFO | scANVI EVALUATION — top 2 scVI trials (max_epochs_scanvi=5)
+2026-04-19 06:33:28,120 | INFO | Production inference uses scANVI (not scVI). These metrics quantify how scANVI fine-tuning changes batch-integration quality for each trial.
+2026-04-19 06:33:28,120 | INFO |   Trial 1  scVI obj=0.3940 ...
+2026-04-19 06:33:32,452 | INFO |     scVI=0.3940  →  scANVI=0.4378  (Δ=+0.0438)
+2026-04-19 06:33:32,452 | INFO |   Trial 2  scVI obj=0.3660 ...
+2026-04-19 06:33:35,828 | INFO |     scVI=0.3660  →  scANVI=0.4174  (Δ=+0.0514)
+2026-04-19 06:33:35,875 | INFO | Wrote: /home/rajd2/rds/hpc-work/snRNAseq_2026/test_outputs/tuning_dryrun/scanvi_comparison.csv
+2026-04-19 06:33:35,883 | INFO | ================================================================================
+2026-04-19 06:33:35,883 | INFO | BUDGET ADVISORY
+2026-04-19 06:33:35,883 | INFO |   Trials completed / requested : 2 / 2  (2 succeeded)
+2026-04-19 06:33:35,883 | INFO |   Elapsed                      : 0.00 h
+2026-04-19 06:33:35,883 | INFO |   Mean trial duration          : 0 ± 0 min
+2026-04-19 06:33:35,883 | INFO |   Search space combinations    : 16
+2026-04-19 06:33:35,883 | INFO |   Coverage                     : 2 / 16 = 12.5%
+2026-04-19 06:33:35,883 | INFO |   RECOMMENDATION: Coverage is 12.5%. A follow-up run (~0 GPU-hours for exhaustive coverage) would substantially improve confidence. Consider focusing on the sub-space around the top trials.
+2026-04-19 06:33:35,883 | INFO | ================================================================================
+2026-04-19 06:33:35,883 | INFO | ================================================================================
+2026-04-19 06:33:35,883 | INFO | Tuning complete.  Trials executed: 2
+2026-04-19 06:33:35,883 | INFO | Best objective: 0.3940  (trial 1)
+2026-04-19 06:33:35,883 | INFO | Wrote: /home/rajd2/rds/hpc-work/snRNAseq_2026/test_outputs/tuning_dryrun/trial_results.csv
+2026-04-19 06:33:35,883 | INFO | Wrote: /home/rajd2/rds/hpc-work/snRNAseq_2026/test_outputs/tuning_dryrun/best_hyperparameters.yaml

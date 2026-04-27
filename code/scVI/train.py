@@ -42,8 +42,16 @@ def train_scvi(
     model_path = config.scvi_model_path
 
     # Setup anndata (required before both training and loading)
+    covariate_kwargs = {}
+    if config.continuous_covariate_keys:
+        covariate_kwargs['continuous_covariate_keys'] = config.continuous_covariate_keys
+    if config.categorical_covariate_keys:
+        covariate_kwargs['categorical_covariate_keys'] = config.categorical_covariate_keys
+    if covariate_kwargs:
+        logger.info(f"scVI covariates: {covariate_kwargs}")
     SCVI.setup_anndata(
-        adata_scvi, layer=config.counts_layer, batch_key=config.batch_key
+        adata_scvi, layer=config.counts_layer, batch_key=config.batch_key,
+        **covariate_kwargs,
     )
 
     # Determine whether to load or train
@@ -67,10 +75,11 @@ def train_scvi(
         n_hidden=config.n_hidden,
         n_latent=config.n_latent,
         n_layers=config.n_layers,
+        gene_likelihood=config.gene_likelihood,
     )
     logger.info(
-        f"scVI model: n_latent={config.n_latent}, "
-        f"n_hidden={config.n_hidden}, n_layers={config.n_layers}"
+        f"scVI model: n_latent={config.n_latent}, n_hidden={config.n_hidden}, "
+        f"n_layers={config.n_layers}, gene_likelihood={config.gene_likelihood}"
     )
 
     accel = _get_accelerator(device_info)
@@ -182,12 +191,18 @@ def train_scanvi(
             model_config_path = model_path / "model.pt"
             # If model exists, attempt load but catch dimension mismatch
             logger.info(f"Loading existing scANVI model from {model_path}")
+            scanvi_covariate_kwargs = {}
+            if config.continuous_covariate_keys:
+                scanvi_covariate_kwargs['continuous_covariate_keys'] = config.continuous_covariate_keys
+            if config.categorical_covariate_keys:
+                scanvi_covariate_kwargs['categorical_covariate_keys'] = config.categorical_covariate_keys
             SCANVI.setup_anndata(
                 adata_scvi,
                 layer=config.counts_layer,
                 batch_key=config.batch_key,
                 labels_key=config.cell_type_key,
                 unlabeled_category="Unknown",
+                **scanvi_covariate_kwargs,
             )
             with Timer("Loading scANVI model", logger):
                 model = SCANVI.load(str(model_path), adata=adata_scvi)
@@ -213,12 +228,18 @@ def train_scanvi(
         )
     else:
         logger.info("Initializing scANVI from scratch (no scVI model provided)")
+        scanvi_covariate_kwargs = {}
+        if config.continuous_covariate_keys:
+            scanvi_covariate_kwargs['continuous_covariate_keys'] = config.continuous_covariate_keys
+        if config.categorical_covariate_keys:
+            scanvi_covariate_kwargs['categorical_covariate_keys'] = config.categorical_covariate_keys
         SCANVI.setup_anndata(
             adata_scvi,
             layer=config.counts_layer,
             batch_key=config.batch_key,
             labels_key=config.cell_type_key,
             unlabeled_category="Unknown",
+            **scanvi_covariate_kwargs,
         )
         model = SCANVI(
             adata_scvi,

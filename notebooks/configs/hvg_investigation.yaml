@@ -1,9 +1,0 @@
-# Template: sensitivity_analysis
-EXPERIMENT_NAME: hvg_investigation
-DATA_FILE: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/velmeshev/velmeshev_100k_PFC_lessOld.h5ad
-SCVI_LAYER: ""
-SOURCE_LABEL: VELMESHEV
-N_VALUES: [1000, 2000, 4000, 6000, 8000, 10000]
-FILTER_CELL_TYPES: null
-INCLUDE_DIAGNOSTICS: true
-CACHE_DIR: /home/rajd2/rds/hpc-work/snRNAseq_2026/notebooks/ahbaC3_hvg_investigation/_cache

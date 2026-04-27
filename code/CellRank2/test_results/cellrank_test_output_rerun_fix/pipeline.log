@@ -1,0 +1,10 @@
+[2026-04-20 10:07:51] INFO - ============================================================
+[2026-04-20 10:07:51] INFO - CellRank 2 Lineage Tracing Pipeline
+[2026-04-20 10:07:51] INFO - ============================================================
+[2026-04-20 10:07:51] INFO - Output dir: code/CellRank2/test_results/cellrank_test_output_rerun_fix
+[2026-04-20 10:07:53] INFO - Config saved to code/CellRank2/test_results/cellrank_test_output_rerun_fix/cellrank_config.yaml
+[2026-04-20 10:07:54] INFO - No GPU detected. Using CPU.
+[2026-04-20 10:07:54] INFO - Steps: ['neighbors', 'ot', 'kernels', 'gpcca', 'fate_probs', 'save']
+[2026-04-20 10:07:54] INFO - Loading: code/CellRank2/test_results/source_chemistry_5k_excit_test.h5ad
+[2026-04-20 10:07:54] INFO - Starting: Loading h5ad
+[2026-04-20 10:07:56] INFO - Completed: Loading h5ad [0h 0m 1.5s]

@@ -27,7 +27,7 @@ from .data import load_adata, prepare_for_scvi, save_checkpoint
 from .inference import get_normalized_expression
 from .train import train_scanvi, train_scvi
 from .utils import Timer, get_device_info, log_memory, setup_logger
-from .visualize import compute_umaps, plot_batch_comparison
+from .visualize import compute_umaps, plot_umap_grids
 from pipeline.label_transfer.transfer import aligned_to_class
 
 
@@ -287,7 +287,7 @@ def run(config: PipelineConfig):
     # --- PLOT ---
     if "plot" in steps and adata is not None:
         with Timer("UMAP plots", logger):
-            plot_batch_comparison(adata, config.umap_color_vars, config, logger)
+            plot_umap_grids(adata, config, logger)
 
     # --- SAVE ---
     if "save" in steps and adata is not None:

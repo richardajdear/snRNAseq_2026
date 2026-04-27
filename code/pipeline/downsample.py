@@ -82,6 +82,12 @@ def main():
                              "Defaults: Velmeshev='Cell_Type', Wang='Type-updated', PsychAD='subclass'.")
     parser.add_argument("--pfc_only", action='store_true', help="Keep only 'prefrontal cortex' regions.")
     parser.add_argument("--age_downsample", action='store_true', help="Keep all donors <40; keep 20%% of donors >=40.")
+    parser.add_argument("--postnatal_only", action='store_true',
+                        help="Keep only postnatal cells (age_years >= 0). Applied before age_downsample.")
+    parser.add_argument("--min_age", type=float, default=None,
+                        help="Keep only cells from donors with age_years >= this value.")
+    parser.add_argument("--cell_class_filter", nargs='+', default=None,
+                        help="Keep only cells whose cell_class is in this list (e.g. Excitatory Glia).")
     parser.add_argument("--n_cells", type=int, default=None,
                         help="Target number of cells (random downsample). "
                              "Omit or set to null in config to use all cells.")
@@ -163,6 +169,33 @@ def main():
         n_before = mask.sum()
         mask = mask & pfc_mask
         print(f"PFC filter: {n_before} -> {mask.sum()} cells")
+
+    # --- Postnatal-only filter ---
+    if args.postnatal_only:
+        if 'age_years' not in meta_df.columns:
+            print("Error: --postnatal_only requested but 'age_years' column missing.")
+            sys.exit(1)
+        n_before = mask.sum()
+        mask = mask & (meta_df['age_years'] >= 0)
+        print(f"Postnatal filter (age_years >= 0): {n_before} -> {mask.sum()} cells")
+
+    # --- Minimum age filter ---
+    if args.min_age is not None:
+        if 'age_years' not in meta_df.columns:
+            print("Error: --min_age requested but 'age_years' column missing.")
+            sys.exit(1)
+        n_before = mask.sum()
+        mask = mask & (meta_df['age_years'] >= args.min_age)
+        print(f"Min age filter (age_years >= {args.min_age}): {n_before} -> {mask.sum()} cells")
+
+    # --- Cell class filter ---
+    if args.cell_class_filter:
+        if 'cell_class' not in meta_df.columns:
+            print("Error: --cell_class_filter requested but 'cell_class' column missing.")
+            sys.exit(1)
+        n_before = mask.sum()
+        mask = mask & meta_df['cell_class'].isin(args.cell_class_filter)
+        print(f"Cell class filter {args.cell_class_filter}: {n_before} -> {mask.sum()} cells")
 
     # --- Age-based donor downsampling ---
     if args.age_downsample:
@@ -260,6 +293,28 @@ def main():
         n_broad = (~labeled_mask).sum()
         if n_broad:
             print(f"  {'(broad/excluded → Unknown)':35s}  {n_broad:5d}")
+
+    # =========================================================================
+    # Step 3c: Add log-postconceptional-age column for scVI covariate
+    #   age_log_pc = log(age_years + 268/365)
+    #   Both Wang and Velmeshev readers use 268 days as the birth offset,
+    #   so adding 268/365 converts age_years back to postconceptional age in years.
+    # =========================================================================
+    if 'age_years' in adata.obs.columns:
+        adata.obs['age_log_pc'] = np.log(adata.obs['age_years'] + 268 / 365)
+        n_valid = adata.obs['age_log_pc'].notna().sum()
+        print(f"\nage_log_pc: {n_valid} valid values "
+              f"(range: {adata.obs['age_log_pc'].min():.2f} to {adata.obs['age_log_pc'].max():.2f})")
+
+    # Combined batch key for joint correction of source and chemistry.
+    if 'source' in adata.obs.columns and 'chemistry' in adata.obs.columns:
+        source = adata.obs['source'].fillna('unknown').astype(str)
+        chemistry = adata.obs['chemistry'].fillna('unknown').astype(str)
+        adata.obs['source-chemistry'] = source + '-' + chemistry
+        n_combo = adata.obs['source-chemistry'].nunique()
+        print(f"source-chemistry: {n_combo} unique combinations")
+    else:
+        print("Warning: could not create source-chemistry (missing source and/or chemistry columns)")
 
     # =========================================================================
     # Step 4: Save

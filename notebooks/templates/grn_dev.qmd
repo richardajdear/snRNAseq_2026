@@ -1,0 +1,540 @@
+---
+title: "AHBA C3 Developmental Trends — GRN Projection (Pseudobulk)"
+format: md
+jupyter: python3
+execute:
+  echo: false
+---
+
+## 1. Setup
+
+### 1.1 Environment
+
+```{python}
+import os
+import sys
+import warnings
+from IPython import get_ipython
+_ip = get_ipython()
+if _ip:
+    _ip.run_line_magic('load_ext', 'autoreload')
+    _ip.run_line_magic('autoreload', '2')
+```
+
+```{python}
+def _find_repo_root(marker='.git'):
+    current = os.path.abspath(os.getcwd())
+    while True:
+        if os.path.exists(os.path.join(current, marker)):
+            return current
+        parent = os.path.dirname(current)
+        if parent == current:
+            raise RuntimeError(f"Could not find '{marker}' above {os.getcwd()}")
+        current = parent
+
+_repo_root = _find_repo_root()
+if os.path.join(_repo_root, 'code') not in sys.path:
+    sys.path.insert(0, os.path.join(_repo_root, 'code'))
+
+from environment import get_environment
+_env = get_environment()
+rds_dir  = _env['rds_dir']
+code_dir = _env['code_dir']
+ref_dir  = _env['ref_dir']
+
+print(f"Environment : {_env['name']}")
+print(f"  rds_dir  : {rds_dir}")
+print(f"  code_dir : {code_dir}")
+print(f"  ref_dir  : {ref_dir}")
+```
+
+### 1.2 Parameters
+
+Parameters are loaded from a YAML config file whose path is passed via the
+`NOTEBOOK_PARAMS` environment variable (set automatically by `render_single.sh`).
+Defaults below are used when no config is provided (e.g. for interactive use).
+
+```{python}
+import yaml as _yaml
+
+_cfg = {}
+_param_file = os.environ.get('NOTEBOOK_PARAMS', '')
+if _param_file:
+    print(f"Loading params from: {_param_file}")
+    with open(_param_file) as _f:
+        _cfg = _yaml.safe_load(_f) or {}
+else:
+    print("No NOTEBOOK_PARAMS set — using defaults (interactive mode)")
+
+# --- Experiment identity ---
+EXPERIMENT_NAME = _cfg.get('EXPERIMENT_NAME', 'grn_dev_excitatory_prepost_tuning3')
+
+# --- Data: pseudobulk file ---
+_pb_default = os.path.join(
+    rds_dir,
+    'Cam_snRNAseq/integrated/VelWangPsychAD_100k_prepost_tuning3',
+    'pseudobulk_output/by_cell_class.h5ad')
+PSEUDOBULK_FILE = _cfg.get('PSEUDOBULK_FILE', _pb_default)
+
+# --- Cell filtering ---
+# CELL_CLASS_COL: obs column to filter on (e.g. 'cell_class', 'cell_type_aligned').
+#   Set to null/'' to skip filtering (use when the file is already pre-filtered).
+# CELL_CLASS_VALUE: the value to keep in that column (e.g. 'Excitatory').
+CELL_CLASS_COL   = _cfg.get('CELL_CLASS_COL',   'cell_class') or ''
+CELL_CLASS_VALUE = _cfg.get('CELL_CLASS_VALUE', 'Excitatory') or ''
+
+# --- HVG selection ---
+# N_VALUES: top-N gene counts for Pearson residuals HVG conditions.
+# An all-gene (no filtering) condition is always included.
+N_VALUES = _cfg.get('N_VALUES', [2000, 4000, 8000])
+
+# --- 4D sensitivity axes ---
+CHILD_STARTS = _cfg.get('CHILD_STARTS', [1, 2, 3, 4, 5])
+GAP_STARTS   = _cfg.get('GAP_STARTS',   [10, 11, 12, 13, 14])  # = childhood upper bound
+GAP_LENGTHS  = _cfg.get('GAP_LENGTHS',  [0, 1, 2, 3, 4])       # adol_start = gap_start + gap_length
+ADOL_ENDS    = _cfg.get('ADOL_ENDS',    [18, 20, 22, 24, 26])
+
+print(f"EXPERIMENT_NAME  : {EXPERIMENT_NAME}")
+print(f"PSEUDOBULK_FILE  : {PSEUDOBULK_FILE}")
+if CELL_CLASS_COL and CELL_CLASS_VALUE:
+    print(f"Filter           : {CELL_CLASS_COL} == '{CELL_CLASS_VALUE}'")
+else:
+    print("Filter           : none (using all rows in file)")
+print(f"N_VALUES         : {N_VALUES}")
+print(f"CHILD_STARTS     : {CHILD_STARTS}")
+print(f"GAP_STARTS       : {GAP_STARTS}")
+print(f"GAP_LENGTHS      : {GAP_LENGTHS}")
+print(f"ADOL_ENDS        : {ADOL_ENDS}")
+```
+
+### 1.3 Libraries
+
+```{python}
+#| include: false
+import gc
+import scanpy as sc
+import pandas as pd
+import numpy as np
+import scipy.sparse as _sp
+
+warnings.filterwarnings('ignore')
+
+if _env['name'] == 'local':
+    os.environ['R_HOME'] = '/Users/richard/mambaforge/envs/scanpy/lib/R'
+
+%load_ext rpy2.ipython
+```
+
+```{python}
+#| include: false
+%%R
+
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(patchwork)
+library(ggpubr)
+library(pwr)
+```
+
+## 2. Data & GRN Projection
+
+### 2.1 Load Pseudobulk Data
+
+```{python}
+print(f"Loading: {PSEUDOBULK_FILE}")
+adata_full = sc.read_h5ad(PSEUDOBULK_FILE, backed='r')
+print(f"Full shape: {adata_full.shape}")
+
+if CELL_CLASS_COL and CELL_CLASS_VALUE:
+    if CELL_CLASS_COL not in adata_full.obs.columns:
+        raise ValueError(
+            f"CELL_CLASS_COL='{CELL_CLASS_COL}' not found in obs. "
+            f"Available columns: {list(adata_full.obs.columns)}")
+    print(f"Cell classes: {dict(adata_full.obs[CELL_CLASS_COL].value_counts())}")
+    mask = adata_full.obs[CELL_CLASS_COL] == CELL_CLASS_VALUE
+    adata = adata_full[mask].to_memory()
+else:
+    adata = adata_full.to_memory()
+
+adata_full.file.close()
+del adata_full
+gc.collect()
+
+print(f"\nSubset shape : {adata.shape}")
+print(f"Donors       : {adata.n_obs}")
+print(f"Age range    : {adata.obs.age_years.min():.2f} – {adata.obs.age_years.max():.2f} years")
+print(f"Sources      : {dict(adata.obs['source'].value_counts())}")
+
+TOTAL_GENES = int(adata.n_vars)
+```
+
+### 2.2 GRN Setup
+
+```{python}
+from hvg_investigation import setup_grn
+ahba_GRN, total_grn_genes = setup_grn(ref_dir, adata)
+
+_grn_pivot = ahba_GRN.pivot_table(
+    index='Network', columns='Gene', values='Importance', fill_value=0)
+```
+
+### 2.3 GRN Projection — Pearson Residuals vs scANVI-Normalized
+
+Two normalization methods × (all genes + top-N HVGs) = 10 conditions:
+
+| condition | description |
+|---|---|
+| `pearson_all` | Pearson residuals on raw counts, all genes |
+| `pearson_{n}` | Pearson residuals, top-*n* genes (by Pearson HVG method) |
+| `scanvi_all` | scANVI batch-corrected expression, all genes |
+| `scanvi_{n}` | scANVI batch-corrected, top-*n* genes by variance |
+
+```{python}
+from regulons import project_GRN
+
+def _project_and_collect(adata, ahba_GRN, condition_name, use_highly_variable=False):
+    project_GRN(adata, ahba_GRN, 'X_ahba',
+                use_residuals=False, use_highly_variable=use_highly_variable,
+                log_transform=False)
+    return (pd.DataFrame(adata.obsm['X_ahba'], index=adata.obs_names,
+                         columns=adata.uns['X_ahba_names'])[['C3+', 'C3-']]
+              .assign(obs_names=lambda d: d.index, condition=condition_name)
+              .melt(id_vars=['obs_names', 'condition'], var_name='C', value_name='value'))
+
+all_scores = []
+
+# ── Method 1: Pearson residuals on raw counts ─────────────────────────────────
+adata.X = adata.layers['counts'].copy()
+sc.experimental.pp.normalize_pearson_residuals(adata, inplace=True)
+_pearson_X = (adata.X.toarray() if _sp.issparse(adata.X) else adata.X).copy()
+_n_nan = np.isnan(_pearson_X).sum()
+if _n_nan > 0:
+    _n_bad = int(np.isnan(_pearson_X).any(axis=0).sum())
+    print(f"Warning: {_n_nan} NaN residuals in {_n_bad} gene(s) (all-zero counts); filling with 0.")
+    _pearson_X = np.nan_to_num(_pearson_X, nan=0.0)
+print(f"Pearson residuals: {adata.n_vars} genes, {adata.n_obs} donors.")
+
+adata.X = _pearson_X.copy()
+if 'highly_variable' in adata.var.columns:
+    del adata.var['highly_variable']
+all_scores.append(_project_and_collect(adata, ahba_GRN, 'pearson_all'))
+print(f"pearson_all : {adata.n_vars} genes, "
+      f"{len(np.intersect1d(_grn_pivot.columns, adata.var_names))} GRN genes")
+
+for n in N_VALUES:
+    sc.experimental.pp.highly_variable_genes(adata, n_top_genes=n, layer='counts')
+    n_hvg = int(adata.var['highly_variable'].sum())
+    n_grn = len(np.intersect1d(
+        _grn_pivot.columns, adata.var_names[adata.var['highly_variable']]))
+    adata.X = _pearson_X.copy()
+    all_scores.append(_project_and_collect(adata, ahba_GRN, f'pearson_{n}',
+                                           use_highly_variable=True))
+    print(f"pearson_{n:<5}: {n_hvg} HVGs, {n_grn} GRN genes")
+del _pearson_X
+
+# ── Method 2: scANVI batch-corrected (linear scale) ──────────────────────────
+if 'scanvi_normalized' not in adata.layers:
+    raise ValueError(
+        "Layer 'scanvi_normalized' not found. "
+        f"Available layers: {list(adata.layers.keys())}")
+_raw = adata.layers['scanvi_normalized']
+_scanvi_X = (_raw.toarray() if _sp.issparse(_raw)
+             else np.array(_raw, dtype=np.float32)).copy()
+_gene_vars = _scanvi_X.var(axis=0)
+print(f"scanvi_normalized: {adata.n_vars} genes, {adata.n_obs} donors.")
+
+adata.X = _scanvi_X.copy()
+if 'highly_variable' in adata.var.columns:
+    del adata.var['highly_variable']
+all_scores.append(_project_and_collect(adata, ahba_GRN, 'scanvi_all'))
+print(f"scanvi_all  : {adata.n_vars} genes, "
+      f"{len(np.intersect1d(_grn_pivot.columns, adata.var_names))} GRN genes")
+
+for n in N_VALUES:
+    top_idx = np.argsort(_gene_vars)[::-1][:n]
+    adata.var['highly_variable'] = False
+    adata.var.iloc[top_idx, adata.var.columns.get_loc('highly_variable')] = True
+    n_hvg = int(adata.var['highly_variable'].sum())
+    n_grn = len(np.intersect1d(
+        _grn_pivot.columns, adata.var_names[adata.var['highly_variable']]))
+    adata.X = _scanvi_X.copy()
+    all_scores.append(_project_and_collect(adata, ahba_GRN, f'scanvi_{n}',
+                                           use_highly_variable=True))
+    print(f"scanvi_{n:<5}: {n_hvg} HVGs, {n_grn} GRN genes")
+del _scanvi_X, _gene_vars
+
+scores_df = pd.concat(all_scores, ignore_index=True)
+gc.collect()
+```
+
+### 2.4 Build Scores DataFrame
+
+```{python}
+# Merge with donor metadata
+cols = ['individual', 'age_years', 'source']
+for c in ['sex', 'dataset']:
+    if c in adata.obs.columns:
+        cols.append(c)
+meta = adata.obs[cols].copy()
+meta['obs_names'] = meta.index
+
+final_df = pd.merge(scores_df, meta, on='obs_names')
+
+print(f"final_df: {len(final_df)} rows × {final_df.shape[1]} cols")
+print(final_df.dtypes)
+```
+
+## 3. Age Range Sensitivity (4D Grid)
+
+We independently vary four age-range parameters:
+
+| Parameter | Values | Meaning |
+|---|---|---|
+| `child_start` | `CHILD_STARTS` | Childhood lower bound |
+| `gap_start` | `GAP_STARTS` | Childhood upper bound (= gap start) |
+| `gap_length` | `GAP_LENGTHS` | Gap duration; `adol_start = gap_start + gap_length` |
+| `adol_end` | `ADOL_ENDS` | Adolescence upper bound |
+
+Childhood = `[child_start, gap_start)`, Adolescence = `[gap_start + gap_length, adol_end)`.
+
+### 3.1 Compute Sensitivity Grid
+
+```{python}
+%%R -i final_df -i code_dir -i CHILD_STARTS -i GAP_STARTS -i GAP_LENGTHS -i ADOL_ENDS -i N_VALUES
+
+source(file.path(code_dir, 'plotting', 'hvg_plots.r'))
+source(file.path(code_dir, 'plotting', 'sensitivity_gap_plots.r'))
+
+selected_conds <- c('pearson_all', paste0('pearson_', N_VALUES),
+                    'scanvi_all',  paste0('scanvi_', N_VALUES))
+
+df <- prepare_r_data_single(final_df, condition_order = selected_conds)
+
+sens_4d <- compute_sensitivity_4d(
+    df, selected_conds,
+    child_starts = CHILD_STARTS,
+    gap_starts   = GAP_STARTS,
+    gap_lengths  = GAP_LENGTHS,
+    adol_ends    = ADOL_ENDS)
+
+cat(sprintf("Grid size: %d combinations × %d conditions\n",
+            nrow(sens_4d) / length(selected_conds), length(selected_conds)))
+cat(sprintf("Significant (p<0.05): %d / %d\n",
+            sum(sens_4d$signif, na.rm=TRUE), nrow(sens_4d)))
+n_valid_d <- sum(!is.na(sens_4d$cohens_d))
+cat(sprintf("Valid cohens_d: %d / %d  (NA rate: %.1f%%)\n",
+            n_valid_d, nrow(sens_4d), 100 * (1 - n_valid_d / max(nrow(sens_4d), 1))))
+if (n_valid_d == 0) {
+  cat("WARNING: all cohens_d are NA — check age_years range and donor counts\n")
+  cat(sprintf("  age_years range in df: %.2f – %.2f\n", min(df$age_years), max(df$age_years)))
+  cat(sprintf("  n donors in df: %d unique\n", length(unique(df$individual))))
+}
+
+best <- select_best_4d(sens_4d, baseline = 'scanvi_all')
+
+cat(sprintf("\nBest HVG condition : %s\n", best$condition))
+cat(sprintf(
+    "Best age range     : child [%d, %d)  gap [%d, %d)  adol [%d, %d)\n  p = %.4f  d = %.2f\n",
+    best$child_start, best$gap_start,
+    best$gap_start,   best$adol_start,
+    best$adol_start,  best$adol_end,
+    best$p_value, best$cohens_d))
+
+best_cond <- best$condition
+best_cs   <- best$child_start
+best_ce   <- best$gap_start
+best_as   <- best$adol_start
+best_ae   <- best$adol_end
+```
+
+### 3.2 Cohen's d
+
+```{python}
+%%R -w 220 -h 160 -u mm -r 300
+
+plot_4d_cohens_d(sens_4d, filter_cond = best_cond)
+```
+
+### 3.3 P-value
+
+```{python}
+%%R -w 220 -h 160 -u mm -r 300
+
+plot_4d_pvalue(sens_4d, filter_cond = best_cond)
+```
+
+### 3.4 Minimum Detectable Effect Size
+
+```{python}
+%%R -w 220 -h 160 -u mm -r 300
+
+plot_4d_power(sens_4d, filter_cond = best_cond)
+```
+
+## 4. Developmental Trends (Best Age Range)
+
+All subsequent sections use the age boundaries selected above (lowest p-value for `scanvi_all`),
+applied identically to both normalization methods for a direct comparison.
+
+```{python}
+%%R
+
+cat(sprintf(
+    "Using: Childhood = [%d, %d)  Gap = [%d, %d)  Adolescence = [%d, %d)\n",
+    best_cs, best_ce, best_ce, best_as, best_as, best_ae))
+```
+
+### 4.1 Pseudobulk Trajectories + Stage Boxes
+
+```{python}
+#| message: false
+#| warning: false
+%%R -i TOTAL_GENES -i N_VALUES -w 280 -h 220 -u mm -r 300
+
+facet_levels <- c(paste0("all\n(", TOTAL_GENES, ")"), rev(as.character(N_VALUES)))
+
+decorate_hvg_facets <- function(data_tbl) {
+    data_tbl %>%
+        mutate(
+            flavor = case_when(
+                grepl('pearson', condition) ~ 'pearson',
+                grepl('scanvi',  condition) ~ 'scanvi',
+                TRUE ~ 'other'
+            ),
+            n_genes = case_when(
+                condition %in% c('pearson_all', 'scanvi_all') ~
+                    paste0("all\n(", TOTAL_GENES, ")"),
+                grepl('_(\\d+)$', as.character(condition)) ~
+                    gsub('.*_(\\d+)$', '\\1', as.character(condition)),
+                TRUE ~ as.character(condition)
+            ),
+            n_genes = factor(n_genes, levels = facet_levels)
+        )
+}
+
+df_boxes <- make_boxes_gap_df(df, best_cs, best_ce, best_as, best_ae)
+
+pb <- df %>%
+    filter(C == 'C3+') %>%
+    decorate_hvg_facets() %>%
+    group_by(condition, flavor, n_genes, individual, age_years, source) %>%
+    summarize(value = mean(value), .groups = 'drop') %>%
+    group_by(condition) %>%
+    mutate(value = (value - mean(value)) / sd(value)) %>%
+    ungroup()
+
+df_boxes_plot <- df_boxes %>%
+    filter(network == 'C3+') %>%
+    decorate_hvg_facets() %>%
+    group_by(condition) %>%
+    mutate(
+        value    = (value - mean(value)) / sd(value),
+        box_alpha = ifelse(age_range == 'Gap', 0.3, 0.4),
+        pt_alpha = ifelse(age_range == 'Gap', 0.3, 0.7)
+    ) %>%
+    ungroup()
+
+p_traj <- pb %>%
+    ggplot(aes(x = age_years, y = value)) +
+    facet_grid(n_genes ~ flavor, scales = 'free') +
+    annotate('rect', xmin = best_ce, xmax = best_as,
+                     ymin = -Inf, ymax = Inf, fill = 'grey80', alpha = 0.3) +
+    geom_point(aes(color = source), size = 1.5, alpha = 0.7) +
+    geom_smooth(aes(group = 1), se = FALSE, color = 'black', linewidth = 0.5) +
+    geom_vline(xintercept = best_cs, linetype = 'dotted',
+                         color = 'blue', linewidth = 0.3) +
+    geom_vline(xintercept = best_ce, linetype = 'dashed',
+                         color = 'red', linewidth = 0.4) +
+    geom_vline(xintercept = best_as, linetype = 'dashed',
+                         color = 'red', linewidth = 0.4) +
+    geom_vline(xintercept = best_ae, linetype = 'dotted',
+                         color = 'blue', linewidth = 0.3) +
+    scale_x_continuous(
+        name = 'Donor Age (years)',
+        limits = c(0, 30),
+        breaks = seq(0, 30, 5)
+    ) +
+    scale_y_continuous(name = 'C3+ score (z-scored)') +
+    scale_color_discrete(name = 'Source',
+        guide = guide_legend(override.aes = list(size = 2, alpha = 1))) +
+    theme_classic() +
+    theme(
+        text = element_text(size = 8),
+        strip.text = element_text(size = 7),
+        strip.text.y.right = element_text(angle = 0),
+        axis.text.x = element_text(size = 6),
+        panel.spacing = unit(0.3, 'lines')
+    ) +
+    ggtitle(
+        "C3+ age trajectories — Pearson residuals vs scANVI-normalized",
+        subtitle = sprintf(
+            "Childhood [%d, %d), gap [%d, %d), Adolescence [%d, %d)",
+            best_cs, best_ce, best_ce, best_as, best_as, best_ae))
+
+p_boxes <- df_boxes_plot %>%
+    ggplot(aes(x = age_range, y = value)) +
+    facet_grid(n_genes ~ flavor, scales = 'free') +
+    geom_boxplot(aes(alpha = box_alpha), outlier.shape = NA) +
+    geom_jitter(aes(color = source, alpha = pt_alpha), width = 0.15, size = 1.5) +
+    scale_alpha_identity(guide = 'none') +
+    stat_compare_means(comparisons = list(c('Childhood', 'Adolescence'),
+                                          c('Adolescence', 'Early Adult'),
+                                          c('Early Adult', 'Late Adult')),
+                       label = 'p.signif', size = 3) +
+    scale_y_continuous(name = 'C3+ score (z-scored)') +
+    scale_color_discrete(name = 'Source',
+        guide = guide_legend(override.aes = list(size = 2, alpha = 1))) +
+    coord_cartesian(clip = 'off') +
+    theme_classic() +
+    theme(
+        text = element_text(size = 8),
+        strip.text = element_text(size = 7),
+        strip.text.y.right = element_text(angle = 0),
+        axis.text.x = element_text(angle = 45, hjust = 1, size = 7),
+        axis.title.x = element_blank(),
+        panel.spacing.x = unit(0.3, 'lines'),
+        panel.spacing.y = unit(1.5, 'lines'),
+        panel.margin = margin(t = 15, r = 5, b = 5, l = 5)
+    ) +
+    ggtitle(sprintf(
+        "C3+ Childhood [%d, %d) vs Adolescence [%d, %d) — Pearson vs scANVI-normalized",
+        best_cs, best_ce, best_as, best_ae))
+
+(p_traj | p_boxes) + plot_layout(guides = 'collect')
+```
+
+### 4.2 C3+ Effect Summary
+
+```{python}
+%%R
+
+effect_tbl <- df_boxes %>%
+  filter(network == 'C3+') %>%
+  group_by(condition) %>%
+  summarize(
+    n_child    = sum(age_range == 'Childhood'),
+    n_adol     = sum(age_range == 'Adolescence'),
+    mean_child = mean(value[age_range == 'Childhood']),
+    mean_adol  = mean(value[age_range == 'Adolescence']),
+    sd_child   = sd(value[age_range == 'Childhood']),
+    sd_adol    = sd(value[age_range == 'Adolescence']),
+    p_value    = wilcox.test(value[age_range == 'Childhood'],
+                             value[age_range == 'Adolescence'])$p.value,
+    .groups = 'drop'
+  ) %>%
+  mutate(
+    pooled_sd = sqrt(((n_child - 1) * sd_child^2 + (n_adol - 1) * sd_adol^2) /
+                     (n_child + n_adol - 2)),
+    cohens_d  = (mean_child - mean_adol) / pooled_sd
+  ) %>%
+        mutate(
+                condition = as.character(condition),
+                cond_rank_num = suppressWarnings(as.numeric(gsub('.*_(\\d+)$', '\\1', condition))),
+                cond_rank = ifelse(condition == 'pearson_all', Inf, cond_rank_num)
+        ) %>%
+    arrange(cond_rank) %>%
+        select(-cond_rank, -cond_rank_num)
+
+knitr::kable(effect_tbl, format = 'pipe', digits = 3)
+```

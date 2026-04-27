@@ -46,6 +46,79 @@ def _apply_ggplot_theme(ax):
         item.set_color("#333333")
 
 
+# ── cell_type_aligned palette ─────────────────────────────────────────────────
+
+def _is_immature(label: str) -> bool:
+    return any(x in label for x in ("Immature", "Newborn")) or label.startswith("IPC-")
+
+
+def _cell_type_group(label: str) -> str:
+    if label.startswith("EN-") or label == "IPC-EN":
+        return "EN"
+    if label.startswith("IN-"):
+        return "IN"
+    if "Oligodendrocyte" in label or label == "OPC":
+        return "Oligo"
+    if label.startswith("Astrocyte"):
+        return "Astro"
+    if label == "Microglia":
+        return "Microglia"
+    if label.startswith("RG-") or label in ("Tri-IPC", "Cajal-Retzius cell"):
+        return "Progenitor"
+    return "Other"
+
+
+# Colormap and shade range (mature dark end, immature light end) per group
+_GROUP_CMAP = {
+    "EN":         ("Reds",    (0.45, 0.90), (0.25, 0.45)),   # (cmap, mature_range, immature_range)
+    "IN":         ("Blues",   (0.40, 0.88), (0.22, 0.42)),
+    "Oligo":      ("Greens",  (0.45, 0.85), (0.22, 0.38)),
+    "Astro":      ("GnBu",    (0.45, 0.80), (0.22, 0.38)),
+    "Microglia":  ("YlGn",    (0.52, 0.68), (0.30, 0.45)),
+    "Progenitor": ("Purples", (0.45, 0.85), (0.25, 0.40)),
+    "Other":      ("Greys",   (0.35, 0.65), (0.20, 0.35)),
+}
+
+
+def build_cell_type_aligned_palette(categories: list) -> dict:
+    """Build a hue+shade colour dict for cell_type_aligned.
+
+    Cell types are grouped by broad class (EN, IN, Oligo, Astro, Microglia,
+    Progenitor, Other).  Within each group, mature subtypes are assigned darker
+    shades and immature/newborn/IPC subtypes lighter shades of the same hue,
+    making the maturation axis readable at a glance.
+    """
+    from matplotlib import colormaps
+
+    # Bucket each category into (group, mature/immature)
+    groups: dict = {}
+    for cat in categories:
+        g = _cell_type_group(cat)
+        if g not in groups:
+            groups[g] = {"mature": [], "immature": []}
+        (groups[g]["immature"] if _is_immature(cat) else groups[g]["mature"]).append(cat)
+
+    for g in groups:
+        groups[g]["mature"].sort()
+        groups[g]["immature"].sort()
+
+    palette = {}
+    for g_name, buckets in groups.items():
+        cmap_name, mature_range, immature_range = _GROUP_CMAP.get(g_name, _GROUP_CMAP["Other"])
+        cmap = colormaps[cmap_name]
+
+        def _sample(labels, lo, hi):
+            n = len(labels)
+            vals = [lo] if n == 1 else [lo + (hi - lo) * i / (n - 1) for i in range(n)]
+            for lbl, v in zip(labels, vals):
+                palette[lbl] = cmap(v)[:3]
+
+        _sample(buckets["mature"],   *mature_range)
+        _sample(buckets["immature"], *immature_range)
+
+    return palette
+
+
 # ── UMAP computation ───────────────────────────────────────────────────────────
 
 def compute_umap(
@@ -104,12 +177,77 @@ def compute_raw_pca_umap(
     )
 
 
+def compute_inferred_pca_umaps(
+    adata: ad.AnnData,
+    config,
+    logger: logging.Logger,
+):
+    """Compute PCA+UMAP on scvi_normalized and scanvi_normalized layers.
+
+    Unlike the latent-space UMAPs, these preserve age gradients because the
+    normalized expression encodes biological variation that the latent space
+    removes when age is an explicit covariate.
+
+    Results stored in:
+        obsm['X_umap_scvi_inferred']    — from scvi_normalized PCA
+        obsm['X_umap_scanvi_inferred']  — from scanvi_normalized PCA
+    """
+    import scipy.sparse as sp
+
+    try:
+        from sklearn.decomposition import PCA as _PCA
+    except ImportError:
+        logger.warning("sklearn not available — skipping inferred PCA UMAPs")
+        return
+
+    tasks = [
+        (config.output_layer_scvi,   "X_pca_scvi_inferred",
+         "X_umap_scvi_inferred",   "neighbors_scvi_inferred"),
+        (config.output_layer_scanvi, "X_pca_scanvi_inferred",
+         "X_umap_scanvi_inferred", "neighbors_scanvi_inferred"),
+    ]
+
+    hvg_mask = adata.var.get("highly_variable", None)
+    if hvg_mask is not None and hvg_mask.any():
+        hvg_idx = np.where(hvg_mask.values)[0]
+        logger.info(f"Inferred PCA UMAPs: using {len(hvg_idx):,} HVGs")
+    else:
+        hvg_idx = np.arange(adata.n_vars)
+        logger.info("Inferred PCA UMAPs: no HVG mask, using all genes")
+
+    for layer_name, pca_key, umap_key, nbrs_key in tasks:
+        if layer_name not in adata.layers:
+            logger.info(f"  {layer_name} layer not found — skipping {umap_key}")
+            continue
+
+        with Timer(f"Inferred PCA+UMAP from {layer_name}", logger):
+            X = adata.layers[layer_name][:, hvg_idx]
+            if sp.issparse(X):
+                X = X.toarray()
+            X = np.asarray(X, dtype=np.float32)
+
+            n_pcs = min(50, X.shape[1] - 1)
+            logger.info(f"  PCA n_components={n_pcs} on {X.shape} …")
+            pcs = _PCA(n_components=n_pcs).fit_transform(X)
+            adata.obsm[pca_key] = pcs
+
+            compute_umap(
+                adata,
+                obsm_key=pca_key,
+                neighbors_key=nbrs_key,
+                umap_key=umap_key,
+                n_neighbors=config.umap_n_neighbors,
+                min_dist=config.umap_min_dist,
+                logger=logger,
+            )
+
+
 def compute_umaps(
     adata: ad.AnnData,
     config,
     logger: logging.Logger,
 ):
-    """Compute UMAPs: raw (uncorrected), scVI, and scANVI (if available)."""
+    """Compute UMAPs: raw (uncorrected), scVI/scANVI latent, scVI/scANVI inferred."""
     with Timer("Computing raw (uncorrected) PCA UMAP", logger):
         compute_raw_pca_umap(adata, config, logger)
 
@@ -137,6 +275,9 @@ def compute_umaps(
                 logger=logger,
             )
 
+    with Timer("Computing inferred PCA UMAPs (normalized expression)", logger):
+        compute_inferred_pca_umaps(adata, config, logger)
+
 
 # ── Plotting ───────────────────────────────────────────────────────────────────
 
@@ -151,6 +292,7 @@ def plot_umap_comparison(
     alpha: float = 0.5,
     log2_vars: Optional[List[str]] = None,
     log2_ticks: Optional[List[float]] = None,
+    palette: Optional[dict] = None,
     logger: Optional[logging.Logger] = None,
 ):
     """
@@ -185,8 +327,11 @@ def plot_umap_comparison(
     # Pre-compute colors / transformed values
     if is_categorical:
         cats = list(values.cat.categories) if hasattr(values, "cat") else sorted(values.unique())
-        palette = _set1_palette(len(cats))
-        color_map = dict(zip(cats, palette))
+        if palette is not None:
+            fallback = _set1_palette(len(cats))
+            color_map = {c: palette.get(c, fallback[i]) for i, c in enumerate(cats)}
+        else:
+            color_map = dict(zip(cats, _set1_palette(len(cats))))
         legend_handles = [
             plt.Line2D(
                 [0], [0], marker="o", color="w",
@@ -287,6 +432,216 @@ def plot_umap_comparison(
     plt.close(fig)
 
 
+def _plot_grid(
+    adata: ad.AnnData,
+    row_specs: list,
+    col_specs: list,
+    output_path: str,
+    config,
+    logger: Optional[logging.Logger] = None,
+    panel_size: float = 3.5,
+    point_size: Optional[float] = None,
+    alpha: float = 0.45,
+):
+    """Render a n_rows × n_cols UMAP grid with per-row legends.
+
+    row_specs : list of (obs_col, row_label) — one row per variable
+    col_specs : list of (obsm_key, col_label) — one column per embedding
+    """
+    import matplotlib.gridspec as gridspec
+    import matplotlib.cm as cm
+    from matplotlib.colors import Normalize
+
+    n_rows = len(row_specs)
+    n_cols = len(col_specs)
+    pt_size = point_size if point_size is not None else config.umap_point_size
+
+    LEGEND_W = 2.4   # inches for the per-row legend/colorbar column
+    fig_w = n_cols * panel_size + LEGEND_W
+    fig_h = n_rows * panel_size + 0.5   # 0.5" for column-header row
+
+    fig = plt.figure(figsize=(fig_w, fig_h))
+    # GridSpec: header row (thin) + n_rows data rows × (n_cols data cols + 1 legend col)
+    col_widths = [panel_size] * n_cols + [LEGEND_W]
+    row_heights = [0.4] + [panel_size] * n_rows   # first row for column headers
+
+    gs = gridspec.GridSpec(
+        n_rows + 1, n_cols + 1,
+        width_ratios=col_widths,
+        height_ratios=row_heights,
+        hspace=0.08,
+        wspace=0.06,
+        left=0.06, right=0.99,
+        top=0.97, bottom=0.03,
+    )
+
+    rng = np.random.RandomState(42)
+    order = rng.permutation(adata.n_obs)
+
+    # Column headers (row 0)
+    for col_i, (obsm_key, col_label) in enumerate(col_specs):
+        ax_hdr = fig.add_subplot(gs[0, col_i])
+        ax_hdr.axis("off")
+        ax_hdr.text(0.5, 0.5, col_label, ha="center", va="center",
+                    fontsize=11, fontweight="bold", transform=ax_hdr.transAxes)
+
+    log2_ticks = getattr(config, "umap_log2_ticks", [0, 1, 3, 9, 25, 40])
+
+    # Data rows
+    for row_i, (obs_col, row_label) in enumerate(row_specs):
+        gs_row = row_i + 1   # gs row 0 is the header
+
+        if obs_col not in adata.obs.columns:
+            if logger:
+                logger.warning(f"'{obs_col}' not in .obs — row skipped")
+            for col_i in range(n_cols):
+                ax = fig.add_subplot(gs[gs_row, col_i])
+                ax.axis("off")
+                ax.text(0.5, 0.5, f"{obs_col}\nnot found",
+                        ha="center", va="center", fontsize=9, color="#888888",
+                        transform=ax.transAxes)
+            continue
+
+        values = adata.obs[obs_col]
+        is_log = obs_col == "age_years"
+        is_categorical = (values.dtype.name == "category" or
+                          values.dtype == object or
+                          not is_log and values.dtype.kind not in "fiu")
+
+        # Build color mapping for this row
+        if is_categorical:
+            cats = (list(values.cat.categories)
+                    if hasattr(values, "cat") else sorted(values.unique()))
+            if obs_col == "cell_type_aligned":
+                pal = build_cell_type_aligned_palette(cats)
+                fallback = _set1_palette(len(cats))
+                color_map = {c: pal.get(c, fallback[i]) for i, c in enumerate(cats)}
+            else:
+                color_map = dict(zip(cats, _set1_palette(len(cats))))
+        else:
+            raw_vals = np.array(values, dtype=float)
+            plot_vals = np.log2(raw_vals + 1) if is_log else raw_vals
+            vmin, vmax = float(np.nanmin(plot_vals)), float(np.nanmax(plot_vals))
+            cmap_obj = cm.get_cmap("viridis")
+            norm = Normalize(vmin=vmin, vmax=vmax)
+
+        for col_i, (obsm_key, _) in enumerate(col_specs):
+            ax = fig.add_subplot(gs[gs_row, col_i])
+            _apply_ggplot_theme(ax)
+            ax.set_box_aspect(1)
+            ax.set_xticks([]); ax.set_yticks([])
+            ax.set_xlabel("UMAP1", fontsize=7, color="#777777")
+            ax.set_ylabel("UMAP2", fontsize=7, color="#777777")
+
+            # Row label on leftmost column
+            if col_i == 0:
+                ax.set_ylabel(row_label, fontsize=10, labelpad=6)
+
+            if obsm_key not in adata.obsm:
+                ax.text(0.5, 0.5, "not computed", ha="center", va="center",
+                        fontsize=9, color="#888888", transform=ax.transAxes)
+                continue
+
+            coords = adata.obsm[obsm_key][order]
+
+            if is_categorical:
+                point_colors = [color_map[v] for v in values.iloc[order]]
+                ax.scatter(coords[:, 0], coords[:, 1],
+                           c=point_colors, s=pt_size, alpha=alpha,
+                           rasterized=True, linewidths=0)
+            else:
+                ax.scatter(coords[:, 0], coords[:, 1],
+                           c=plot_vals[order], s=pt_size, alpha=alpha,
+                           cmap=cmap_obj, norm=norm,
+                           rasterized=True, linewidths=0)
+
+        # Legend / colorbar in last column
+        leg_ax = fig.add_subplot(gs[gs_row, -1])
+        leg_ax.axis("off")
+
+        if is_categorical:
+            handles = [
+                plt.Line2D([0], [0], marker="o", color="w",
+                           markerfacecolor=color_map[c], markersize=5, label=c)
+                for c in cats
+            ]
+            leg_ax.legend(
+                handles=handles, loc="center left",
+                bbox_to_anchor=(0.0, 0.5),
+                fontsize=6.5, frameon=False,
+                title=row_label, title_fontsize=8,
+                markerscale=1.4,
+                ncol=max(1, len(handles) // 20),
+            )
+        else:
+            # Inset colorbar
+            cax = leg_ax.inset_axes([0.05, 0.15, 0.25, 0.70])
+            sm = cm.ScalarMappable(cmap=cmap_obj, norm=norm)
+            sm.set_array([])
+            cbar = fig.colorbar(sm, cax=cax)
+            cbar.set_label(row_label, fontsize=8)
+            if is_log:
+                tick_vals = [t for t in log2_ticks if vmin <= np.log2(t + 1) <= vmax]
+                if tick_vals:
+                    cbar.set_ticks([np.log2(t + 1) for t in tick_vals])
+                    cbar.set_ticklabels([str(t) for t in tick_vals])
+            cbar.ax.tick_params(labelsize=7)
+
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(output_path, dpi=150, bbox_inches="tight")
+    if logger:
+        logger.info(f"Saved: {output_path}")
+    plt.close(fig)
+
+
+def plot_umap_grids(
+    adata: ad.AnnData,
+    config,
+    logger: logging.Logger,
+):
+    """Output umaps_latent.png and umaps_inferred.png in scvi_output/plots/.
+
+    Each is a 4-row × 3-column grid:
+      Rows    : batch (batch_key), age (log years), cell_class, cell_type_aligned
+      Latent cols  : Uncorrected PCA | scVI latent | scANVI latent
+      Inferred cols: Uncorrected PCA | scVI normalized | scANVI normalized
+    """
+    plots_dir = config._resolved_output_dir / "plots"
+
+    batch_col = getattr(config, "batch_key", "source")
+
+    row_specs = [
+        (batch_col,          f"Batch ({batch_col})"),
+        ("age_years",        "Age (log years)"),
+        ("cell_class",       "Cell class"),
+        ("cell_type_aligned","Cell type"),
+    ]
+
+    latent_cols = [
+        ("X_umap_raw",     "Uncorrected (PCA)"),
+        ("X_umap_scvi",    "scVI latent"),
+        ("X_umap_scanvi",  "scANVI latent"),
+    ]
+    inferred_cols = [
+        ("X_umap_raw",              "Uncorrected (PCA)"),
+        ("X_umap_scvi_inferred",    "scVI normalized"),
+        ("X_umap_scanvi_inferred",  "scANVI normalized"),
+    ]
+
+    _plot_grid(
+        adata, row_specs, latent_cols,
+        output_path=str(plots_dir / "umaps_latent.png"),
+        config=config, logger=logger,
+        point_size=config.umap_point_size,
+    )
+    _plot_grid(
+        adata, row_specs, inferred_cols,
+        output_path=str(plots_dir / "umaps_inferred.png"),
+        config=config, logger=logger,
+        point_size=config.umap_point_size,
+    )
+
+
 def plot_batch_comparison(
     adata: ad.AnnData,
     color_vars: List[str],
@@ -326,6 +681,11 @@ def plot_batch_comparison(
             logger.warning(f"'{var}' not in .obs, skipping")
             continue
 
+        var_palette = None
+        if var == "cell_type_aligned":
+            cats = list(adata.obs[var].unique())
+            var_palette = build_cell_type_aligned_palette(cats)
+
         plot_umap_comparison(
             adata,
             color_by=var,
@@ -336,5 +696,6 @@ def plot_batch_comparison(
             point_size=config.umap_point_size,
             log2_vars=log2_vars,
             log2_ticks=log2_ticks,
+            palette=var_palette,
             logger=logger,
         )

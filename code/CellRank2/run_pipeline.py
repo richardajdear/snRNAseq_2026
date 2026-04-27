@@ -5,23 +5,20 @@ Environment setup (first time only):
     mamba env create -f code/CellRank2/environment.yaml
 
 Usage (from project root):
-    # Activate the mamba environment (provides petsc4py/slepc4py for sparse krylov solver):
-    conda activate cellrank2
+    # With YAML config (KMP workaround needed on macOS with MKL):
+    KMP_DUPLICATE_LIB_OK=TRUE PYTHONPATH=code python -m CellRank2.run_pipeline --config code/CellRank2/config.yaml
 
-    # Single process:
-    KMP_DUPLICATE_LIB_OK=TRUE PYTHONPATH=code python -m CellRank2.run_pipeline --config code/CellRank2/default_config.yaml
-
-    # Parallel (recommended for large datasets — uses SLEPc Schur decomposition across N cpus):
-    KMP_DUPLICATE_LIB_OK=TRUE PYTHONPATH=code mpirun -n 4 python -m CellRank2.run_pipeline --config code/CellRank2/default_config.yaml
+    # Parallel (SLEPc sparse solver across N cpus):
+    KMP_DUPLICATE_LIB_OK=TRUE PYTHONPATH=code mpirun -n 4 python -m CellRank2.run_pipeline --config code/CellRank2/config.yaml
 
     # With CLI overrides:
     PYTHONPATH=code python -m CellRank2.run_pipeline \\
-        --config code/CellRank2/default_config.yaml \\
+        --config code/CellRank2/config.yaml \\
         --n_macrostates 10
 
     # Run specific steps only (e.g. re-plot without re-computing):
     PYTHONPATH=code python -m CellRank2.run_pipeline \\
-        --config code/CellRank2/default_config.yaml \\
+        --config code/CellRank2/config.yaml \\
         --steps save
 
 Pipeline steps:
@@ -42,6 +39,7 @@ import numpy as np
 from .config import CellRankConfig
 from .estimator import (
     build_gpcca,
+    compute_absorption_pseudotime,
     compute_fate_probabilities,
     compute_lineage_drivers,
     compute_macrostates,
@@ -49,10 +47,10 @@ from .estimator import (
     set_terminal_states_from_cell_types,
     subset_to_lineage,
 )
-from .kernels import bin_ages, build_kernels, ensure_neighbors, run_moscot_ot
+from .kernels import bin_ages, build_kernels, compute_lineage_umap, compute_scnorm_pca, ensure_neighbors, run_moscot_ot
 from .plots import (
     plot_coarse_transition_matrix,
-    plot_excitatory_l23_fate_umap,
+    plot_combined_umap_panel,
     plot_fate_probabilities,
     plot_macrostates,
     plot_obs_vars,
@@ -105,11 +103,44 @@ def run(config: CellRankConfig) -> ad.AnnData:
     logger.info(f"  {adata.n_obs} cells × {adata.n_vars} genes")
     log_memory("After loading", logger)
 
+    # ── CELL TYPE PRE-FILTER ───────────────────────────────────────────────────
+    if config.cell_type_filter_pattern:
+        if config.cell_type_key not in adata.obs.columns:
+            raise KeyError(
+                f"cell_type_key '{config.cell_type_key}' not found in adata.obs. "
+                "Cannot apply cell_type_filter_pattern."
+            )
+        mask = adata.obs[config.cell_type_key].astype(str).str.contains(
+            config.cell_type_filter_pattern, case=False, na=False, regex=True
+        )
+        n_before = adata.n_obs
+        adata = adata[mask].copy()
+        logger.info(
+            f"Cell-type filter '{config.cell_type_filter_pattern}': "
+            f"{n_before} → {adata.n_obs} cells retained "
+            f"({100 * adata.n_obs / n_before:.1f}%)"
+        )
+        if adata.n_obs == 0:
+            raise ValueError(
+                f"Cell-type filter '{config.cell_type_filter_pattern}' removed all cells."
+            )
+        log_memory("After cell-type filter", logger)
+
     # ── FILTER TO CELLS WITH VALID AGE BINS ───────────────────────────────────
     # Bin ages now (before neighbors) so the kNN graph is computed only on
     # temporally-valid cells.  Cells without a valid bin (NaN age or age outside
     # the configured edges) cannot participate in the RealTimeKernel and their
     # inclusion causes _restich_couplings to fail.
+    # ── AGE-AWARE PCA ─────────────────────────────────────────────────────────
+    # X_scANVI removes age as an explicit model covariate. PCA on scanvi_normalized
+    # retains developmental-stage variation so that kNN, OT, and UMAP all respect
+    # the age gradient. This writes config.latent_key = X_pca_scnorm.
+    if getattr(config, "norm_layer_key", None):
+        logger.info("─" * 40)
+        logger.info("STEP: age-aware PCA on scanvi_normalized")
+        compute_scnorm_pca(adata, config, logger)
+        log_memory("After age-aware PCA", logger)
+
     bin_ages(adata, config, logger)
     valid_mask = adata.obs[config.age_bin_key].notna()
     cells_removed = False
@@ -145,6 +176,20 @@ def run(config: CellRankConfig) -> ad.AnnData:
         ensure_neighbors(adata, config, logger)
         log_memory("After neighbors", logger)
 
+    # ── LINEAGE UMAP ───────────────────────────────────────────────────────────
+    # Recompute UMAP from X_scANVI on the filtered EN-only subset so all
+    # downstream plots focus dimensionality-reduction budget on within-EN
+    # developmental variance rather than cross-cell-type separation.
+    if config.recompute_umap:
+        logger.info("─" * 40)
+        logger.info("STEP: lineage UMAP (EN-only subset)")
+        compute_lineage_umap(adata, config, logger)
+        if config.lineage_umap_key in adata.obsm:
+            # Switch all plot functions to use the new EN-only UMAP
+            config.umap_key = config.lineage_umap_key
+            logger.info(f"  umap_key updated to '{config.umap_key}' for all plots.")
+        log_memory("After lineage UMAP", logger)
+
     # ── OT ─────────────────────────────────────────────────────────────────────
     moscot_problem = None
     if "ot" in steps:
@@ -159,7 +204,7 @@ def run(config: CellRankConfig) -> ad.AnnData:
     if "kernels" in steps:
         logger.info("─" * 40)
         logger.info("STEP: kernels")
-        combined_kernel, ck, rtk = build_kernels(
+        combined_kernel, ck, rtk, ctk = build_kernels(
             adata, config, logger, moscot_problem=moscot_problem
         )
         log_memory("After kernels", logger)
@@ -208,6 +253,7 @@ def run(config: CellRankConfig) -> ad.AnnData:
         logger.info("─" * 40)
         logger.info("STEP: fate_probs")
         compute_fate_probabilities(g, config, logger)
+        compute_absorption_pseudotime(g, config, logger)
 
         if config.compute_drivers:
             logger.info("Computing lineage drivers (this may take a while)...")
@@ -215,11 +261,7 @@ def run(config: CellRankConfig) -> ad.AnnData:
 
         if config.save_plots:
             plot_fate_probabilities(adata, g, config, logger)
-            plot_excitatory_l23_fate_umap(
-                adata, g, config, logger,
-                excitatory_pattern=config.excitatory_cell_type_pattern,
-                l23_pattern=config.l23_lineage_pattern,
-            )
+            plot_combined_umap_panel(adata, config, logger)
 
         # Lineage subsetting
         if config.lineage_targets:

@@ -1,0 +1,91 @@
+# snRNAseq Pipeline Config — HPC, chemistry-level batch correction, postnatal only + covariates
+#
+# Based on chemistry_hpc_config.yaml with:
+#   - postnatal_only: true               — restricts to age_years >= 0
+#   - continuous_covariate_keys: [age_years]
+#   - categorical_covariate_keys: [sex]
+
+output_dir: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/VelWangPsychAD_100k_postnatal_chemistry
+
+sources:
+  - name: WANG
+    path: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/wang/wang.h5ad
+    dataset_type: Wang
+    cell_type_field: "Type_updated"
+    pfc_only: true
+    n_cells: 100000
+
+  - name: VELMESHEV
+    path: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/velmeshev/velmeshev.h5ad
+    dataset_type: Velmeshev
+    cell_type_field: "Cell_Type"
+    pfc_only: true
+    n_cells: 100000
+
+  - name: PSYCHAD
+    paths:
+      aging: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_PsychAD/RNAseq/Aging_Cohort.h5ad
+      hbcc:  /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_PsychAD/RNAseq/HBCC_Cohort.h5ad
+    dataset_type: PsychAD
+    cell_type_field: "subclass"
+    pfc_only: true
+    n_cells: 100000
+
+age_downsample: true
+postnatal_only: true
+seed: 42
+
+scvi:
+  n_top_genes: 10000
+  hvg_flavor: pearson_residuals
+  hvg_batch_key: chemistry
+  batch_key: chemistry
+  n_latent: 30
+  max_epochs_scvi: 400
+  batch_size: 256
+  early_stopping: true
+  early_stopping_patience: 20
+  num_workers: 4
+  transform_batch: multiome
+  continuous_covariate_keys: [age_years]
+  categorical_covariate_keys: [sex]
+
+scanvi_label_transfer:
+  enabled: true
+  label_column: cell_type_for_scanvi
+  max_epochs_scanvi: 100
+  confidence_threshold: 0.5
+
+pseudobulk:
+  layers:
+    - name: counts
+      aggregation: sum
+    - name: scvi_normalized
+      aggregation: mean
+    - name: scanvi_normalized
+      aggregation: mean
+  min_cells: 10
+  groups:
+    - name: all_cells_by_donor
+      group_cols: [individual]
+
+    - name: by_cell_class
+      group_cols: [individual, cell_class]
+
+    - name: excitatory_by_celltype
+      group_cols: [individual, cell_type_aligned]
+      filter:
+        cell_class: Excitatory
+
+    - name: inhibitory_by_celltype
+      group_cols: [individual, cell_type_aligned]
+      filter:
+        cell_class: Inhibitory
+
+steps:
+  - downsample
+  - combine
+  - scvi
+  - diagnostics
+  - pseudobulk
+overwrite: true

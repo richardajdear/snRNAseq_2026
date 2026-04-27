@@ -1,12 +1,12 @@
 #!/bin/bash
 #SBATCH --output=/home/rajd2/rds/hpc-work/snRNAseq_2026/logs/step2_scvi_%j.out
 #SBATCH --error=/home/rajd2/rds/hpc-work/snRNAseq_2026/logs/step2_scvi_%j.err
-#SBATCH --time=06:00:00
+#SBATCH --time=03:00:00
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --partition=ampere
 #SBATCH --gres=gpu:1
-#SBATCH --mem=128G
+#SBATCH --mem=100G
 #SBATCH --account=vertes-sl2-gpu
 
 set -euo pipefail
@@ -14,7 +14,7 @@ set -euo pipefail
 WORK_DIR="${WORK_DIR:-/home/rajd2/rds/hpc-work/snRNAseq_2026}"
 SIF="${SIF:-/home/rajd2/rds/hpc-work/shortcake_scvi.sif}"
 DATA_DIR="/home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc"
-CONFIG="${CONFIG:-code/pipeline/hpc_config.yaml}"
+CONFIG="${CONFIG:-code/pipeline/configs/source_hpc_config.yaml}"
 
 mkdir -p "${WORK_DIR}/logs"
 
@@ -39,7 +39,7 @@ singularity exec --nv \
     micromamba run -n scvi-scgen-scmomat-unitvelo \
     env PYTHONPATH="code" python3 -m pipeline.run_pipeline \
         --config "${CONFIG}" \
-        --steps scvi
+        --steps scvi diagnostics
 SING_EXIT=$?
 echo "Singularity exec finished (exit code: ${SING_EXIT})"
 
@@ -59,14 +59,19 @@ echo "Output verified: ${INTEGRATED_H5AD}"
 
 _ELAPSED=$(( $(date +%s) - _JOB_START ))
 _TIME_LIMIT=$(squeue -j "${SLURM_JOB_ID}" -h -o "%l" 2>/dev/null || echo "N/A")
-_MAX_RSS="N/A"
-if _tmp=$(sstat --jobs="${SLURM_JOB_ID}.batch" --format=MaxRSS --noheader 2>/dev/null); then
-    _MAX_RSS=$(echo "$_tmp" | awk 'NR==1{print $1}')
-fi
 _ALLOC_MEM_GB=$(( ${SLURM_MEM_PER_NODE:-0} / 1024 ))
+_rss_gb="N/A"; _rss_pct="N/A"
+if _tmp=$(sstat --jobs="${SLURM_JOB_ID}.batch" --format=MaxRSS --noheader 2>/dev/null); then
+    _rss_kb=$(echo "$_tmp" | awk 'NR==1{gsub(/[^0-9]/,"",$1); print $1+0}')
+    if [[ -n "$_rss_kb" && "$_rss_kb" -gt 0 ]]; then
+        _rss_gb=$(awk  "BEGIN{printf \"%.2f\", ${_rss_kb}/1048576}")
+        [[ ${_ALLOC_MEM_GB} -gt 0 ]] && \
+            _rss_pct=$(awk "BEGIN{printf \"%.0f\", (${_rss_kb}/1048576)/${_ALLOC_MEM_GB}*100}")
+    fi
+fi
 echo "========================================"
 echo "Resource usage:"
 echo "  Time:   $(( _ELAPSED/3600 ))h $(( (_ELAPSED%3600)/60 ))m $(( _ELAPSED%60 ))s  /  ${_TIME_LIMIT} allocated"
-echo "  Memory: ${_MAX_RSS} peak RSS  /  ${_ALLOC_MEM_GB}G allocated"
+echo "  Memory: ${_rss_gb}G peak RSS  /  ${_ALLOC_MEM_GB}G allocated (${_rss_pct}%)"
 echo "========================================"
 echo "Step 2 complete: $(date)"

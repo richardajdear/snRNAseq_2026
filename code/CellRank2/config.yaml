@@ -1,0 +1,91 @@
+# CellRank 2 Pipeline — main config
+#
+# Dataset: VelWangPsychAD_100k (all ages, source-chemistry normalisation)
+#   Prenatal + postnatal cells required for meaningful L2-3 lineage tracing:
+#   progenitors in prenatal data → committed L2-3 neurons in postnatal data.
+#   Harmony batch correction (source-chemistry) applied on top of PCA of
+#   scanvi_normalized to handle encoder-level residual batch effects.
+#
+# Submit:
+#   cd /home/rajd2/rds/hpc-work/snRNAseq_2026
+#   sbatch code/CellRank2/slurm/run_full.sh
+
+# ── Paths ─────────────────────────────────────────────────────────────────────
+input_h5ad: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/VelWangPsychAD_100k_prepost_tuning3/scvi_output/integrated.h5ad
+output_dir: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/VelWangPsychAD_100k_prepost_tuning3/cellrank_output_v9
+
+# ── Cell type pre-filter ──────────────────────────────────────────────────────
+cell_type_filter_pattern: "EN-"
+
+# ── Data keys ─────────────────────────────────────────────────────────────────
+latent_key: X_pca_scnorm
+norm_layer_key: scanvi_normalized
+n_pca_comps: 50
+time_key: age_years
+cell_type_key: cell_type_aligned
+batch_key: source
+# harmony_batch_key: use source-chemistry (library prep + sequencing batch)
+# which more precisely captures technical variation than source alone.
+harmony_batch_key: source-chemistry
+
+# ── Neighbour graph ───────────────────────────────────────────────────────────
+n_neighbors: 30
+neighbors_key: neighbors_scnorm
+
+# ── Age binning ───────────────────────────────────────────────────────────────
+# 8 bins spanning prenatal (~GW14) through older adult.
+age_bin_edges: [-0.50, -0.30, 0.00, 0.50, 2.00, 8.00, 20.00, 50.00, 90.00]
+age_bin_key: age_bin
+
+# ── Optimal transport ─────────────────────────────────────────────────────────
+ot_epsilon: 0.05
+ot_max_iterations: 2000
+ot_device: auto
+
+# ── Kernel combination ────────────────────────────────────────────────────────
+rtk_weight: 0.4
+cytotrace_weight: 0.4
+cytotrace_layer: counts
+
+# ── GPCCA ─────────────────────────────────────────────────────────────────────
+use_cell_type_states: false
+n_terminal_cells: 1000    # cells sampled per mature type when use_cell_type_states=true
+immature_cell_type_patterns: [Immature, IPC, RG]
+n_macrostates: 14
+use_minchi: false
+cluster_key: cell_type_aligned
+immature_state_pattern: "Immature|Newborn"
+terminal_states: []
+initial_states: []
+
+# ── Fate probabilities ────────────────────────────────────────────────────────
+compute_drivers: false
+lineage_targets: []
+fate_prob_threshold: 0.1
+
+# ── Pseudotime ────────────────────────────────────────────────────────────────
+pseudotime_key: pseudotime_l23
+l23_lineage_pattern: "L2_3"
+absorption_pseudotime_key: pseudotime_absorption
+dpt_root_cell_type: "Immature|Newborn"
+
+# ── Plots ─────────────────────────────────────────────────────────────────────
+save_plots: true
+plot_color_vars: []
+umap_key: X_umap_scanvi
+recompute_umap: true
+lineage_umap_key: X_umap_lineage
+point_size: 1.0
+excitatory_cell_type_pattern: "EN-"
+
+# ── Pipeline control ──────────────────────────────────────────────────────────
+steps:
+  - neighbors
+  - ot
+  - kernels
+  - gpcca
+  - fate_probs
+  - save
+
+random_seed: 42
+overwrite: true

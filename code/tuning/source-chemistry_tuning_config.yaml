@@ -1,0 +1,124 @@
+# scVI hyperparameter tuning config — source-chemistry batch correction.
+# Run with: PYTHONPATH=code python -m tuning.tune_scvi_batch --config code/tuning/source-chemistry_tuning_config.yaml
+#
+# If combined.h5ad has been deleted by the pipeline, the script automatically
+# rebuilds it from scvi_output/integrated.h5ad using backed reads (layers['counts']).
+#
+# --- Run history ---
+# Run 1 (scvi_tuning_round2): 25 trials, search space included n_hidden=[32, 64, 128],
+#   n_latent=[20..60], batch_size=[256, 512].  Results were invalid: all top-10
+#   trials used n_hidden=32.  Diagnosis: n_hidden=32 < n_latent=60 is a degenerate
+#   architecture — the encoder bottleneck is narrower than the latent space, so the
+#   model cannot learn structured geometry.  The resulting diffuse latent cloud
+#   maximises neighbourhood batch-mixing entropy by accident, gaming the objective.
+#   The downstream UMAP showed large structureless blobs confirming the collapse.
+# Run 2 (scvi_tuning_round3): n_hidden constrained to [128, 256] so n_hidden >= 2×n_latent
+#   for all combinations.  batch_size=256 dropped (no meaningful effect at this scale with
+#   early stopping).  silhouette_weight raised from 0.2 → 0.35 for a stronger
+#   biological-preservation signal.  Metric still evaluated in the latent space.
+# Run 3 (scvi_tuning_round4, this config): objective redesigned — latent space dropped as
+#   the evaluation space.  New metric: 50:50 cross-trial normalized combination of (1) age-
+#   binned batch mixing on PCA of batch-corrected normalized expression (get_normalized_
+#   expression with transform_batch=WANG-multiome) and (2) decoder reconstruction accuracy
+#   (get_reconstruction_error without transform_batch).  The expression-space mixing directly
+#   measures integration quality in the production output layer (scanvi_normalized).  The
+#   decoder term prevents architectures that game batch mixing by latent-space collapse.
+#   Cell-type silhouette dropped — the decoder term now serves the anti-collapse role.
+
+input_h5ad: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/VelWangPsychAD_100k_source-chemistry/combined.h5ad
+output_dir: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/VelWangPsychAD_100k_source-chemistry/scvi_tuning_round4
+
+batch_key: source-chemistry
+age_key: age_years
+cell_type_key: cell_class
+counts_layer: counts
+
+# Match production covariates exactly.
+continuous_covariate_keys: [age_log_pc]
+categorical_covariate_keys: [sex]
+
+hvg:
+  n_top_genes: 15000
+  hvg_flavor: pearson_residuals
+  # hvg_batch_key is ignored for pearson_residuals (not supported by scanpy).
+
+tuning:
+  random_seed: 42
+  n_trials: 22           # 32 valid combinations; 22 trials ≈ 68% coverage
+  max_hours: 11.0        # 1h buffer inside the 12h SLURM wall
+  max_cells: 120000      # stratified subsample; ~40% of full 300k dataset
+  num_workers: 4
+  scanvi_top_k: 3        # evaluate top-3 scVI trials with scANVI post-loop
+
+training:
+  # Use the production epoch horizon so tuned architecture is valid at full scale.
+  # NOTE: max_epochs_scvi from this file is NOT copied into best_hyperparameters.yaml
+  # to avoid accidentally overriding the production value when the user applies results.
+  max_epochs_scvi: 400
+  early_stopping: true
+  early_stopping_patience: 20
+  train_size: 0.9
+  max_epochs_scanvi: 50   # short scANVI fine-tune for top-trial comparison
+
+# Search space: model architecture + gene likelihood only.
+# lr / weight_decay / dropout_rate use scVI defaults — they are secondary to
+# architecture for batch integration quality and do not plumb back to production.
+#
+# n_hidden constrained to [128, 256]: enforces n_hidden >= 2×n_latent across all
+# combinations, preventing the degenerate encoder bottleneck seen in run 1.
+# n_hidden=32 and n_hidden=64 excluded entirely.
+# batch_size fixed at 512: no meaningful quality effect at this scale with early
+# stopping; dropping 256 frees trial budget for architecture exploration.
+#
+# Space size: 4 × 2 × 2 × 2 × 1 = 32 combinations
+search_space:
+  n_latent: [30, 40, 50, 60]
+  n_hidden: [128, 256]
+  n_layers: [4, 5]
+  gene_likelihood: ["nb", "zinb"]
+  batch_size: [512]
+
+# Objective = 50:50 cross-trial normalized combination of:
+#   1. Age-binned batch mixing of cells when PCA is applied to the batch-corrected
+#      normalized expression (get_normalized_expression with transform_batch set to
+#      WANG-multiome).  This directly measures integration quality in the expression
+#      space used in production (scanvi_normalized), rather than in the latent space.
+#   2. Decoder reconstruction accuracy (get_reconstruction_error without transform_batch).
+#      Including this term prevents architectures that improve batch mixing by latent
+#      space collapse at the expense of accurate generative modelling.
+#
+# Both components are min-max normalized across all successful trials so they contribute
+# equally regardless of absolute scale.  The raw values are also recorded in
+# trial_results.csv so trade-offs can be inspected post-hoc.
+#
+# transform_batch: the reference batch to use for get_normalized_expression.
+#   All cells are decoded as if they came from this batch, giving a common expression
+#   reference for the PCA-based batch mixing evaluation.
+#   WANG-multiome is used because it spans the broadest developmental age range
+#   (prenatal GW14–40 + postnatal), making it the most representative reference.
+#
+# n_pca_components: number of PCA components to retain from the normalized expression
+#   before computing the k-NN batch mixing entropy.  50 captures the dominant
+#   expression variation while discarding low-variance noise.
+#
+# n_normalized_samples: MC samples for get_normalized_expression during tuning.
+#   1 is sufficient for ranking purposes (avoids 10× overhead vs production).
+#
+# max_cells_expr: cells used for the expression PCA step per trial.
+#   The expression matrix (max_cells_expr × n_HVGs × float32) must fit in RAM.
+#   For 30,000 cells × 15,000 genes: ~1.8 GB; safe for most HPC nodes.
+#   Stratified subsampling ensures all batches and age bins are represented.
+#
+# Prenatal bins are upweighted (prenatal_weight: 2.0) because this is currently the
+# least integrated developmental window.  Entropy is normalised by log(n_batches_global)
+# so prenatal bins with fewer batches present are NOT artificially inflated.
+metric:
+  transform_batch: "WANG-multiome"
+  n_pca_components: 50
+  n_normalized_samples: 1
+  max_cells_expr: 30000
+  age_bin_edges: [-1.0, -0.5, -0.38, -0.27, -0.15, -0.05, 0.0, 1.0, 5.0, 12.0, 20.0, 40.0, 90.0]
+  prenatal_weight: 2.0
+  k_neighbors: 20
+  min_cells_per_bin: 100      # lowered from 200 to capture finer prenatal bins
+  min_cells_per_group: 75

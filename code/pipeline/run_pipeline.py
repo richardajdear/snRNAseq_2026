@@ -87,7 +87,7 @@ def _setup_logger(log_path: str) -> logging.Logger:
     logger.setLevel(logging.INFO)
     fmt = logging.Formatter('%(asctime)s  %(levelname)s  %(message)s',
                             datefmt='%Y-%m-%d %H:%M:%S')
-    fh = logging.FileHandler(log_path, mode='w')
+    fh = logging.FileHandler(log_path, mode='a')
     fh.setFormatter(fmt)
     sh = logging.StreamHandler(sys.stdout)
     sh.setFormatter(fmt)
@@ -146,6 +146,12 @@ def step_downsample(cfg: dict, output_dir: Path, overwrite: bool,
             cmd += ['--n_cells', str(src['n_cells'])]
         if cfg.get('age_downsample', False):
             cmd += ['--age_downsample']
+        if cfg.get('postnatal_only', False):
+            cmd += ['--postnatal_only']
+        if cfg.get('min_age') is not None:
+            cmd += ['--min_age', str(cfg['min_age'])]
+        if cfg.get('cell_class_filter'):
+            cmd += ['--cell_class_filter'] + [str(c) for c in cfg['cell_class_filter']]
         if cfg.get('seed'):
             cmd += ['--seed', str(cfg['seed'])]
 
@@ -172,6 +178,15 @@ def step_combine(cfg: dict, output_dir: Path, input_paths: list,
     ] + [str(p) for p in input_paths]
 
     _run(cmd, logger)
+
+    # Remove per-dataset intermediates once combined.h5ad is on disk
+    if not cfg.get('keep_intermediates', False):
+        import shutil
+        per_dataset_dir = output_dir / 'per_dataset'
+        if per_dataset_dir.exists():
+            shutil.rmtree(per_dataset_dir)
+            logger.info(f"  Removed intermediate per_dataset/ ({per_dataset_dir})")
+
     return combined_path
 
 
@@ -208,11 +223,12 @@ def step_scvi(cfg: dict, output_dir: Path, combined_path: Path,
         scvi_cfg['predict_cell_types'] = True
         if 'max_epochs_scanvi' in slt:
             scvi_cfg['max_epochs_scanvi'] = slt['max_epochs_scanvi']
-        # scANVI is the primary inference output: it conditions expression on both
-        # batch AND cell type, giving better cell-type-aware batch correction.
-        # scVI inference is redundant when scANVI is available.
+        # Run both scVI and scANVI inference so that:
+        #   scvi_normalized  → inferred UMAP column showing age gradient without
+        #                       cell-type conditioning (useful diagnostic)
+        #   scanvi_normalized → primary batch-corrected layer for downstream analysis
         scvi_cfg['run_scanvi_inference'] = True
-        scvi_cfg['run_scvi_inference'] = False
+        scvi_cfg['run_scvi_inference'] = True
         # Default transform_batch to WANG (reference dataset) so all cells are
         # normalized as if WANG cells of their type — ideal for cross-dataset GRN scoring.
         scvi_cfg.setdefault('transform_batch', 'WANG')
@@ -248,6 +264,11 @@ def step_scvi(cfg: dict, output_dir: Path, combined_path: Path,
         )
         sys.exit(1)
 
+    # Remove combined.h5ad — integrated.h5ad contains everything needed downstream
+    if not cfg.get('keep_intermediates', False) and combined_path.exists():
+        combined_path.unlink()
+        logger.info(f"  Removed intermediate combined.h5ad ({combined_path})")
+
     return integrated_path
 
 
@@ -262,12 +283,23 @@ def step_scanvi(cfg: dict, output_dir: Path, combined_path: Path,
     integrated_path = scvi_output_dir / 'integrated.h5ad'
     scvi_model_dir = scvi_output_dir / 'scvi_model'
 
-    if not combined_path.exists():
+    # combined.h5ad is deleted after step_scvi to save space; fall back to
+    # integrated.h5ad which contains the same cells + all required metadata.
+    if combined_path.exists():
+        input_h5ad = combined_path
+    elif integrated_path.exists():
+        logger.info(
+            f"  combined.h5ad not found; using integrated.h5ad as input "
+            f"({integrated_path})"
+        )
+        input_h5ad = integrated_path
+    else:
         logger.error(
-            f"Combined input missing: {combined_path}. "
-            f"Run --steps combine (or downsample+combine) first."
+            f"Neither combined.h5ad nor integrated.h5ad found in {scvi_output_dir}. "
+            f"Run --steps combine (or downsample+combine) and --steps scvi first."
         )
         sys.exit(1)
+
     if not scvi_model_dir.exists():
         logger.error(
             f"scVI model missing: {scvi_model_dir}. "
@@ -281,7 +313,7 @@ def step_scanvi(cfg: dict, output_dir: Path, combined_path: Path,
         return integrated_path
 
     scvi_cfg = {
-        'input_h5ad': str(combined_path),
+        'input_h5ad': str(input_h5ad),
         'output_dir': str(scvi_output_dir),
         'batch_key': 'source',
         'cell_type_key': 'cell_class',
@@ -292,7 +324,7 @@ def step_scanvi(cfg: dict, output_dir: Path, combined_path: Path,
     scvi_cfg['steps'] = ['prep', 'train_scanvi', 'infer', 'umap', 'plot', 'save']
     scvi_cfg['run_scanvi'] = True
     scvi_cfg['run_scanvi_inference'] = True
-    scvi_cfg['run_scvi_inference'] = False
+    scvi_cfg['run_scvi_inference'] = True   # keep scvi_normalized for inferred UMAPs
     scvi_cfg['predict_cell_types'] = True
 
     slt = cfg.get('scanvi_label_transfer', {})
@@ -353,6 +385,67 @@ def step_pseudobulk(cfg: dict, output_dir: Path, overwrite: bool,
     _run(cmd, logger)
 
 
+def step_notebook(cfg: dict, config_path: str, output_dir: Path,
+                  logger: logging.Logger) -> None:
+    """Render the analysis notebook using render_notebook.sh."""
+    logger.info("=" * 60)
+    logger.info("STEP: NOTEBOOK")
+    logger.info("=" * 60)
+
+    nb_cfg = cfg.get('notebook', {})
+    if not nb_cfg:
+        logger.error("No 'notebook' section found in config. Skipping.")
+        return
+
+    template = nb_cfg.get('template')
+    if not template:
+        logger.error("notebook.template is required. Skipping.")
+        return
+
+    repo_root = Path(__file__).resolve().parents[3]  # snRNAseq_2026/
+    render_script = repo_root / 'notebooks' / 'render_notebook.sh'
+    if not render_script.exists():
+        logger.error(f"render_notebook.sh not found: {render_script}")
+        sys.exit(1)
+
+    # Template path: resolve relative to repo root
+    template_path = Path(template) if Path(template).is_absolute() else repo_root / template
+    if not template_path.exists():
+        logger.error(f"Notebook template not found: {template_path}")
+        sys.exit(1)
+
+    # Output dir and filename derived from config name
+    config_stem = Path(config_path).stem
+    results_dir = repo_root / 'notebooks' / 'results' / config_stem
+    results_dir.mkdir(parents=True, exist_ok=True)
+    output_file = f"{config_stem}.html"
+
+    # Derive pseudobulk file from this pipeline run's output
+    pseudobulk_group = nb_cfg.get('pseudobulk_group')
+    if not pseudobulk_group:
+        groups = cfg.get('pseudobulk', {}).get('groups', [])
+        pseudobulk_group = groups[0]['name'] if groups else 'by_cell_class'
+    pseudobulk_file = output_dir / 'pseudobulk_output' / f'{pseudobulk_group}.h5ad'
+
+    # Auto-generate params file with experiment identity and data path
+    params_path = results_dir / f'{config_stem}_params.yaml'
+    params = {
+        'EXPERIMENT_NAME': config_stem,
+        'PSEUDOBULK_FILE': str(pseudobulk_file),
+    }
+    with open(params_path, 'w') as fh:
+        yaml.dump(params, fh, default_flow_style=False)
+    logger.info(f"  Params file: {params_path} (auto-generated)")
+    logger.info(f"  Pseudobulk:  {pseudobulk_file}")
+
+    logger.info(f"  Template:    {template_path}")
+    logger.info(f"  Output:      {results_dir / output_file}")
+
+    cmd = ['bash', str(render_script), str(template_path), str(params_path),
+           str(results_dir), '', output_file]
+    _run(cmd, logger)
+
+
 def step_diagnostics(cfg: dict, output_dir: Path, logger: logging.Logger) -> None:
     """Re-run scANVI diagnostics on an existing integrated.h5ad (no model re-run needed)."""
     logger.info("=" * 60)
@@ -389,7 +482,7 @@ def main():
                         help='Path to pipeline_config.yaml')
     parser.add_argument('--steps', nargs='+',
                         choices=['downsample', 'combine', 'scvi', 'scanvi', 'label_transfer',
-                                 'diagnostics', 'pseudobulk', 'all'],
+                                 'diagnostics', 'pseudobulk', 'notebook', 'all'],
                         default=['all'],
                         help='Which steps to run (default: all)')
     parser.add_argument('--overwrite', action='store_true',
@@ -458,6 +551,9 @@ def main():
 
     if 'pseudobulk' in steps:
         step_pseudobulk(cfg, output_dir, overwrite, logger)
+
+    if 'notebook' in steps:
+        step_notebook(cfg, args.config, output_dir, logger)
 
     logger.info("Pipeline complete.")
 

@@ -13,11 +13,23 @@ class CellRankConfig:
     input_h5ad: str = ""
     output_dir: str = "cellrank_output/"
 
+    # -- Cell type pre-filtering --
+    # Applied before all CellRank steps. Subset to matching cell types
+    # (case-insensitive regex on cell_type_key). Leave empty to use all cells.
+    cell_type_filter_pattern: str = ""
+
     # -- Data keys --
-    latent_key: str = "X_scANVI"       # obsm key for the corrected latent space
+    latent_key: str = "X_scANVI"       # obsm key used for kNN, OT, and UMAP
+    # Age-aware PCA: PCA computed on norm_layer_key preserves developmental-stage
+    # variation that X_scANVI removes (age is an explicit scANVI covariate).
+    # When norm_layer_key is set, the pipeline computes PCA and writes the result
+    # to latent_key so all downstream steps use the age-aware representation.
+    norm_layer_key: str = "scanvi_normalized"  # adata layer to PCA over
+    n_pca_comps: int = 50              # number of PCs to compute
     time_key: str = "age_years"         # obs key for donor chronological age
     cell_type_key: str = "cell_type_aligned"  # obs key for aligned cell type labels
     batch_key: str = "source"
+    harmony_batch_key: str = ""   # if set, use this for Harmony (e.g. "source-chemistry"); falls back to batch_key
 
     # -- Neighbour graph (used by ConnectivityKernel + for latent-space kNN) --
     n_neighbors: int = 30
@@ -32,10 +44,17 @@ class CellRankConfig:
     age_bin_key: str = "age_bin"        # new obs column written by the pipeline
     ot_epsilon: float = 0.05            # regularisation strength for OT
     ot_max_iterations: int = 1000
+    # "auto" resolves to "cuda" when a GPU is available, otherwise "cpu".
+    ot_device: str = "auto"
 
     # -- Kernel combination --
-    # Combined kernel = rtk_weight * RealTimeKernel + (1-rtk_weight) * ConnectivityKernel
+    # With CytoTRACEKernel:
+    #   combined = cytotrace_weight * CTK + rtk_weight * RTK + (1 - both) * CK
+    # Without CytoTRACEKernel (cytotrace_weight = 0):
+    #   combined = rtk_weight * RTK + (1 - rtk_weight) * CK
     rtk_weight: float = 0.8
+    cytotrace_weight: float = 0.0   # set > 0 to include CytoTRACEKernel
+    cytotrace_layer: str = "counts"  # adata layer for CytoTRACE gene-count computation
 
     # -- GPCCA estimator --
     n_macrostates: int = 8              # passed to compute_macrostates; can be a list for minChi
@@ -60,14 +79,34 @@ class CellRankConfig:
     )
 
     # -- Terminal / initial state selection --
-    # Provide explicit terminal state names (matching cluster labels) when known.
-    # Leave empty to rely on automatic selection after compute_macrostates.
+    # Option 1 (recommended): provide a regex pattern matching macrostate names
+    # that should be treated as INITIAL (progenitor) states.  All other
+    # macrostates are automatically assigned as terminal states.  Matching is
+    # case-insensitive.  Leave empty to fall through to Option 2 or 3.
+    immature_state_pattern: str = "Immature|Newborn"
+
+    # Option 2: provide explicit terminal/initial state names.  Names must match
+    # what GPCCA assigns (visible in pipeline.log after compute_macrostates).
+    # Leave empty to fall through to Option 3.
     terminal_states: List[str] = field(default_factory=list)
     initial_states: List[str] = field(default_factory=list)
 
     # -- Fate probabilities --
     compute_drivers: bool = False       # gene-level lineage drivers (slow)
     driver_cluster_key: str = "cell_type_aligned"
+
+    # -- Pseudotime --
+    # After fate_probs, the L2-3 fate probability (summed over all matching
+    # terminal states) is normalised to [0, 1] and written to this obs key.
+    # This is a fate *commitment* score, not a trajectory position.
+    # Set to "" to skip.
+    pseudotime_key: str = "pseudotime_l23"
+
+    # DPT pseudotime: diffusion pseudotime from the youngest progenitor root cell.
+    # The root is the cell matching dpt_root_cell_type with minimum age_years.
+    # Set to "" to skip.
+    absorption_pseudotime_key: str = "pseudotime_absorption"
+    dpt_root_cell_type: str = "Immature|Newborn"  # regex matched against cell_type_key
 
     # -- Lineage subsetting --
     # After computing fate probabilities, cells with fate_prob >= threshold
@@ -81,10 +120,14 @@ class CellRankConfig:
         default_factory=lambda: ["cell_type_aligned", "age_years", "source"]
     )
     umap_key: str = "X_umap_scanvi"    # obsm key for UMAP (used in plots)
+    # Recompute UMAP from X_scANVI on the filtered subset (recommended).
+    # After recomputation, umap_key is updated to lineage_umap_key so all plots
+    # use the EN-only embedding that better resolves developmental structure.
+    recompute_umap: bool = False
+    lineage_umap_key: str = "X_umap_lineage"
     point_size: float = 1.0
-    # Patterns used by plot_excitatory_l23_fate_umap.
     # excitatory_cell_type_pattern: case-insensitive regex matched against
-    #   cell_type_key to identify excitatory neurons (e.g. "EN-" or "excit|EN-").
+    #   cell_type_key to identify excitatory neurons.
     # l23_lineage_pattern: case-insensitive substring matched against
     #   terminal-state names to pick the L2-3 lineage.
     excitatory_cell_type_pattern: str = "excit|EN-"

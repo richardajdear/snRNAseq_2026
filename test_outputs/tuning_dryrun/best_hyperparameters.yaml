@@ -1,0 +1,32 @@
+scvi:
+  n_latent: 10
+  n_hidden: 128
+  n_layers: 2
+  gene_likelihood: nb
+  batch_size: 256
+  max_epochs_scvi: 10
+  early_stopping: true
+  early_stopping_patience: 5
+best_metrics:
+  objective: 0.39399756735019187
+  age_batch_score: 0.3150930517098841
+  celltype_silhouette_score_norm: 0.7096156299114227
+  age_bin_scores:
+    '[-0.25,0.0)': 0.32388929132039906
+    '[-0.25,0.0)_mode': celltype-weighted
+    '[-0.5,-0.25)': 0.2961024311247596
+    '[-0.5,-0.25)_mode': celltype-weighted
+    '[0.0,1.0)': 0.3933342306486355
+    '[0.0,1.0)_mode': celltype-weighted
+    '[1.0,5.0)': 0.4717395029376062
+    '[1.0,5.0)_mode': celltype-weighted
+    '[12.0,20.0)': 0.44511368356347725
+    '[12.0,20.0)_mode': celltype-weighted
+    '[20.0,40.0)': 0.13552866078542447
+    '[20.0,40.0)_mode': celltype-weighted
+    '[40.0,90.0)': 0.02181827556581301
+    '[40.0,90.0)_mode': celltype-weighted
+    '[5.0,12.0)': 0.44341271870756804
+    '[5.0,12.0)_mode': celltype-weighted
+  scanvi_objective: 0.4378305397375269
+  scvi_vs_scanvi_delta: 0.04383297238733502

@@ -20,9 +20,11 @@ set -euo pipefail
 NOTEBOOK="${1:-}"
 PARAMS_FILE="${2:-}"
 OUTPUT_DIR="${3:-}"
+FORCE="${4:-}"
+OUTPUT_FILE="${5:-}"  # Optional: override output filename (e.g. my_config.html)
 
 if [[ -z "$NOTEBOOK" ]]; then
-    echo "Usage: $0 <path/to/notebook.qmd> [params.yaml] [output_dir]" >&2
+    echo "Usage: $0 <path/to/notebook.qmd> [params.yaml] [output_dir] [--force] [output_file.html]" >&2
     exit 1
 fi
 
@@ -42,10 +44,16 @@ PARAMS_ENV=""
 [[ -n "$PARAMS_FILE" ]] && PARAMS_ENV="NOTEBOOK_PARAMS=${PARAMS_FILE}"
 
 OUTPUT_ARG=""
-if [[ -n "$OUTPUT_DIR" ]]; then
+if [[ -n "$OUTPUT_DIR" && -n "$OUTPUT_FILE" ]]; then
+    mkdir -p "$OUTPUT_DIR"
+    OUTPUT_ARG="--output-dir '${OUTPUT_DIR}' --output '${OUTPUT_FILE}'"
+elif [[ -n "$OUTPUT_DIR" ]]; then
     mkdir -p "$OUTPUT_DIR"
     OUTPUT_ARG="--output-dir '${OUTPUT_DIR}'"
 fi
+
+CACHE_FLAG=""
+[[ "$FORCE" == "--force" ]] && CACHE_FLAG="--cache-refresh"
 
 SIF="/home/rajd2/rds/hpc-work/shortcake.sif"
 QUARTO_DIR="/usr/local/Cluster-Apps/ceuadmin/quarto/1.7.13"
@@ -54,8 +62,9 @@ PYTHON_BIN="/opt/micromamba/envs/${CONDA_ENV}/bin/python3"
 
 echo "========================================"
 echo "Rendering: $NOTEBOOK"
-[[ -n "$PARAMS_FILE" ]] && echo "Params:    $PARAMS_FILE"
-[[ -n "$OUTPUT_DIR"  ]] && echo "Output:    $OUTPUT_DIR"
+[[ -n "$PARAMS_FILE"  ]] && echo "Params:    $PARAMS_FILE"
+[[ -n "$OUTPUT_DIR"   ]] && echo "Output:    $OUTPUT_DIR"
+[[ -n "$OUTPUT_FILE"  ]] && echo "Filename:  $OUTPUT_FILE"
 echo "Job ID:    ${SLURM_JOB_ID:-local}"
 echo "Node:      $(hostname)"
 echo "Start:     $(date)"
@@ -69,7 +78,7 @@ singularity exec \
     ${PARAMS_ENV:+--env "$PARAMS_ENV"} \
     "$SIF" \
     micromamba run -n "$CONDA_ENV" \
-    bash -c "QUARTO_PYTHON=${PYTHON_BIN} /quarto/bin/quarto render '${NOTEBOOK_FILE}' ${OUTPUT_ARG}"
+    bash -c "QUARTO_PYTHON=${PYTHON_BIN} /quarto/bin/quarto render '${NOTEBOOK_FILE}' ${OUTPUT_ARG} ${CACHE_FLAG}"
 
 _ELAPSED=$(( $(date +%s) - _JOB_START ))
 _TIME_LIMIT=$(squeue -j "${SLURM_JOB_ID}" -h -o "%l" 2>/dev/null || echo "N/A")
