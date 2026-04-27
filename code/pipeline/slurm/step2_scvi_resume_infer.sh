@@ -63,12 +63,15 @@ fi
 echo "scvi_model:   ${SCVI_OUTPUT_DIR}/scvi_model  [found]"
 echo "scanvi_model: ${SCVI_OUTPUT_DIR}/scanvi_model [found]"
 
-# Remove corrupt/incomplete integrated.h5ad if present so the save step
-# writes a fresh file rather than appending to a broken one.
+# Remove integrated.h5ad only if explicitly requested via REMOVE_INTEGRATED=1.
+# By default we leave it in place — deleting a valid file is worse than
+# overwriting it, and the save step always writes a fresh copy anyway.
 INTEGRATED_H5AD="${SCVI_OUTPUT_DIR}/integrated.h5ad"
-if [[ -f "${INTEGRATED_H5AD}" ]]; then
-    echo "Removing corrupt/incomplete integrated.h5ad: ${INTEGRATED_H5AD}"
+if [[ "${REMOVE_INTEGRATED:-0}" == "1" && -f "${INTEGRATED_H5AD}" ]]; then
+    echo "REMOVE_INTEGRATED=1: removing ${INTEGRATED_H5AD}"
     rm -f "${INTEGRATED_H5AD}"
+elif [[ -f "${INTEGRATED_H5AD}" ]]; then
+    echo "integrated.h5ad exists and will be overwritten by the save step: ${INTEGRATED_H5AD}"
 fi
 
 echo "Launching singularity exec (SIF: ${SIF})..."

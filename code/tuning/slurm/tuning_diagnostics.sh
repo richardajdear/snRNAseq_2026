@@ -14,7 +14,7 @@ WORK_DIR="${WORK_DIR:-/home/rajd2/rds/hpc-work/snRNAseq_2026}"
 SIF="${SIF:-/home/rajd2/rds/hpc-work/shortcake_scvi.sif}"
 DATA_DIR="/home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc"
 
-INPUT_DIR="${INPUT_DIR:-${DATA_DIR}/Cam_snRNAseq/integrated/VelWangPsychAD_100k_source-chemistry/scvi_tuning}"
+INPUT_DIR="${INPUT_DIR:-${DATA_DIR}/Cam_snRNAseq/integrated/VelWangPsychAD_100k_source-chemistry/scvi_tuning_round4}"
 OUTPUT_DIR="${OUTPUT_DIR:-${INPUT_DIR}/plots}"
 
 mkdir -p "${WORK_DIR}/logs"

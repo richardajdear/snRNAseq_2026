@@ -33,7 +33,7 @@ snRNAseq_2026/
 │   │   ├── scanvi_diagnostics.py # Post-scANVI label transfer diagnostics
 │   │   ├── pseudobulk.py        # Pseudobulk aggregation
 │   │   ├── label_transfer/      # Label transfer utilities (transfer.py is active)
-│   │   ├── slurm/               # SLURM job scripts for pipeline steps
+│   │   ├── slurm/               # SLURM job scripts: step1–5 (normal chain) + util_* (ad-hoc)
 │   │   ├── *.yaml               # Pipeline configs (hpc_config.yaml is the production config)
 │   │   └── legacy/              # Retired pipeline utilities
 │   │
@@ -90,31 +90,49 @@ snRNAseq_2026/
 
 The main pipeline processes 4 datasets through 5 steps. All steps are driven by a YAML config.
 
-**Production config:** `code/pipeline/hpc_config.yaml`
+**Example config:** `code/pipeline/configs/excitatory_1y+_tuning4.yaml`
 
 ```bash
-# Submit all steps
+# Submit the full 5-step chain
 cd snRNAseq_2026
-sbatch code/pipeline/slurm/submit_pipeline.sh --config code/pipeline/hpc_config.yaml
+bash code/pipeline/slurm/submit_pipeline.sh code/pipeline/configs/excitatory_1y+_tuning4.yaml
 
-# Or run individual steps
-sbatch code/pipeline/slurm/step1_downsample_combine.sh
-sbatch code/pipeline/slurm/step2_scvi.sh
-sbatch code/pipeline/slurm/step3_scanvi.sh
-sbatch code/pipeline/slurm/step4_pseudobulk.sh
+# Or run individual steps (each takes CONFIG as an env var)
+sbatch --export=ALL,CONFIG=code/pipeline/configs/excitatory_1y+_tuning4.yaml \
+       code/pipeline/slurm/step1_downsample_combine.sh
+sbatch --export=ALL,CONFIG=... code/pipeline/slurm/step2_scvi.sh
+sbatch --export=ALL,CONFIG=... code/pipeline/slurm/step3_diagnostics.sh
+sbatch --export=ALL,CONFIG=... code/pipeline/slurm/step4_pseudobulk.sh
+sbatch --export=ALL,CONFIG=... code/pipeline/slurm/step5_notebook.sh
 ```
 
 **Steps:**
-1. `downsample.py` — Filter and subsample each dataset to `n_cells_per_dataset`
-2. `combine_data.py` — Concatenate to a single `combined.h5ad` (inner join on genes)
-3. `scVI/run_pipeline.py` — Train scVI, run scANVI label transfer, compute UMAP
-4. `scanvi_diagnostics.py` — Validate label transfer quality
-5. `pseudobulk.py` *(optional)* — Aggregate to donor-level pseudobulk
+1. `downsample.py` — Filter and subsample each source to `n_cells`; writes `per_dataset/*.h5ad`
+2. `combine_data.py` — Concatenate to `combined.h5ad` (inner join on genes)
+3. `scVI/run_pipeline.py` — Train scVI, run scANVI label transfer, compute UMAPs + PCA plots, save `integrated.h5ad`
+4. `scanvi_diagnostics.py` — Validate label transfer quality; writes `scanvi_diagnostics/`
+5. `pseudobulk.py` — Aggregate `integrated.h5ad` to donor-level pseudobulk
+6. Notebook render *(if `notebook:` section present in config)*
 
-**Key outputs** (in the path specified by `hpc_config.yaml`):
-- `combined.h5ad` — Merged raw counts
-- `integrated.h5ad` — scVI/scANVI corrected, with `cell_type_aligned` labels
-- `pseudobulk/` — Donor-level aggregates
+**Key outputs** (under the `output_dir` in the config):
+- `scvi_output/integrated.h5ad` — scVI/scANVI corrected, with `cell_type_aligned` labels
+- `scvi_output/plots/` — UMAP and PCA comparison grids (`umaps_*.png`, `pca_*.png`)
+- `scanvi_diagnostics/` — Label transfer QC plots and tables
+- `pseudobulk_output/` — Donor-level aggregates
+
+**Utility scripts** (not in normal chain — submit manually when needed):
+
+```bash
+# Re-run scANVI label transfer without retraining scVI
+sbatch --export=ALL,CONFIG=... code/pipeline/slurm/util_scanvi_rerun.sh
+
+# Regenerate scvi_output/plots/ from an existing integrated.h5ad (CPU, fast)
+SCVI_CONFIG=.../scvi_output/config.yaml
+sbatch --export=ALL,SCVI_CONFIG="${SCVI_CONFIG}" code/pipeline/slurm/util_replot.sh
+
+# Resume scVI pipeline from inference onwards (after a GPU timeout during training)
+sbatch --export=ALL,SCVI_CONFIG="${SCVI_CONFIG}" code/pipeline/slurm/step2_scvi_resume_infer.sh
+```
 
 ### Overnight scVI hyperparameter tuning (source-chemistry)
 

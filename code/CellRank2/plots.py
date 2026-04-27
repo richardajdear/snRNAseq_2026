@@ -423,13 +423,6 @@ def plot_combined_umap_panel(
         ax.set_ylabel("UMAP2", fontsize=8)
         ax.set_title(title, fontsize=9)
 
-    def _inset_cbar(ax, sc_, label):
-        """Colorbar as an inset — doesn't steal layout space from ax."""
-        cax = ax.inset_axes([1.02, 0.05, 0.04, 0.90])
-        fig.colorbar(sc_, cax=cax, label=label)
-        cax.tick_params(labelsize=6)
-        cax.yaxis.label.set_size(7)
-
     def _cat_scatter(ax, col, title, palette=None):
         _setup(ax, title)
         if col not in adata.obs.columns:
@@ -447,12 +440,11 @@ def plot_combined_umap_panel(
                    rasterized=True, linewidths=0)
         handles = [plt.Line2D([0], [0], marker="o", color="w",
                                markerfacecolor=palette.get(c, (0.5,) * 3),
-                               markersize=4, label=c)
+                               markersize=5, label=c)
                    for c in cats if c in palette]
-        ncols = 2 if len(handles) > 6 else 1
-        ax.legend(handles=handles, fontsize=5, frameon=True, framealpha=0.7,
-                  loc="lower right", title=col, title_fontsize=6,
-                  ncol=ncols, handlelength=0.8, handletextpad=0.3, borderpad=0.4)
+        ax.legend(handles=handles, fontsize=6, frameon=False,
+                  bbox_to_anchor=(1.01, 1), loc="upper left",
+                  title=col, title_fontsize=7)
 
     def _cont_scatter(ax, col, title, cmap="viridis", vmin=None, vmax=None):
         _setup(ax, title)
@@ -468,7 +460,7 @@ def plot_combined_umap_panel(
         sc_ = ax.scatter(xy[:, 0], xy[:, 1], c=vals[order], s=config.point_size,
                          alpha=0.6, cmap=cmap, rasterized=True, linewidths=0,
                          vmin=vmin, vmax=vmax)
-        _inset_cbar(ax, sc_, col)
+        plt.colorbar(sc_, ax=ax, shrink=0.6, label=col, pad=0.02)
 
     # ── Row 0: batch/age/cell-type ────────────────────────────────────────────
     _cat_scatter(axes[0, 0], config.batch_key, title="Source (batch)")
@@ -536,15 +528,16 @@ def plot_combined_umap_panel(
                 Patch(facecolor=(0.85, 0.85, 0.85), label=f"Other  ({n - n_on:,})"),
                 Patch(facecolor=(0.13, 0.47, 0.71), label=f"L2-3 lineage  ({n_on:,})"),
             ],
-            fontsize=6, frameon=True, framealpha=0.7, loc="lower right",
+            fontsize=7, frameon=False, bbox_to_anchor=(1.01, 1), loc="upper left",
         )
     else:
         ax6.text(0.5, 0.5, f"'{fate_key}' not found", transform=ax6.transAxes,
                  ha="center", va="center", fontsize=8, color="red")
 
-    # tight_layout works correctly now: all legends are inside axes and all
-    # colorbars are inset_axes, so nothing external steals layout space.
-    fig.tight_layout(rect=[0, 0, 1, 0.97])
+    # Use subplots_adjust (not tight_layout) so all 6 axes keep identical
+    # dimensions regardless of legend/colorbar overflow.
+    fig.subplots_adjust(left=0.04, right=0.82, bottom=0.04, top=0.95,
+                        hspace=0.30, wspace=0.55)
     out = plots_dir / "umap_panel_excitatory.png"
     fig.savefig(str(out), dpi=200, bbox_inches="tight")
     logger.info(f"Saved: {out}")

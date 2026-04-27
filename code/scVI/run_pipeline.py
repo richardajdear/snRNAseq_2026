@@ -27,7 +27,7 @@ from .data import load_adata, prepare_for_scvi, save_checkpoint
 from .inference import get_normalized_expression
 from .train import train_scanvi, train_scvi
 from .utils import Timer, get_device_info, log_memory, setup_logger
-from .visualize import compute_umaps, plot_umap_grids
+from .visualize import compute_umaps, plot_umap_grids, plot_pca_grids
 from pipeline.label_transfer.transfer import aligned_to_class
 
 
@@ -286,8 +286,9 @@ def run(config: PipelineConfig):
 
     # --- PLOT ---
     if "plot" in steps and adata is not None:
-        with Timer("UMAP plots", logger):
+        with Timer("UMAP + PCA plots", logger):
             plot_umap_grids(adata, config, logger)
+            plot_pca_grids(adata, config, logger)
 
     # --- SAVE ---
     if "save" in steps and adata is not None:

@@ -242,6 +242,42 @@ def compute_inferred_pca_umaps(
             )
 
 
+def compute_latent_pcas(
+    adata: ad.AnnData,
+    logger: Optional[logging.Logger] = None,
+):
+    """Compute PCA of the scVI/scANVI latent representations.
+
+    The 50-dim latent space has no guaranteed ordering by explained variance, so
+    plotting dim0 vs dim1 is uninformative. This runs sklearn PCA to find the top
+    components and stores them for PCA comparison plots.
+
+    Results stored in:
+        obsm['X_pca_scvi_latent']   — top PCs of X_scVI
+        obsm['X_pca_scanvi_latent'] — top PCs of X_scANVI
+    """
+    try:
+        from sklearn.decomposition import PCA as _PCA
+    except ImportError:
+        if logger:
+            logger.warning("sklearn not available — skipping latent PCA")
+        return
+
+    for obsm_key, pca_key in [
+        ("X_scVI",   "X_pca_scvi_latent"),
+        ("X_scANVI", "X_pca_scanvi_latent"),
+    ]:
+        if obsm_key not in adata.obsm:
+            if logger:
+                logger.info(f"  {obsm_key} not in obsm — skipping {pca_key}")
+            continue
+        X = np.asarray(adata.obsm[obsm_key], dtype=np.float32)
+        n_pcs = min(50, X.shape[1] - 1)
+        if logger:
+            logger.info(f"  PCA of {obsm_key} ({X.shape}) → {n_pcs} components → {pca_key}")
+        adata.obsm[pca_key] = _PCA(n_components=n_pcs).fit_transform(X)
+
+
 def compute_umaps(
     adata: ad.AnnData,
     config,
@@ -277,6 +313,9 @@ def compute_umaps(
 
     with Timer("Computing inferred PCA UMAPs (normalized expression)", logger):
         compute_inferred_pca_umaps(adata, config, logger)
+
+    with Timer("Computing PCA of latent representations", logger):
+        compute_latent_pcas(adata, logger)
 
 
 # ── Plotting ───────────────────────────────────────────────────────────────────
@@ -442,11 +481,15 @@ def _plot_grid(
     panel_size: float = 3.5,
     point_size: Optional[float] = None,
     alpha: float = 0.45,
+    x_axis_label: str = "UMAP1",
+    y_axis_label: str = "UMAP2",
 ):
-    """Render a n_rows × n_cols UMAP grid with per-row legends.
+    """Render a n_rows × n_cols embedding grid with per-row legends.
 
-    row_specs : list of (obs_col, row_label) — one row per variable
-    col_specs : list of (obsm_key, col_label) — one column per embedding
+    row_specs     : list of (obs_col, row_label) — one row per variable
+    col_specs     : list of (obsm_key, col_label) — one column per embedding
+    x_axis_label  : label for the x axis of each panel (default "UMAP1")
+    y_axis_label  : label for the y axis of non-leftmost panels (default "UMAP2")
     """
     import matplotlib.gridspec as gridspec
     import matplotlib.cm as cm
@@ -530,8 +573,8 @@ def _plot_grid(
             _apply_ggplot_theme(ax)
             ax.set_box_aspect(1)
             ax.set_xticks([]); ax.set_yticks([])
-            ax.set_xlabel("UMAP1", fontsize=7, color="#777777")
-            ax.set_ylabel("UMAP2", fontsize=7, color="#777777")
+            ax.set_xlabel(x_axis_label, fontsize=7, color="#777777")
+            ax.set_ylabel(y_axis_label, fontsize=7, color="#777777")
 
             # Row label on leftmost column
             if col_i == 0:
@@ -639,6 +682,61 @@ def plot_umap_grids(
         output_path=str(plots_dir / "umaps_inferred.png"),
         config=config, logger=logger,
         point_size=config.umap_point_size,
+    )
+
+
+def plot_pca_grids(
+    adata: ad.AnnData,
+    config,
+    logger: logging.Logger,
+):
+    """Output pca_latent.png and pca_inferred.png in scvi_output/plots/.
+
+    Mirrors the layout of plot_umap_grids but shows PC1 vs PC2 scatter instead
+    of UMAP coordinates. Useful for inspecting whether age or batch gradients
+    are captured in the top PCs of each representation.
+
+    Latent cols  : Uncorrected PCA | PCA of scVI latent | PCA of scANVI latent
+    Inferred cols: Uncorrected PCA | PCA of scVI normalised | PCA of scANVI normalised
+
+    Calls compute_latent_pcas() as a fallback so this function works when
+    re-plotting an existing integrated.h5ad that predates the latent PCA step.
+    """
+    compute_latent_pcas(adata, logger)
+
+    plots_dir = config._resolved_output_dir / "plots"
+    batch_col = getattr(config, "batch_key", "source")
+
+    row_specs = [
+        (batch_col,           f"Batch ({batch_col})"),
+        ("age_years",         "Age (log years)"),
+        ("cell_class",        "Cell class"),
+        ("cell_type_aligned", "Cell type"),
+    ]
+    latent_cols = [
+        ("X_pca_raw",           "Uncorrected (PCA)"),
+        ("X_pca_scvi_latent",   "scVI latent"),
+        ("X_pca_scanvi_latent", "scANVI latent"),
+    ]
+    inferred_cols = [
+        ("X_pca_raw",             "Uncorrected (PCA)"),
+        ("X_pca_scvi_inferred",   "scVI normalised"),
+        ("X_pca_scanvi_inferred", "scANVI normalised"),
+    ]
+
+    _plot_grid(
+        adata, row_specs, latent_cols,
+        output_path=str(plots_dir / "pca_latent.png"),
+        config=config, logger=logger,
+        point_size=config.umap_point_size,
+        x_axis_label="PC1", y_axis_label="PC2",
+    )
+    _plot_grid(
+        adata, row_specs, inferred_cols,
+        output_path=str(plots_dir / "pca_inferred.png"),
+        config=config, logger=logger,
+        point_size=config.umap_point_size,
+        x_axis_label="PC1", y_axis_label="PC2",
     )
 
 

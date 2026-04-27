@@ -5,9 +5,9 @@
 #
 # Submit via:
 #   cd /home/rajd2/rds/hpc-work/snRNAseq_2026
-#   bash code/pipeline/slurm/submit_pipeline.sh code/pipeline/source-chemistry_hpc_config.yaml
+#   bash code/pipeline/slurm/submit_pipeline.sh code/pipeline/excitatory_1y+_tuning4.yaml
 
-output_dir: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/VelWangPsychAD_100k_excitatory_1y+_tuning3
+output_dir: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/VelWangPsychAD_200k_excitatory_1y+_tuning4
 
 sources:
   - name: WANG
@@ -15,14 +15,14 @@ sources:
     dataset_type: Wang
     cell_type_field: "Type_updated"
     pfc_only: true
-    n_cells: 100000
+    n_cells: 200000
 
   - name: VELMESHEV
     path: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/velmeshev/velmeshev.h5ad
     dataset_type: Velmeshev
     cell_type_field: "Cell_Type"
     pfc_only: true
-    n_cells: 100000
+    n_cells: 200000
 
   - name: PSYCHAD
     paths:
@@ -31,7 +31,7 @@ sources:
     dataset_type: PsychAD
     cell_type_field: "subclass"
     pfc_only: true
-    n_cells: 100000
+    n_cells: 200000
 
 age_downsample: true
 min_age: 1.0
@@ -43,10 +43,10 @@ scvi:
   hvg_flavor: pearson_residuals
   hvg_batch_key: source-chemistry
   batch_key: source-chemistry
-  n_latent: 40
+  n_latent: 50
   n_hidden: 128
   n_layers: 5
-  gene_likelihood: nb
+  gene_likelihood: zinb
   max_epochs_scvi: 400
   batch_size: 512
   early_stopping: true

@@ -517,11 +517,7 @@ def fig_batch_mixing(df: pd.DataFrame) -> plt.Figure | None:
     fig, ax = plt.subplots(figsize=(FIGURE_WIDTH, fig_h))
     fig.suptitle(
         "Per-Batch Global Mixing Score  (k-NN entropy, higher = better integrated)\n"
-<<<<<<< HEAD
         "Global k-NN — identifies batches isolated across the whole expression PCA space, not just within one age bin.",
-=======
-        "Global k-NN on expression PCA — identifies batches isolated across the whole space, not just within one age bin.",
->>>>>>> 6064145 (update optimization metric)
         fontsize=11, fontweight="bold",
     )
 
