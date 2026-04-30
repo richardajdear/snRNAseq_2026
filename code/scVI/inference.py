@@ -114,7 +114,7 @@ def _chunked_inference(
     # Single pass if small enough
     if chunk_size >= n_cells:
         logger.info(f"Processing all {n_cells} cells in one pass")
-        kwargs = {"n_samples": n_mc_samples}
+        kwargs = {"n_samples": n_mc_samples, "library_size": 1e4}
         if transform_batch is not None:
             kwargs["transform_batch"] = transform_batch
         return model.get_normalized_expression(adata=adata, **kwargs).values
@@ -134,7 +134,7 @@ def _chunked_inference(
         chunk_adata = adata[start_idx:end_idx].copy()
 
         try:
-            kwargs = {"n_samples": n_mc_samples}
+            kwargs = {"n_samples": n_mc_samples, "library_size": 1e4}
             if transform_batch is not None:
                 kwargs["transform_batch"] = transform_batch
             result = model.get_normalized_expression(adata=chunk_adata, **kwargs)

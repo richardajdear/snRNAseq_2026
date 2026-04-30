@@ -1,12 +1,17 @@
 #!/bin/bash
-# submit_pipeline.sh — Submit the full snRNAseq pipeline as chained SLURM jobs.
+# submit_pipeline.sh — Submit the snRNAseq pipeline as chained SLURM jobs.
 #
 # Steps (in order):
 #   1 (CPU)  Downsample + combine  →  per_dataset/*.h5ad, combined.h5ad
 #   2 (GPU)  scVI + scANVI         →  scvi_output/integrated.h5ad + plots
 #   3 (CPU)  Diagnostics           →  scanvi_diagnostics/ (label-transfer QC)
 #   4 (CPU)  Pseudobulk            →  pseudobulk_output/*.h5ad
-#   5 (CPU)  Notebook              →  notebooks/results/<config>/ (if config has notebook:)
+#   5 (CPU)  Notebook              →  notebooks/results/<config>/
+#
+# Which steps are submitted is controlled by the 'steps:' key in the config
+# YAML. Only the listed steps are submitted; the dependency chain is built
+# dynamically across the submitted subset.  If 'steps:' is absent, the
+# default is: downsample, combine, scvi, diagnostics, pseudobulk.
 #
 # Each step is idempotent: re-submitting picks up where a partial run left off.
 # The scvi step (step 2) is complete only when BOTH integrated.h5ad AND
@@ -42,47 +47,71 @@ echo "========================================"
 
 mkdir -p "${WORK_DIR}/logs"
 
-# Step 1: Downsample + Combine (CPU)
-JID1=$(sbatch --parsable \
-    --job-name=step1_scvi \
-    --export=ALL,WORK_DIR="${WORK_DIR}",CONFIG="${CONFIG}" \
-    "${WORK_DIR}/code/pipeline/slurm/step1_downsample_combine.sh")
-echo "Step 1 (downsample+combine) submitted: job ${JID1}"
+# Parse 'steps:' from the config YAML; fall back to the full default pipeline.
+STEPS=$(python3 -c "
+import yaml
+with open('${WORK_DIR}/${CONFIG}') as f:
+    cfg = yaml.safe_load(f)
+steps = cfg.get('steps', ['downsample', 'combine', 'scvi', 'diagnostics', 'pseudobulk'])
+print(' '.join(steps))
+")
+echo "Steps: ${STEPS}"
+echo ""
 
-# Step 2: scVI + scANVI (GPU) — depends on step 1
-JID2=$(sbatch --parsable \
-    --dependency=afterok:${JID1} \
-    --job-name=step2_scvi \
-    --export=ALL,WORK_DIR="${WORK_DIR}",CONFIG="${CONFIG}" \
-    "${WORK_DIR}/code/pipeline/slurm/step2_scvi.sh")
-echo "Step 2 (scVI+scANVI)        submitted: job ${JID2}  [depends on ${JID1}]"
+has_step() { [[ " ${STEPS} " == *" $1 "* ]]; }
 
-# Step 3: Diagnostics (CPU) — depends on step 2
-JID3=$(sbatch --parsable \
-    --dependency=afterok:${JID2} \
-    --job-name=step3_scvi \
-    --export=ALL,WORK_DIR="${WORK_DIR}",CONFIG="${CONFIG}" \
-    "${WORK_DIR}/code/pipeline/slurm/step3_diagnostics.sh")
-echo "Step 3 (diagnostics)        submitted: job ${JID3}  [depends on ${JID2}]"
+PREV_JID=""
+CHAIN=""
 
-# Step 4: Pseudobulk (CPU) — depends on step 3
-JID4=$(sbatch --parsable \
-    --dependency=afterok:${JID3} \
-    --job-name=step4_scvi \
-    --export=ALL,WORK_DIR="${WORK_DIR}",CONFIG="${CONFIG}" \
-    "${WORK_DIR}/code/pipeline/slurm/step4_pseudobulk.sh")
-echo "Step 4 (pseudobulk)         submitted: job ${JID4}  [depends on ${JID3}]"
-
-# Step 5: Notebook render (CPU) — depends on step 4, only if config has notebook: section
-CHAIN="${JID1} → ${JID2} → ${JID3} → ${JID4}"
-if grep -q '^notebook:' "${WORK_DIR}/${CONFIG}" 2>/dev/null; then
-    JID5=$(sbatch --parsable \
-        --dependency=afterok:${JID4} \
-        --job-name=step5_scvi \
+_submit() {
+    local label="$1"
+    local script="$2"
+    local dep_flag=""
+    if [[ -n "${PREV_JID}" ]]; then
+        dep_flag="--dependency=afterok:${PREV_JID}"
+    fi
+    local jid
+    jid=$(sbatch --parsable \
+        ${dep_flag} \
+        --job-name="${script%.sh}" \
         --export=ALL,WORK_DIR="${WORK_DIR}",CONFIG="${CONFIG}" \
-        "${WORK_DIR}/code/pipeline/slurm/step5_notebook.sh")
-    echo "Step 5 (notebook)           submitted: job ${JID5}  [depends on ${JID4}]"
-    CHAIN="${CHAIN} → ${JID5}"
+        "${WORK_DIR}/code/pipeline/slurm/${script}")
+    local dep_info=""
+    [[ -n "${PREV_JID}" ]] && dep_info="  [depends on ${PREV_JID}]"
+    echo "${label} submitted: job ${jid}${dep_info}"
+    PREV_JID="${jid}"
+    CHAIN="${CHAIN:+${CHAIN} → }${jid}"
+}
+
+# Step 1: Downsample + Combine (CPU)
+if has_step downsample || has_step combine; then
+    _submit "Step 1 (downsample+combine)" "step1_downsample_combine.sh"
+fi
+
+# Step 2: scVI + scANVI (GPU)
+if has_step scvi; then
+    _submit "Step 2 (scVI+scANVI)       " "step2_scvi.sh"
+fi
+
+# Step 3: Diagnostics (CPU)
+if has_step diagnostics; then
+    _submit "Step 3 (diagnostics)       " "step3_diagnostics.sh"
+fi
+
+# Step 4: Pseudobulk (CPU)
+if has_step pseudobulk; then
+    _submit "Step 4 (pseudobulk)        " "step4_pseudobulk.sh"
+fi
+
+# Step 5: Notebook render (CPU)
+if has_step notebook; then
+    _submit "Step 5 (notebook)          " "step5_notebook.sh"
+fi
+
+if [[ -z "${CHAIN}" ]]; then
+    echo "WARNING: no recognised steps found in config (got: ${STEPS})" >&2
+    echo "Known steps: downsample, combine, scvi, diagnostics, pseudobulk, notebook" >&2
+    exit 1
 fi
 
 echo ""

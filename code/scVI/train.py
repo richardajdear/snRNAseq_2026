@@ -5,6 +5,7 @@ import psutil
 from typing import Optional
 
 import anndata as ad
+import pandas as pd
 import scvi
 from scvi.model import SCANVI, SCVI, LinearSCVI
 
@@ -154,6 +155,11 @@ def train_scvi(
     model_path.mkdir(parents=True, exist_ok=True)
     model.save(str(model_path), overwrite=True)
     logger.info(f"scVI model saved to {model_path}")
+
+    history_path = model_path.parent / "training_history_scvi.csv"
+    pd.DataFrame(model.history).to_csv(str(history_path), index_label="epoch")
+    logger.info(f"Training history saved to {history_path}")
+
     log_memory("After scVI training", logger)
 
     return model

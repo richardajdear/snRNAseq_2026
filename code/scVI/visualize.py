@@ -234,6 +234,7 @@ def compute_inferred_pca_umaps(
             if sp.issparse(X):
                 X = X.toarray()
             X = np.asarray(X, dtype=np.float32)
+            X = np.log1p(X)
 
             n_pcs = min(50, X.shape[1] - 1)
             logger.info(f"  PCA n_components={n_pcs} on {X.shape} …")

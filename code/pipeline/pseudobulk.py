@@ -376,10 +376,6 @@ def run(
         name     = group_cfg["name"]
         out_path = out_dir / f"{name}.h5ad"
 
-        if out_path.exists() and not overwrite:
-            logger.info(f"\n[{name}] already exists, skipping ({out_path})")
-            continue
-
         logger.info(f"\nProcessing: {name}")
         pb = pseudobulk_one(
             adata_backed=adata_backed,

@@ -527,6 +527,12 @@ def step_notebook(cfg: dict, config_path: str, output_dir: Path,
         'EXPERIMENT_NAME': config_stem,
         'PSEUDOBULK_FILE': str(pseudobulk_file),
     }
+    # Pass cell-class filter params only when explicitly set in the notebook config,
+    # so single-class (already-filtered) datasets can disable the notebook's default
+    # 'Excitatory' filter by setting cell_class_col: '' in the notebook section.
+    if 'cell_class_col' in nb_cfg:
+        params['CELL_CLASS_COL']   = nb_cfg.get('cell_class_col')   or ''
+        params['CELL_CLASS_VALUE'] = nb_cfg.get('cell_class_value') or ''
     with open(params_path, 'w') as fh:
         yaml.dump(params, fh, default_flow_style=False)
     logger.info(f"  Params file: {params_path} (auto-generated)")

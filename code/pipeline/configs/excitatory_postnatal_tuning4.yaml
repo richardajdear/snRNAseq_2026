@@ -89,7 +89,9 @@ notebook:
   template: notebooks/templates/grn_dev.qmd
 
 steps:
-  - diagnostics
+  # - downsample
+  # - scvi
+  # - diagnostics
   - pseudobulk
   - notebook
-overwrite: true
+overwrite: false

@@ -70,8 +70,8 @@ notebook:
   template: notebooks/templates/grn_dev.qmd
 
 steps:
-  - downsample
-  - combine
+  # - downsample
+  # - combine
   - scvi
   - diagnostics
   - pseudobulk
