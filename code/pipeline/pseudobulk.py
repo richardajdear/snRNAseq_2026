@@ -218,8 +218,7 @@ def pseudobulk_one(
     problems = _validate_group_cfg(group_cfg, obs)
     if problems:
         for p in problems:
-            logger.error(f"    Config error: {p}")
-        logger.error(f"    Skipping {name}")
+            logger.warning(f"    Skipping {name}: {p}")
         return None
 
     # --- Filter cells ---

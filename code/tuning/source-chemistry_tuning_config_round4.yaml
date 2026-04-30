@@ -1,0 +1,125 @@
+# scVI hyperparameter tuning config — source-chemistry batch correction.
+# Run with: PYTHONPATH=code python -m tuning.tune_scvi_batch --config code/tuning/source-chemistry_tuning_config_round4.yaml
+#
+# --- Run history ---
+# Round 1 (scvi_tuning_round2): n_hidden=[32, 64, 128].  Results invalid — n_hidden=32
+#   is a degenerate bottleneck; diffuse latent cloud maximises mixing entropy.
+# Round 2 (scvi_tuning_round3): n_hidden=[128, 256], n_layers=[4, 5] only, nb+zinb,
+#   metric = latent-space batch mixing + silhouette.  Results biased toward the latent
+#   space and may have favoured deep, wide architectures for the wrong reasons.
+# Round 3 (this config, scvi_tuning_round4): fresh search across the full n_layers
+#   range [2..5], wider n_hidden and n_latent ranges, gene_likelihood and batch_size
+#   fixed to maximise trials on architecture.  Metric changed to expression-based:
+#   50:50 PCA batch mixing of decoded expression + decoder reconstruction error.
+
+input_h5ad: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/VelWangPsychAD_100k_source-chemistry/combined.h5ad
+output_dir: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/VelWangPsychAD_100k_source-chemistry/scvi_tuning_round4
+
+batch_key: source-chemistry
+age_key: age_years
+cell_type_key: cell_class
+counts_layer: counts
+
+# Match production covariates exactly.
+continuous_covariate_keys: [age_log_pc]
+categorical_covariate_keys: [sex]
+
+hvg:
+  n_top_genes: 15000
+  hvg_flavor: pearson_residuals
+  # hvg_batch_key is ignored for pearson_residuals (not supported by scanpy).
+
+tuning:
+  random_seed: 42
+  n_trials: 45             # 60 valid combinations; 45 trials ≈ 75% coverage
+  max_hours: 19.0          # 1h buffer inside the 20h SLURM wall
+  max_cells: 120000        # stratified subsample; ~40% of full 300k dataset
+  num_workers: 4
+  scanvi_top_k: 3          # evaluate top-3 scVI trials with scANVI post-loop
+
+training:
+  # Use the production epoch horizon so tuned architecture is valid at full scale.
+  # NOTE: max_epochs_scvi from this file is NOT copied into best_hyperparameters.yaml
+  # to avoid accidentally overriding the production value when the user applies results.
+  max_epochs_scvi: 400
+  early_stopping: true
+  early_stopping_patience: 20
+  train_size: 0.9
+  max_epochs_scanvi: 50    # short scANVI fine-tune for top-trial comparison
+
+# Search space: architecture only.
+#
+# gene_likelihood fixed at "zinb": allows zero-inflation which is typical for
+#   snRNA-seq.  Fixing this frees 2× trial budget for architecture exploration.
+#   If a follow-up run is warranted, nb can be compared against the top zinb
+#   architecture directly without a full sweep.
+# batch_size fixed at 512: no meaningful quality effect at this scale with early
+#   stopping.
+#
+# n_hidden and n_latent ranges chosen to cover a wider design space than previous
+# runs without relying on those results:
+#   - Shallow models (n_layers=2,3) may generalise better with fewer parameters.
+#   - n_hidden=512 allows the encoder/decoder to learn richer intermediate
+#     representations for the 15,000-gene HVG space.
+#   - n_latent range spans 20–60: smaller values impose stronger compression
+#     (may improve batch mixing); larger values preserve more cell-type resolution.
+#
+# Architecture constraint: n_hidden >= 2×n_latent prevents the encoder bottleneck
+# from being narrower than the latent space.  All combinations below satisfy this:
+#   n_hidden=128, n_latent=60 → 128 ≥ 2×60=120 ✓
+#   n_hidden=256, n_latent=60 → 256 ≥ 120 ✓
+#   n_hidden=512, n_latent=60 → 512 ≥ 120 ✓
+#
+# Space size: 5 × 3 × 4 × 1 × 1 = 60 combinations
+search_space:
+  n_latent: [20, 30, 40, 50, 60]
+  n_hidden: [128, 256, 512]
+  n_layers: [2, 3, 4, 5]
+  gene_likelihood: ["zinb"]
+  batch_size: [512]
+
+# Objective = 50:50 cross-trial normalized combination of:
+#   1. Age-binned batch mixing of cells when PCA is applied to the batch-corrected
+#      normalized expression (get_normalized_expression with transform_batch set to
+#      WANG-multiome).  This directly measures integration quality in the expression
+#      space used in production (scanvi_normalized), rather than in the latent space.
+#   2. Decoder reconstruction accuracy (get_reconstruction_error without transform_batch).
+#      Including this term prevents architectures that improve batch mixing by latent
+#      space collapse at the expense of accurate generative modelling.
+#
+# Both components are min-max normalized across all successful trials so they contribute
+# equally regardless of absolute scale.  The raw values are also recorded in
+# trial_results.csv so trade-offs can be inspected post-hoc.
+#
+# transform_batch: the reference batch for get_normalized_expression.  All cells are
+#   decoded as if they came from WANG-multiome, giving a common expression reference
+#   for the PCA-based batch mixing evaluation.  WANG-multiome spans the broadest
+#   developmental age range (prenatal GW14–40 + postnatal).
+#
+# n_pca_components: 50 PCs capture dominant expression variation while discarding
+#   low-variance noise; well-matched to the scVI latent dimensionality range.
+#
+# n_normalized_samples: 1 MC sample is sufficient for ranking (avoids 10× overhead
+#   vs production inference which uses n_mc_samples=10).
+#
+# max_cells_expr: cells used for expression PCA per trial.
+#   30,000 cells × 15,000 genes × float32 ≈ 1.8 GB; fits comfortably on HPC nodes.
+#   Stratified subsampling preserves all batches and age bins.
+#
+# Prenatal bins are upweighted (prenatal_weight: 2.0) because this is currently the
+# least integrated developmental window.  Entropy is normalised by log(n_batches_global)
+# so prenatal bins with fewer batches present are NOT artificially inflated.
+#
+# GW↔age_years mapping (age = (GW - 40) / 52, negative = before birth):
+#   GW14 ≈ -0.50    GW20 ≈ -0.38    GW26 ≈ -0.27
+#   GW33 ≈ -0.13    GW37 ≈ -0.06    GW40 =  0.00
+metric:
+  transform_batch: "WANG-multiome"
+  n_pca_components: 50
+  n_normalized_samples: 1
+  max_cells_expr: 30000
+  age_bin_edges: [-1.0, -0.5, -0.38, -0.27, -0.15, -0.05, 0.0, 1.0, 5.0, 12.0, 20.0, 40.0, 90.0]
+  prenatal_weight: 2.0
+  k_neighbors: 20
+  min_cells_per_bin: 100
+  min_cells_per_group: 75

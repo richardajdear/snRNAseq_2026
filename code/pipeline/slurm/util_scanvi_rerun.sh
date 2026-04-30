@@ -1,6 +1,6 @@
 #!/bin/bash
-#SBATCH --output=/home/rajd2/rds/hpc-work/snRNAseq_2026/logs/step3_scanvi_%j.out
-#SBATCH --error=/home/rajd2/rds/hpc-work/snRNAseq_2026/logs/step3_scanvi_%j.err
+#SBATCH --output=/home/rajd2/rds/hpc-work/snRNAseq_2026/logs/%j_util_scanvi_rerun.out
+#SBATCH --error=/home/rajd2/rds/hpc-work/snRNAseq_2026/logs/%j_util_scanvi_rerun.err
 #SBATCH --time=06:00:00
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
@@ -9,18 +9,19 @@
 #SBATCH --mem=128G
 #SBATCH --account=vertes-sl2-gpu
 
-# Run scANVI label transfer + inference on an existing scVI model.
-# Does NOT retrain scVI.  Overwrites integrated.h5ad with:
-#   - cell_type_aligned / cell_type_aligned_confidence  (model.predict)
-#   - scanvi_normalized layer (transform_batch=WANG by default)
-# Followed by scanvi_diagnostics.
+# Utility: re-run scANVI label transfer on an existing scVI model.
+#
+# NOT part of the normal pipeline chain. Use this when you want to re-run
+# scANVI label transfer (e.g. after updating label mappings) without retraining
+# scVI from scratch.
+#
+# Reads:  existing scvi_model/ inside the output_dir specified by CONFIG
+# Writes: overwrites integrated.h5ad with updated cell_type_aligned labels
+#         and scanvi_normalized layer; then re-runs diagnostics.
 #
 # Usage:
-#   sbatch --export=ALL,CONFIG=code/pipeline/configs/source_hpc_config.yaml \
-#          code/pipeline/slurm/step3_scanvi.sh
-#
-#   sbatch --export=ALL,CONFIG=code/pipeline/configs/postnatal_chemistry_hpc_config.yaml \
-#          code/pipeline/slurm/step3_scanvi.sh
+#   sbatch --export=ALL,CONFIG=code/pipeline/configs/excitatory_1y+_tuning4.yaml \
+#          code/pipeline/slurm/util_scanvi_rerun.sh
 
 set -euo pipefail
 
@@ -32,7 +33,7 @@ CONFIG="${CONFIG:-code/pipeline/configs/source_hpc_config.yaml}"
 mkdir -p "${WORK_DIR}/logs"
 
 echo "========================================"
-echo "STEP 3: scANVI label transfer + inference"
+echo "UTILITY: scANVI label transfer rerun"
 echo "Job ID:    ${SLURM_JOB_ID}"
 echo "Node:      $(hostname)"
 echo "GPUs:      ${CUDA_VISIBLE_DEVICES:-none}"
@@ -64,4 +65,7 @@ echo "Resource usage:"
 echo "  Time:   $(( _ELAPSED/3600 ))h $(( (_ELAPSED%3600)/60 ))m $(( _ELAPSED%60 ))s  /  ${_TIME_LIMIT} allocated"
 echo "  Memory: ${_MAX_RSS} peak RSS  /  ${_ALLOC_MEM_GB}G allocated"
 echo "========================================"
-echo "Step 3 complete: $(date)"
+echo "Utility complete: $(date)"
+echo ""
+echo "Next: re-run diagnostics with:"
+echo "  sbatch --export=ALL,CONFIG=${CONFIG} code/pipeline/slurm/step3_diagnostics.sh"

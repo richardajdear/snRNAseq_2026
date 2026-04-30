@@ -26,8 +26,9 @@ from .config import PipelineConfig
 from .data import load_adata, prepare_for_scvi, save_checkpoint
 from .inference import get_normalized_expression
 from .train import train_scanvi, train_scvi
+from scvi.model import LinearSCVI
 from .utils import Timer, get_device_info, log_memory, setup_logger
-from .visualize import compute_umaps, plot_umap_grids
+from .visualize import compute_umaps, plot_umap_grids, plot_pca_grids
 from pipeline.label_transfer.transfer import aligned_to_class
 
 
@@ -147,32 +148,73 @@ def run(config: PipelineConfig):
             )
         logger.info(f"X_scVI latent: shape={adata.obsm['X_scVI'].shape}")
 
+        # Extract LDVAE factor loadings (gene weights per latent dimension).
+        # Done here, before any scANVI step modifies the latent space, so the
+        # loadings always reflect the LDVAE decoder regardless of downstream steps.
+        if config.linear_decoder:
+            with Timer("LDVAE factor loadings", logger):
+                loadings_df = scvi_model.get_loadings()  # DataFrame: n_hvgs × n_latent
+                adata_scvi.varm["ldvae_loadings"] = loadings_df.values
+                # Expand to full gene space; NaN for non-HVGs.
+                loadings_full = pd.DataFrame(
+                    np.nan,
+                    index=adata.var_names,
+                    columns=loadings_df.columns,
+                )
+                loadings_full.loc[adata_scvi.var_names] = loadings_df.values
+                adata.varm["ldvae_loadings"] = loadings_full.values
+                adata.uns["ldvae_loading_columns"] = list(loadings_df.columns)
+            logger.info(
+                f"ldvae_loadings: shape={adata.varm['ldvae_loadings'].shape} "
+                f"(NaN for {adata.n_vars - adata_scvi.n_vars} non-HVGs)"
+            )
+
         save_checkpoint(adata, str(config.output_h5ad_path), logger)
 
     # --- TRAIN SCANVI (optional) ---
     scanvi_model = None
     if "train_scanvi" in steps and config.run_scanvi:
         # scanvi-only reruns may skip train_scvi. In that case, initialize from
-        # an existing saved scVI model when available.
+        # an existing saved model when available.
         if scvi_model is None and config.scvi_model_path.exists():
             from scvi.model import SCVI
 
+            _scvi_cls = LinearDecoderSCVI if config.linear_decoder else SCVI
+            _model_label = "LinearDecoderSCVI (LDVAE)" if config.linear_decoder else "scVI"
             logger.info(
-                "train_scvi step skipped; loading existing scVI model "
+                f"train_scvi step skipped; loading existing {_model_label} model "
                 f"from {config.scvi_model_path} for scANVI initialization"
             )
-            SCVI.setup_anndata(
+            _scvi_cls.setup_anndata(
                 adata_scvi,
                 layer=config.counts_layer,
                 batch_key=config.batch_key,
             )
-            with Timer("Loading scVI model for scANVI init", logger):
-                scvi_model = SCVI.load(str(config.scvi_model_path), adata=adata_scvi)
+            with Timer(f"Loading {_model_label} model for scANVI init", logger):
+                scvi_model = _scvi_cls.load(str(config.scvi_model_path), adata=adata_scvi)
 
-        # Pass scvi_model so scANVI inherits learned weights (from_scvi_model)
-        scanvi_model = train_scanvi(
-            adata_scvi, config, device_info, logger, scvi_model=scvi_model
-        )
+        # Pass scvi_model so scANVI inherits learned weights (from_scvi_model).
+        # For LinearDecoderSCVI, from_scvi_model should work (same encoder architecture)
+        # but scvi-tools may reject the non-SCVI class; fall back to scratch if so.
+        if config.linear_decoder and scvi_model is not None:
+            try:
+                scanvi_model = train_scanvi(
+                    adata_scvi, config, device_info, logger, scvi_model=scvi_model
+                )
+                logger.info("scANVI initialized from LinearDecoderSCVI encoder via from_scvi_model")
+            except (TypeError, ValueError, AssertionError, RuntimeError) as e:
+                logger.warning(
+                    f"SCANVI.from_scvi_model() rejected LinearDecoderSCVI ({e}). "
+                    "Falling back to scANVI from scratch — cell type annotation will still "
+                    "work but scANVI latent will not share the LDVAE encoder weights."
+                )
+                scanvi_model = train_scanvi(
+                    adata_scvi, config, device_info, logger, scvi_model=None
+                )
+        else:
+            scanvi_model = train_scanvi(
+                adata_scvi, config, device_info, logger, scvi_model=scvi_model
+            )
 
         with Timer("scANVI latent representation", logger):
             adata.obsm["X_scANVI"] = scanvi_model.get_latent_representation(
@@ -201,18 +243,20 @@ def run(config: PipelineConfig):
 
     # --- INFERENCE ---
     if "infer" in steps:
-        # Load scVI model if not in memory
+        # Load scVI/LDVAE model if not in memory
         if scvi_model is None and config.run_scvi_inference:
             from scvi.model import SCVI
 
-            logger.info("Loading scVI model for inference...")
-            SCVI.setup_anndata(
+            _scvi_cls = LinearDecoderSCVI if config.linear_decoder else SCVI
+            _model_label = "LinearDecoderSCVI (LDVAE)" if config.linear_decoder else "scVI"
+            logger.info(f"Loading {_model_label} model for inference...")
+            _scvi_cls.setup_anndata(
                 adata_scvi, layer=config.counts_layer, batch_key=config.batch_key
             )
-            scvi_model = SCVI.load(str(config.scvi_model_path), adata=adata_scvi)
+            scvi_model = _scvi_cls.load(str(config.scvi_model_path), adata=adata_scvi)
 
             # Recompute latent representation (skipped when not training)
-            logger.info("Computing X_scVI latent representation from loaded model...")
+            logger.info(f"Computing X_scVI latent representation from loaded {_model_label} model...")
             adata.obsm["X_scVI"] = scvi_model.get_latent_representation(adata=adata_scvi)
             logger.info(f"X_scVI latent: shape={adata.obsm['X_scVI'].shape}")
 
@@ -286,8 +330,9 @@ def run(config: PipelineConfig):
 
     # --- PLOT ---
     if "plot" in steps and adata is not None:
-        with Timer("UMAP plots", logger):
+        with Timer("UMAP + PCA plots", logger):
             plot_umap_grids(adata, config, logger)
+            plot_pca_grids(adata, config, logger)
 
     # --- SAVE ---
     if "save" in steps and adata is not None:

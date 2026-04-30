@@ -438,9 +438,10 @@ def main():
 
     missing = [c for c in required_cols if c not in adata.obs.columns]
     if missing:
-        print(f"ERROR: Missing obs columns: {missing}")
+        print(f"WARNING: scANVI diagnostics skipped — missing obs columns: {missing}")
+        print(f"  (Run with scanvi_label_transfer.enabled=true to produce these columns.)")
         print(f"  Available: {sorted(adata.obs.columns.tolist())}")
-        sys.exit(1)
+        sys.exit(0)
 
     print("\nBuilding diagnostic DataFrames …")
     all_df, tf_df = _build_dataframes(

@@ -16,15 +16,18 @@ Steps (in order)
 ----------------
     1. downsample   — per-dataset: read + filter + optional downsample → individual h5ads
     2. combine      — concatenate individual h5ads → combined.h5ad
-    3. scvi         — batch correction (scVI) + label transfer (scANVI) via scVI/run_pipeline.py
-                      When scanvi_label_transfer.enabled=true in config, scANVI is trained with
-                      WANG's fine-grained labels and model.predict() assigns cell_type_aligned
-                      to all cells.
+    3. scvi         — batch correction (scVI) + label transfer (scANVI) via scVI/run_pipeline.py.
+                      When scanvi_label_transfer.enabled=true, scANVI is trained with WANG's
+                      fine-grained labels and model.predict() assigns cell_type_aligned to all
+                      cells. Also computes UMAPs, PCA plots, and saves integrated.h5ad.
     4. diagnostics  — scANVI label-transfer diagnostics (reads integrated.h5ad, writes plots
-                      and tables to scanvi_diagnostics/). Must follow the scvi or scanvi step.
+                      and tables to scanvi_diagnostics/). CPU-only; run separately after scvi.
                       Fails loudly if the diagnostics script exits non-zero.
-    5. scanvi       — scANVI-only rerun using existing scVI model (no scVI retraining).
-                      Run diagnostics afterwards with --steps diagnostics.
+    5. pseudobulk   — aggregate integrated.h5ad per donor × cell type → pseudobulk_output/
+    6. notebook     — render the analysis notebook from template
+
+    scanvi (utility) — scANVI-only rerun on an existing scVI model (no scVI retraining).
+                       Not part of the default chain; use util_scanvi_rerun.sh manually.
 
 Downsampling
 ------------

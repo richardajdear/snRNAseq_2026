@@ -1,12 +1,12 @@
 #!/bin/bash
-#SBATCH --output=/home/rajd2/rds/hpc-work/snRNAseq_2026/logs/step3_scanvi_%j.out
-#SBATCH --error=/home/rajd2/rds/hpc-work/snRNAseq_2026/logs/step3_scanvi_%j.err
-#SBATCH --time=06:00:00
+#SBATCH --output=/home/rajd2/rds/hpc-work/snRNAseq_2026/logs/%j_tune_scvi.out
+#SBATCH --error=/home/rajd2/rds/hpc-work/snRNAseq_2026/logs/%j_tune_scvi.err
+#SBATCH --time=24:00:00
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --partition=ampere
 #SBATCH --gres=gpu:1
-#SBATCH --mem=128G
+#SBATCH --mem=120G
 #SBATCH --account=vertes-sl2-gpu
 
 set -euo pipefail
@@ -14,12 +14,12 @@ set -euo pipefail
 WORK_DIR="${WORK_DIR:-/home/rajd2/rds/hpc-work/snRNAseq_2026}"
 SIF="${SIF:-/home/rajd2/rds/hpc-work/shortcake_scvi.sif}"
 DATA_DIR="/home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc"
-CONFIG="${CONFIG:-code/pipeline/hpc_config.yaml}"
+CONFIG="${CONFIG:-code/tuning/source-chemistry_tuning_config_round4.yaml}"
 
 mkdir -p "${WORK_DIR}/logs"
 
 echo "========================================"
-echo "STEP 3: scANVI Label Transfer (scanvi-only rerun)"
+echo "scVI hyperparameter tuning (source-chemistry)"
 echo "Job ID:    ${SLURM_JOB_ID}"
 echo "Node:      $(hostname)"
 echo "GPUs:      ${CUDA_VISIBLE_DEVICES:-none}"
@@ -34,21 +34,12 @@ singularity exec --nv \
     --bind "${WORK_DIR}:${WORK_DIR}" \
     "${SIF}" \
     micromamba run -n scvi-scgen-scmomat-unitvelo \
-    env PYTHONPATH="code" python3 -m pipeline.run_pipeline \
-        --config "${CONFIG}" \
-    --steps scanvi \
-    --overwrite
+    env PYTHONPATH="code" python3 -m tuning.tune_scvi_batch \
+        --config "${CONFIG}"
 
 _ELAPSED=$(( $(date +%s) - _JOB_START ))
-_TIME_LIMIT=$(squeue -j "${SLURM_JOB_ID}" -h -o "%l" 2>/dev/null || echo "N/A")
-_MAX_RSS="N/A"
-if _tmp=$(sstat --jobs="${SLURM_JOB_ID}.batch" --format=MaxRSS --noheader 2>/dev/null); then
-    _MAX_RSS=$(echo "$_tmp" | awk 'NR==1{print $1}')
-fi
-_ALLOC_MEM_GB=$(( ${SLURM_MEM_PER_NODE:-0} / 1024 ))
 echo "========================================"
-echo "Resource usage:"
-echo "  Time:   $(( _ELAPSED/3600 ))h $(( (_ELAPSED%3600)/60 ))m $(( _ELAPSED%60 ))s  /  ${_TIME_LIMIT} allocated"
-echo "  Memory: ${_MAX_RSS} peak RSS  /  ${_ALLOC_MEM_GB}G allocated"
+echo "Tuning complete"
+echo "Elapsed: $(( _ELAPSED/3600 ))h $(( (_ELAPSED%3600)/60 ))m $(( _ELAPSED%60 ))s"
+echo "End:     $(date)"
 echo "========================================"
-echo "Step 3 complete: $(date)"

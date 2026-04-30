@@ -46,7 +46,7 @@ import scipy.sparse as sp
 import scvi
 import torch
 import yaml
-from scvi.model import SCANVI, SCVI
+from scvi.model import SCANVI, SCVI, LinearSCVI
 from sklearn.decomposition import PCA
 from sklearn.neighbors import NearestNeighbors
 
@@ -98,6 +98,7 @@ def _sample_trial_params(search_space: dict[str, Any], rng: np.random.Generator)
     production config fields.
     """
     return {
+        "decoder_type":    str(rng.choice(_as_list(search_space, "decoder_type",    ["nonlinear"]))),
         "n_latent":        int(rng.choice(_as_list(search_space, "n_latent",        [20, 30, 40]))),
         "n_hidden":        int(rng.choice(_as_list(search_space, "n_hidden",        [64, 128, 256]))),
         "n_layers":        int(rng.choice(_as_list(search_space, "n_layers",        [1, 2]))),
@@ -109,6 +110,7 @@ def _sample_trial_params(search_space: dict[str, Any], rng: np.random.Generator)
 def _search_space_size(search_space: dict[str, Any]) -> int:
     size = 1
     for key, default in [
+        ("decoder_type",    ["nonlinear"]),
         ("n_latent",        [20, 30, 40]),
         ("n_hidden",        [64, 128, 256]),
         ("n_layers",        [1, 2]),
@@ -453,6 +455,7 @@ def _evaluate_trial_components(
     metric_cfg: dict[str, Any],
     n_batches_global: int,
     logger: logging.Logger,
+    npy_prefix: "Path | None" = None,
 ) -> dict[str, Any]:
     """Evaluate a trial with the expression-based metric.
 
@@ -533,6 +536,13 @@ def _evaluate_trial_components(
     explained_var = float(np.sum(pca.explained_variance_ratio_))
     logger.info(f"  PCA explained variance (first {n_components} PCs): {explained_var:.3f}")
     del expr  # free memory before batch mixing
+
+    # Save expression PCA + cell indices for UMAP diagnostics.
+    if npy_prefix is not None:
+        cell_idx = keep_idx_arr if n_cells > max_cells else np.arange(n_cells, dtype=np.int32)
+        np.save(str(npy_prefix) + "_expr_pca.npy",     X_pca)
+        np.save(str(npy_prefix) + "_expr_pca_idx.npy", cell_idx.astype(np.int32))
+
 
     # Age-binned batch mixing on the PCA embedding.
     age_score, age_details = _evaluate_age_aware_batch_score(
@@ -678,8 +688,9 @@ def _train_and_evaluate_scanvi(
     accel: dict[str, Any],
     logger: logging.Logger,
     norm_constants: dict[str, float] | None = None,
+    decoder_type: str = "nonlinear",
 ) -> dict[str, Any]:
-    """Load a saved scVI model, initialise scANVI from it, train, and evaluate.
+    """Load a saved scVI/LDVAE model, initialise scANVI from it, train, and evaluate.
 
     SCANVI.from_scvi_model transfers all learned scVI weights and then fine-tunes
     with cell-type supervision, which is exactly what production does.  Evaluating
@@ -690,8 +701,12 @@ def _train_and_evaluate_scanvi(
     is used so the scANVI objective is on the same scale as the scVI trial objectives.
     If norm_constants is provided (bm_min, bm_max, re_min, re_max from the scVI
     cross-trial normalization), the scANVI objective is computed on the same scale.
+
+    For linear decoder trials, SCANVI.from_scvi_model() is attempted (encoder
+    architecture is identical); falls back to scANVI from scratch on rejection.
     """
-    scvi_model = SCVI.load(str(scvi_model_dir), adata=adata)
+    _scvi_cls = LinearDecoderSCVI if decoder_type == "linear" else SCVI
+    scvi_model = _scvi_cls.load(str(scvi_model_dir), adata=adata)
 
     # Ensure labels column has no NaN (scANVI requires every cell to have a label
     # or the explicit unlabeled_category string).
@@ -706,6 +721,8 @@ def _train_and_evaluate_scanvi(
         labels_key=cell_type_key,
         unlabeled_category="Unknown",
     )
+    if decoder_type == "linear":
+        logger.info("  scANVI initialized from LinearDecoderSCVI encoder via from_scvi_model")
     scanvi_model.train(
         max_epochs=max_epochs_scanvi,
         early_stopping=True,
@@ -985,7 +1002,7 @@ def run_tuning(config_path: Path):
     space_size = _search_space_size(search_space)
     logger.info(
         f"Search space: {space_size} combinations "
-        f"(n_latent × n_hidden × n_layers × gene_likelihood × batch_size). "
+        f"(decoder_type × n_latent × n_hidden × n_layers × gene_likelihood × batch_size). "
         f"Running up to {n_trials} random trials."
     )
     logger.info(
@@ -1024,14 +1041,33 @@ def run_tuning(config_path: Path):
 
         trial_t0 = time.time()
         model = None
-        try:
-            model = SCVI(
-                adata,
-                n_latent=params["n_latent"],
-                n_hidden=params["n_hidden"],
-                n_layers=params["n_layers"],
-                gene_likelihood=params["gene_likelihood"],
+        # Resolve effective gene_likelihood before try/except so it's always defined
+        # for the row dict; linear decoder does not support zinb.
+        gene_likelihood = params["gene_likelihood"]
+        if params["decoder_type"] == "linear" and gene_likelihood == "zinb":
+            gene_likelihood = "nb"
+        if params["decoder_type"] == "linear" and params["gene_likelihood"] == "zinb":
+            logger.info(
+                "  decoder_type=linear: gene_likelihood 'zinb' → 'nb' "
+                "(LinearDecoderSCVI does not support zinb)"
             )
+        try:
+            if params["decoder_type"] == "linear":
+                model = LinearDecoderSCVI(
+                    adata,
+                    n_latent=params["n_latent"],
+                    n_hidden=params["n_hidden"],
+                    n_layers=params["n_layers"],
+                    gene_likelihood=gene_likelihood,
+                )
+            else:
+                model = SCVI(
+                    adata,
+                    n_latent=params["n_latent"],
+                    n_hidden=params["n_hidden"],
+                    n_layers=params["n_layers"],
+                    gene_likelihood=gene_likelihood,
+                )
             train_kwargs: dict[str, Any] = {
                 "max_epochs":       max_epochs,
                 "early_stopping":   early_stopping,
@@ -1062,6 +1098,7 @@ def run_tuning(config_path: Path):
                 metric_cfg=metric_cfg,
                 n_batches_global=n_batches_global,
                 logger=logger,
+                npy_prefix=output_dir / f"trial_{trial:02d}",
             )
             status = "ok"
             error = ""
@@ -1086,6 +1123,9 @@ def run_tuning(config_path: Path):
             "error":                    error,
             "duration_min":             round(duration_min, 2),
             **params,
+            # Override gene_likelihood with the effective value used (may be demoted
+            # zinb→nb for linear decoder before the try block above).
+            "gene_likelihood":          gene_likelihood,
             # Raw metric components (objective computed post-hoc)
             "batch_mixing_pca_score":   components["batch_mixing_pca_score"],
             "recon_error":              components["recon_error"],
@@ -1193,6 +1233,7 @@ def run_tuning(config_path: Path):
             "n_layers":                int(best["n_layers"]),
             "gene_likelihood":         str(best["gene_likelihood"]),
             "batch_size":              int(best["batch_size"]),
+            "linear_decoder":          bool(best.get("decoder_type", "nonlinear") == "linear"),
             "max_epochs_scvi":         max_epochs,
             "early_stopping":          early_stopping,
             "early_stopping_patience": early_stopping_patience,
@@ -1277,6 +1318,7 @@ def run_tuning(config_path: Path):
                     accel=accel,
                     logger=logger,
                     norm_constants=norm_constants,
+                    decoder_type=rec["params"].get("decoder_type", "nonlinear"),
                 )
                 delta = scanvi_metrics["objective"] - scvi_obj
                 # Retrieve actual metric values from the results list (more accurate
@@ -1357,13 +1399,17 @@ def run_tuning(config_path: Path):
             exc_info=True,
         )
 
-    # Remove per-trial latent .npy files — they are only needed during the diagnostic
-    # UMAP step above and consume significant disk space (n_cells × n_latent × float32).
-    npy_files = sorted(output_dir.glob("trial_*_latent.npy"))
+    # Remove per-trial latent and expression PCA .npy files — they are only needed
+    # during the diagnostic UMAP step above and consume significant disk space.
+    npy_files = (
+        sorted(output_dir.glob("trial_*_latent.npy"))
+        + sorted(output_dir.glob("trial_*_expr_pca.npy"))
+        + sorted(output_dir.glob("trial_*_expr_pca_idx.npy"))
+    )
     if npy_files:
         for npy in npy_files:
             npy.unlink()
-        logger.info(f"Deleted {len(npy_files)} trial latent .npy file(s)")
+        logger.info(f"Deleted {len(npy_files)} trial latent/expr-PCA .npy file(s)")
 
 
 def main():

@@ -1,12 +1,12 @@
 #!/bin/bash
-#SBATCH --output=/home/rajd2/rds/hpc-work/snRNAseq_2026/logs/step2_scvi_%j.out
-#SBATCH --error=/home/rajd2/rds/hpc-work/snRNAseq_2026/logs/step2_scvi_%j.err
-#SBATCH --time=03:00:00
+#SBATCH --output=/home/rajd2/rds/hpc-work/snRNAseq_2026/logs/%j_step2_scvi.out
+#SBATCH --error=/home/rajd2/rds/hpc-work/snRNAseq_2026/logs/%j_step2_scvi.err
+#SBATCH --time=12:00:00
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --partition=ampere
 #SBATCH --gres=gpu:1
-#SBATCH --mem=100G
+#SBATCH --mem=200G
 #SBATCH --account=vertes-sl2-gpu
 
 set -euo pipefail
@@ -19,7 +19,7 @@ CONFIG="${CONFIG:-code/pipeline/configs/source_hpc_config.yaml}"
 mkdir -p "${WORK_DIR}/logs"
 
 echo "========================================"
-echo "STEP 2: scVI (+ scANVI if enabled in config)"
+echo "STEP 2: scVI + scANVI training and inference (diagnostics run separately as step 3)"
 echo "Job ID:    ${SLURM_JOB_ID}"
 echo "Node:      $(hostname)"
 echo "GPUs:      ${CUDA_VISIBLE_DEVICES:-none}"
@@ -28,8 +28,9 @@ echo "Start:     $(date)"
 echo "========================================"
 _JOB_START=$(date +%s)
 
-# The pipeline.run_pipeline step=scvi generates a temporary scvi_config.yaml
-# and calls scVI.run_pipeline internally (including scANVI when enabled).
+# pipeline.run_pipeline step=scvi generates a temporary scvi_config.yaml and
+# calls scVI.run_pipeline internally (including scANVI when enabled). Diagnostics
+# are NOT run here — they run as a separate CPU step 3 (step3_diagnostics.sh).
 echo "Launching singularity exec (SIF: ${SIF})..."
 singularity exec --nv \
     --pwd "${WORK_DIR}" \
@@ -39,7 +40,7 @@ singularity exec --nv \
     micromamba run -n scvi-scgen-scmomat-unitvelo \
     env PYTHONPATH="code" python3 -m pipeline.run_pipeline \
         --config "${CONFIG}" \
-        --steps scvi diagnostics
+        --steps scvi
 SING_EXIT=$?
 echo "Singularity exec finished (exit code: ${SING_EXIT})"
 

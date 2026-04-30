@@ -1,12 +1,12 @@
 #!/bin/bash
 # submit_pipeline.sh — Submit the full snRNAseq pipeline as chained SLURM jobs.
 #
-# Steps:
+# Steps (in order):
 #   1 (CPU)  Downsample + combine  →  per_dataset/*.h5ad, combined.h5ad
-#   2 (GPU)  scVI + scANVI         →  scvi_output/integrated.h5ad
-#
-# Optional rerun:
-#   3 (GPU)  scanvi-only rerun     →  refreshes cell_type_aligned on integrated.h5ad
+#   2 (GPU)  scVI + scANVI         →  scvi_output/integrated.h5ad + plots
+#   3 (CPU)  Diagnostics           →  scanvi_diagnostics/ (label-transfer QC)
+#   4 (CPU)  Pseudobulk            →  pseudobulk_output/*.h5ad
+#   5 (CPU)  Notebook              →  notebooks/results/<config>/ (if config has notebook:)
 #
 # Usage:
 #   cd /home/rajd2/rds/hpc-work/snRNAseq_2026
@@ -14,7 +14,10 @@
 #
 # The config defaults to code/pipeline/configs/source_hpc_config.yaml.
 # Individual steps can be resubmitted independently using the step scripts.
-# To run scanvi-only after step 2, submit step3_label_transfer.sh manually.
+#
+# Utility scripts (not part of normal chain — submit manually if needed):
+#   util_scanvi_rerun.sh  — re-run scANVI label transfer on an existing scVI model
+#   util_replot.sh        — regenerate scVI plots from an existing integrated.h5ad
 
 set -euo pipefail
 
@@ -31,43 +34,47 @@ mkdir -p "${WORK_DIR}/logs"
 
 # Step 1: Downsample + Combine (CPU)
 JID1=$(sbatch --parsable \
-    --job-name=snrna_prep \
+    --job-name=step1_scvi \
     --export=ALL,WORK_DIR="${WORK_DIR}",CONFIG="${CONFIG}" \
     "${WORK_DIR}/code/pipeline/slurm/step1_downsample_combine.sh")
 echo "Step 1 (downsample+combine) submitted: job ${JID1}"
 
-# Step 2: scVI (+ scANVI if enabled in config) — depends on step 1
+# Step 2: scVI + scANVI (GPU) — depends on step 1
 JID2=$(sbatch --parsable \
     --dependency=afterok:${JID1} \
-    --job-name=snrna_scvi \
+    --job-name=step2_scvi \
     --export=ALL,WORK_DIR="${WORK_DIR}",CONFIG="${CONFIG}" \
     "${WORK_DIR}/code/pipeline/slurm/step2_scvi.sh")
-echo "Step 2 (scVI+scANVI)       submitted: job ${JID2}  [depends on ${JID1}]"
+echo "Step 2 (scVI+scANVI)        submitted: job ${JID2}  [depends on ${JID1}]"
 
-# Step 3: Pseudobulk (CPU) — depends on step 2
+# Step 3: Diagnostics (CPU) — depends on step 2
 JID3=$(sbatch --parsable \
     --dependency=afterok:${JID2} \
-    --job-name=snrna_pseudobulk \
+    --job-name=step3_scvi \
+    --export=ALL,WORK_DIR="${WORK_DIR}",CONFIG="${CONFIG}" \
+    "${WORK_DIR}/code/pipeline/slurm/step3_diagnostics.sh")
+echo "Step 3 (diagnostics)        submitted: job ${JID3}  [depends on ${JID2}]"
+
+# Step 4: Pseudobulk (CPU) — depends on step 3
+JID4=$(sbatch --parsable \
+    --dependency=afterok:${JID3} \
+    --job-name=step4_scvi \
     --export=ALL,WORK_DIR="${WORK_DIR}",CONFIG="${CONFIG}" \
     "${WORK_DIR}/code/pipeline/slurm/step4_pseudobulk.sh")
-echo "Step 3 (pseudobulk)        submitted: job ${JID3}  [depends on ${JID2}]"
+echo "Step 4 (pseudobulk)         submitted: job ${JID4}  [depends on ${JID3}]"
 
-# Step 4: Notebook render (CPU) — depends on pseudobulk, only if config has notebook: section
-CHAIN="${JID1} → ${JID2} → ${JID3}"
+# Step 5: Notebook render (CPU) — depends on step 4, only if config has notebook: section
+CHAIN="${JID1} → ${JID2} → ${JID3} → ${JID4}"
 if grep -q '^notebook:' "${WORK_DIR}/${CONFIG}" 2>/dev/null; then
-    JID4=$(sbatch --parsable \
-        --dependency=afterok:${JID3} \
-        --job-name=snrna_notebook \
+    JID5=$(sbatch --parsable \
+        --dependency=afterok:${JID4} \
+        --job-name=step5_scvi \
         --export=ALL,WORK_DIR="${WORK_DIR}",CONFIG="${CONFIG}" \
         "${WORK_DIR}/code/pipeline/slurm/step5_notebook.sh")
-    echo "Step 4 (notebook)          submitted: job ${JID4}  [depends on ${JID3}]"
-    CHAIN="${CHAIN} → ${JID4}"
+    echo "Step 5 (notebook)           submitted: job ${JID5}  [depends on ${JID4}]"
+    CHAIN="${CHAIN} → ${JID5}"
 fi
 
 echo ""
 echo "Pipeline chain: ${CHAIN}"
-echo "Optional scanvi-only rerun (after step 2):"
-echo "  sbatch --dependency=afterok:${JID2} --job-name=snrna_scanvi \
-    --export=ALL,WORK_DIR=${WORK_DIR},CONFIG=${CONFIG} \
-    ${WORK_DIR}/code/pipeline/slurm/step3_label_transfer.sh"
 echo "Monitor with: squeue -u \$(whoami)"
