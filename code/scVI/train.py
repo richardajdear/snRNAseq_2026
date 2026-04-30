@@ -6,7 +6,7 @@ from typing import Optional
 
 import anndata as ad
 import scvi
-from scvi.model import SCANVI, SCVI
+from scvi.model import SCANVI, SCVI, LinearSCVI
 
 from .config import PipelineConfig
 from .utils import Timer, log_memory
@@ -36,33 +36,52 @@ def train_scvi(
     config: PipelineConfig,
     device_info: dict,
     logger: logging.Logger,
-) -> SCVI:
-    """Train or load an scVI model."""
+):
+    """Train or load an scVI or LinearSCVI (LDVAE) model."""
     _configure_scvi_settings(config, logger)
     model_path = config.scvi_model_path
 
+    model_cls = LinearSCVI if config.linear_decoder else SCVI
+
+    # LinearSCVI does not support zinb; fall back to nb with a warning.
+    gene_likelihood = config.gene_likelihood
+    if config.linear_decoder and gene_likelihood == "zinb":
+        logger.warning(
+            "LinearSCVI does not support gene_likelihood='zinb'; using 'nb' instead."
+        )
+        gene_likelihood = "nb"
+
     # Setup anndata (required before both training and loading)
     covariate_kwargs = {}
-    if config.continuous_covariate_keys:
-        covariate_kwargs['continuous_covariate_keys'] = config.continuous_covariate_keys
-    if config.categorical_covariate_keys:
-        covariate_kwargs['categorical_covariate_keys'] = config.categorical_covariate_keys
-    if covariate_kwargs:
-        logger.info(f"scVI covariates: {covariate_kwargs}")
-    SCVI.setup_anndata(
+    if config.linear_decoder:
+        if config.continuous_covariate_keys or config.categorical_covariate_keys:
+            logger.warning(
+                "LinearSCVI does not support continuous_covariate_keys / "
+                "categorical_covariate_keys — ignoring. Age and sex will not be "
+                "regressed out from the latent space."
+            )
+    else:
+        if config.continuous_covariate_keys:
+            covariate_kwargs['continuous_covariate_keys'] = config.continuous_covariate_keys
+        if config.categorical_covariate_keys:
+            covariate_kwargs['categorical_covariate_keys'] = config.categorical_covariate_keys
+        if covariate_kwargs:
+            logger.info(f"scVI covariates: {covariate_kwargs}")
+    model_cls.setup_anndata(
         adata_scvi, layer=config.counts_layer, batch_key=config.batch_key,
         **covariate_kwargs,
     )
 
     # Determine whether to load or train
-    logger.info(f"scVI model path: {model_path}")
+    model_label = "LinearSCVI (LDVAE)" if config.linear_decoder else "scVI"
+    logger.info(f"{model_label} model path: {model_path}")
     logger.info(f"Model exists: {model_path.exists()}, overwrite_scvi: {config.overwrite_scvi}")
 
     # Load existing model if available
     if model_path.exists() and not config.overwrite_scvi:
-        logger.info(f"Loading existing scVI model from {model_path}")
-        with Timer("Loading scVI model", logger):
-            model = SCVI.load(str(model_path), adata=adata_scvi)
+        logger.info(f"Loading existing {model_label} model from {model_path}")
+        with Timer(f"Loading {model_label} model", logger):
+            model = model_cls.load(str(model_path), adata=adata_scvi)
         logger.info(f"Loaded model: n_genes={model.adata.n_vars}")
         return model
 
@@ -70,16 +89,16 @@ def train_scvi(
         logger.info(f"Overwrite flag set: removing old model at {model_path}")
 
     # Build and train new model
-    model = SCVI(
+    model = model_cls(
         adata_scvi,
         n_hidden=config.n_hidden,
         n_latent=config.n_latent,
         n_layers=config.n_layers,
-        gene_likelihood=config.gene_likelihood,
+        gene_likelihood=gene_likelihood,
     )
     logger.info(
-        f"scVI model: n_latent={config.n_latent}, n_hidden={config.n_hidden}, "
-        f"n_layers={config.n_layers}, gene_likelihood={config.gene_likelihood}"
+        f"{model_label}: n_latent={config.n_latent}, n_hidden={config.n_hidden}, "
+        f"n_layers={config.n_layers}, gene_likelihood={gene_likelihood}"
     )
 
     accel = _get_accelerator(device_info)

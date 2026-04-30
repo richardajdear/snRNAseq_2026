@@ -7,27 +7,13 @@
 #   cd /home/rajd2/rds/hpc-work/snRNAseq_2026
 #   bash code/pipeline/slurm/submit_pipeline.sh code/pipeline/excitatory_postnatal_tuning4.yaml
 
-output_dir: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/VelWangPsychAD_excitatory_postnatal_tuning4
+output_dir: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/Vel_excitatory_postnatal
 
 sources:
-  - name: WANG
-    path: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/wang/wang.h5ad
-    dataset_type: Wang
-    cell_type_field: "Type_updated"
-    pfc_only: true
-
   - name: VELMESHEV
     path: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/velmeshev/velmeshev.h5ad
     dataset_type: Velmeshev
     cell_type_field: "Cell_Type"
-    pfc_only: true
-
-  - name: PSYCHAD
-    paths:
-      aging: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_PsychAD/RNAseq/Aging_Cohort.h5ad
-      hbcc:  /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_PsychAD/RNAseq/HBCC_Cohort.h5ad
-    dataset_type: PsychAD
-    cell_type_field: "subclass"
     pfc_only: true
 
 age_downsample: true
@@ -49,13 +35,13 @@ scvi:
   early_stopping: true
   early_stopping_patience: 20
   num_workers: 16
-  transform_batch: WANG-multiome
+  transform_batch: VELMESHEV-V3
   continuous_covariate_keys: [age_log_pc]
   categorical_covariate_keys: [sex]
 
 scanvi_label_transfer:
   enabled: true
-  label_column: cell_type_for_scanvi
+  label_column: cell_type_raw
   max_epochs_scanvi: 100
   confidence_threshold: 0.5
 
@@ -80,16 +66,14 @@ pseudobulk:
       filter:
         cell_class: Excitatory
 
-    - name: inhibitory_by_celltype
-      group_cols: [individual, cell_type_aligned]
-      filter:
-        cell_class: Inhibitory
-
 notebook:
   template: notebooks/templates/grn_dev.qmd
 
 steps:
+  - downsample
+  - combine
+  - scvi
   - diagnostics
   - pseudobulk
   - notebook
-overwrite: true
+overwrite: false

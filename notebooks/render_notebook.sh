@@ -24,7 +24,7 @@ FORCE="${4:-}"
 OUTPUT_FILE="${5:-}"  # Optional: override output filename (e.g. my_config.html)
 
 if [[ -z "$NOTEBOOK" ]]; then
-    echo "Usage: $0 <path/to/notebook.qmd> [params.yaml] [output_dir] [--force] [output_file.html]" >&2
+    echo "Usage: $0 <path/to/notebook.qmd> [params.yaml] [output_dir] [--force] [output_file.md]" >&2
     exit 1
 fi
 

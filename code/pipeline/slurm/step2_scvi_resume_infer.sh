@@ -19,8 +19,8 @@
 #   sbatch --export=ALL,SCVI_CONFIG="${SCVI_CONFIG}" \
 #          code/pipeline/slurm/step2_scvi_resume_infer.sh
 
-#SBATCH --output=/home/rajd2/rds/hpc-work/snRNAseq_2026/logs/step2_scvi_resume_%j.out
-#SBATCH --error=/home/rajd2/rds/hpc-work/snRNAseq_2026/logs/step2_scvi_resume_%j.err
+#SBATCH --output=/home/rajd2/rds/hpc-work/snRNAseq_2026/logs/%j_step2_scvi_resume.out
+#SBATCH --error=/home/rajd2/rds/hpc-work/snRNAseq_2026/logs/%j_step2_scvi_resume.err
 #SBATCH --time=02:00:00
 #SBATCH --nodes=1
 #SBATCH --ntasks=1

@@ -1,6 +1,6 @@
 #!/bin/bash
-#SBATCH --output=/home/rajd2/rds/hpc-work/snRNAseq_2026/logs/step5_notebook_%j.out
-#SBATCH --error=/home/rajd2/rds/hpc-work/snRNAseq_2026/logs/step5_notebook_%j.err
+#SBATCH --output=/home/rajd2/rds/hpc-work/snRNAseq_2026/logs/%j_step5_notebook.out
+#SBATCH --error=/home/rajd2/rds/hpc-work/snRNAseq_2026/logs/%j_step5_notebook.err
 #SBATCH --time=02:00:00
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
@@ -27,7 +27,7 @@ OUTPUT_DIR=$(awk '/^output_dir:/{print $2; exit}' "${WORK_DIR}/${CONFIG}")
 TEMPLATE_PATH="${WORK_DIR}/${NOTEBOOK_TEMPLATE}"
 RESULTS_DIR="${WORK_DIR}/notebooks/results/${CONFIG_STEM}"
 PARAMS_FILE="${RESULTS_DIR}/${CONFIG_STEM}_params.yaml"
-OUTPUT_FILE="${CONFIG_STEM}.html"
+OUTPUT_FILE="${CONFIG_STEM}.md"
 PSEUDOBULK_FILE="${OUTPUT_DIR}/pseudobulk_output/${PSEUDOBULK_GROUP}.h5ad"
 
 mkdir -p "${RESULTS_DIR}"

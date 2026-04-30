@@ -33,6 +33,7 @@ class PipelineConfig:
     n_hidden: int = 128
     n_layers: int = 2
     gene_likelihood: str = "zinb"  # "nb" or "zinb"; tunable via scvi_tuning/best_hyperparameters.yaml
+    linear_decoder: bool = False   # use LinearDecoderSCVI (LDVAE) instead of standard SCVI
 
     # -- Training --
     max_epochs_scvi: int = 400

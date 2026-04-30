@@ -102,6 +102,15 @@ def build_cell_type_aligned_palette(categories: list) -> dict:
         groups[g]["mature"].sort()
         groups[g]["immature"].sort()
 
+    # Single cell class: use full colour spectrum so subtypes are clearly
+    # distinct rather than bunched in similar shades of one hue.
+    if len(groups) == 1:
+        cmap = colormaps["tab20"]
+        buckets = next(iter(groups.values()))
+        all_types = buckets["mature"] + buckets["immature"]
+        n = len(all_types)
+        return {lbl: cmap(i / max(n - 1, 1))[:3] for i, lbl in enumerate(all_types)}
+
     palette = {}
     for g_name, buckets in groups.items():
         cmap_name, mature_range, immature_range = _GROUP_CMAP.get(g_name, _GROUP_CMAP["Other"])

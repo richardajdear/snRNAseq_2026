@@ -34,7 +34,7 @@ mkdir -p "${WORK_DIR}/logs"
 
 # Step 1: Downsample + Combine (CPU)
 JID1=$(sbatch --parsable \
-    --job-name=snrna_step1 \
+    --job-name=step1_scvi \
     --export=ALL,WORK_DIR="${WORK_DIR}",CONFIG="${CONFIG}" \
     "${WORK_DIR}/code/pipeline/slurm/step1_downsample_combine.sh")
 echo "Step 1 (downsample+combine) submitted: job ${JID1}"
@@ -42,7 +42,7 @@ echo "Step 1 (downsample+combine) submitted: job ${JID1}"
 # Step 2: scVI + scANVI (GPU) — depends on step 1
 JID2=$(sbatch --parsable \
     --dependency=afterok:${JID1} \
-    --job-name=snrna_step2 \
+    --job-name=step2_scvi \
     --export=ALL,WORK_DIR="${WORK_DIR}",CONFIG="${CONFIG}" \
     "${WORK_DIR}/code/pipeline/slurm/step2_scvi.sh")
 echo "Step 2 (scVI+scANVI)        submitted: job ${JID2}  [depends on ${JID1}]"
@@ -50,7 +50,7 @@ echo "Step 2 (scVI+scANVI)        submitted: job ${JID2}  [depends on ${JID1}]"
 # Step 3: Diagnostics (CPU) — depends on step 2
 JID3=$(sbatch --parsable \
     --dependency=afterok:${JID2} \
-    --job-name=snrna_step3 \
+    --job-name=step3_scvi \
     --export=ALL,WORK_DIR="${WORK_DIR}",CONFIG="${CONFIG}" \
     "${WORK_DIR}/code/pipeline/slurm/step3_diagnostics.sh")
 echo "Step 3 (diagnostics)        submitted: job ${JID3}  [depends on ${JID2}]"
@@ -58,7 +58,7 @@ echo "Step 3 (diagnostics)        submitted: job ${JID3}  [depends on ${JID2}]"
 # Step 4: Pseudobulk (CPU) — depends on step 3
 JID4=$(sbatch --parsable \
     --dependency=afterok:${JID3} \
-    --job-name=snrna_step4 \
+    --job-name=step4_scvi \
     --export=ALL,WORK_DIR="${WORK_DIR}",CONFIG="${CONFIG}" \
     "${WORK_DIR}/code/pipeline/slurm/step4_pseudobulk.sh")
 echo "Step 4 (pseudobulk)         submitted: job ${JID4}  [depends on ${JID3}]"
@@ -68,7 +68,7 @@ CHAIN="${JID1} → ${JID2} → ${JID3} → ${JID4}"
 if grep -q '^notebook:' "${WORK_DIR}/${CONFIG}" 2>/dev/null; then
     JID5=$(sbatch --parsable \
         --dependency=afterok:${JID4} \
-        --job-name=snrna_step5 \
+        --job-name=step5_scvi \
         --export=ALL,WORK_DIR="${WORK_DIR}",CONFIG="${CONFIG}" \
         "${WORK_DIR}/code/pipeline/slurm/step5_notebook.sh")
     echo "Step 5 (notebook)           submitted: job ${JID5}  [depends on ${JID4}]"

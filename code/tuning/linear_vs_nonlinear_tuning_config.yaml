@@ -1,0 +1,84 @@
+# scVI hyperparameter tuning config — linear vs nonlinear decoder comparison.
+# Run with: PYTHONPATH=code python -m tuning.tune_scvi_batch --config code/tuning/linear_vs_nonlinear_tuning_config.yaml
+#
+# Purpose: benchmark LinearDecoderSCVI (LDVAE) against standard scVI across
+#   matched architectural hyperparameters, using the same 50:50 objective
+#   (expression-based batch mixing + reconstruction error).
+#
+# LinearDecoderSCVI replaces the nonlinear decoder with a single linear layer.
+# Each latent dimension maps linearly to genes (gene programs), making the latent
+# space interpretable for GRN analysis via model.get_loadings().
+# The encoder architecture is identical for both decoder types.
+#
+# NOTE: LinearDecoderSCVI does not support gene_likelihood=zinb.
+#   Trials with decoder_type=linear and gene_likelihood=zinb are automatically
+#   demoted to nb; this is logged per trial and recorded in trial_results.csv.
+
+input_h5ad: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/VelWangPsychAD_100k_source-chemistry/combined.h5ad
+output_dir: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/VelWangPsychAD_100k_source-chemistry/scvi_tuning_ldvae_comparison
+
+batch_key: source-chemistry
+age_key: age_years
+cell_type_key: cell_class
+counts_layer: counts
+
+# Match production covariates exactly.
+continuous_covariate_keys: [age_log_pc]
+categorical_covariate_keys: [sex]
+
+hvg:
+  n_top_genes: 15000
+  hvg_flavor: pearson_residuals
+
+tuning:
+  random_seed: 42
+  n_trials: 40             # 96 combinations (2×4×2×3×2×1); 40 trials ≈ 42% coverage
+  max_hours: 22.0          # 2h buffer inside a 24h SLURM wall; linear decoder trains faster
+  max_cells: 120000        # stratified subsample; ~40% of full 300k dataset
+  num_workers: 4
+  scanvi_top_k: 3          # evaluate top-3 scVI trials with scANVI post-loop
+
+training:
+  max_epochs_scvi: 400
+  early_stopping: true
+  early_stopping_patience: 20
+  train_size: 0.9
+  max_epochs_scanvi: 50
+
+# Search space: decoder_type added alongside architecture.
+#
+# decoder_type: "nonlinear" = standard SCVI (nonlinear MLP decoder)
+#               "linear"    = LinearDecoderSCVI (single linear layer decoder)
+#
+# gene_likelihood: both nb and zinb are included.  zinb is not supported by the
+#   linear decoder and will be demoted to nb automatically; this means linear trials
+#   are always nb, providing a clean nb-only comparison for those rows while nonlinear
+#   trials can use either.  You can restrict to gene_likelihood: ["nb"] if you want a
+#   fully matched comparison (both decoders, same likelihood).
+#
+# Architecture constraint: n_hidden >= 2×n_latent prevents encoder bottleneck collapse.
+#   All combinations below satisfy this (n_hidden=128 ≥ 2×50=100; n_hidden=256 ≥ 100).
+#
+# Space size: 2 × 4 × 2 × 3 × 2 × 1 = 96 combinations
+search_space:
+  decoder_type: ["nonlinear", "linear"]
+  n_latent: [30, 50]
+  n_hidden: [128, 256]
+  n_layers: [3, 5]
+  gene_likelihood: ["nb", "zinb"]
+  batch_size: [512]
+
+# Objective: same 50:50 expression-based metric as all previous rounds.
+# Linear decoder may score lower on recon_error (nb-only, no zero-inflation)
+# but may score comparably or better on batch_mixing_pca_score if the compressed
+# linear representation removes batch-specific nonlinear variation.
+metric:
+  transform_batch: "WANG-multiome"
+  n_pca_components: 50
+  n_normalized_samples: 1
+  max_cells_expr: 30000
+  age_bin_edges: [-1.0, -0.5, -0.38, -0.27, -0.15, -0.05, 0.0, 1.0, 5.0, 12.0, 20.0, 40.0, 90.0]
+  prenatal_weight: 2.0
+  k_neighbors: 20
+  min_cells_per_bin: 100
+  min_cells_per_group: 75
