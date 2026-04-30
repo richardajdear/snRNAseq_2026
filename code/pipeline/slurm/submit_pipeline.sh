@@ -8,6 +8,12 @@
 #   4 (CPU)  Pseudobulk            →  pseudobulk_output/*.h5ad
 #   5 (CPU)  Notebook              →  notebooks/results/<config>/ (if config has notebook:)
 #
+# Each step is idempotent: re-submitting picks up where a partial run left off.
+# The scvi step (step 2) is complete only when BOTH integrated.h5ad AND
+# scanvi_model/ exist. If the scVI model exists but scANVI is missing, simply
+# re-submit step2_scvi.sh (or this script) and scANVI will resume without
+# retraining scVI.
+#
 # Usage:
 #   cd /home/rajd2/rds/hpc-work/snRNAseq_2026
 #   bash code/pipeline/slurm/submit_pipeline.sh [config]
@@ -15,9 +21,13 @@
 # The config defaults to code/pipeline/configs/source_hpc_config.yaml.
 # Individual steps can be resubmitted independently using the step scripts.
 #
-# Utility scripts (not part of normal chain — submit manually if needed):
-#   util_scanvi_rerun.sh  — re-run scANVI label transfer on an existing scVI model
-#   util_replot.sh        — regenerate scVI plots from an existing integrated.h5ad
+# Utility scripts (submit manually only when needed):
+#   util_scanvi_rerun.sh     — force-retrain scANVI after updating label mappings
+#                              (use --overwrite; not needed for simple resumption)
+#   util_retransform.sh      — re-run inference with a different transform_batch
+#                              then aggregate pseudobulk (unique use case)
+#   util_replot.sh           — regenerate scVI plots without any retraining
+#   step2_scvi_resume_infer.sh — resume after BOTH models exist but h5ad is missing
 
 set -euo pipefail
 

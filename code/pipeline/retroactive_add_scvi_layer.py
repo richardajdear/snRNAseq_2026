@@ -1,5 +1,21 @@
 """Retroactively add scvi_normalized and fix latent-space UMAPs for existing models.
 
+.. deprecated::
+    For the common case of resuming a partial pipeline run (scVI model exists but
+    scANVI was not run, or inference layers are missing after a timeout), prefer
+    re-submitting the main pipeline::
+
+        python -m pipeline.run_pipeline --config <config.yaml> --steps scvi
+
+    This will detect the incomplete state, load the existing scVI model without
+    retraining it, and complete scANVI training and inference automatically.
+
+    This script is retained for the specific edge case where you need fine-grained
+    control over which inference steps are re-run on an existing integrated.h5ad
+    (e.g. only adding ``scvi_normalized`` without touching UMAPs or plots, or
+    fixing degenerate latent-space UMAPs caused by dimension mismatch in an old
+    model) without re-running the full scvi pipeline step.
+
 Run this after a pipeline run that:
   (a) skipped scVI inference (run_scvi_inference=False), so scvi_normalized is missing, OR
   (b) produced a degenerate scANVI UMAP because the saved scANVI model had more

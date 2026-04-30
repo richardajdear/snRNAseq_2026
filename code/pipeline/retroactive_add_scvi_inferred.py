@@ -1,5 +1,19 @@
 """Retroactively add scvi_normalized layer and regenerate inferred UMAP plots.
 
+.. deprecated::
+    For the common case of resuming a partial pipeline run where scVI inference
+    was not completed, prefer re-submitting the main pipeline::
+
+        python -m pipeline.run_pipeline --config <config.yaml> --steps scvi
+
+    This will detect the incomplete state, load the existing scVI model without
+    retraining it, and re-run inference and UMAP generation automatically.
+
+    This script is retained for the specific edge case where you want to add
+    only ``scvi_normalized`` and recompute inferred UMAPs/plots without touching
+    scANVI or re-running the full scvi pipeline step (e.g. when the scANVI model
+    and ``scanvi_normalized`` are already correct and must not be modified).
+
 Loads an existing integrated.h5ad + saved scVI model, runs scVI
 get_normalized_expression (which was skipped when scANVI inference was the
 primary output), then recomputes:

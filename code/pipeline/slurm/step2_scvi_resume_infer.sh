@@ -1,13 +1,20 @@
 #!/bin/bash
 # step2_scvi_resume_infer.sh — Resume scVI pipeline from inference only.
 #
-# Use when scVI + scANVI training completed successfully but the job timed out
-# before integrated.h5ad was fully written. Both trained models must exist in
-# scvi_output/scvi_model/ and scvi_output/scanvi_model/.
+# Use when scVI + scANVI training BOTH completed successfully but the job timed
+# out before integrated.h5ad was fully written. Both trained models must exist
+# in scvi_output/scvi_model/ and scvi_output/scanvi_model/.
 #
-# This calls scVI.run_pipeline directly (bypassing pipeline.run_pipeline) with
-# --steps prep infer umap plot save, which loads the saved models from disk and
-# skips all training. It reads the scvi_config.yaml that was written by the
+# For the more common case where only scVI ran but scANVI did not (i.e.
+# scvi_model/ exists but scanvi_model/ is missing), you do NOT need this
+# script — simply re-submit the main pipeline step and it will resume:
+#
+#   sbatch --export=ALL,CONFIG=<config.yaml> \
+#          code/pipeline/slurm/step2_scvi.sh
+#
+# This script calls scVI.run_pipeline directly (bypassing pipeline.run_pipeline)
+# with --steps prep infer umap plot save, which loads the saved models from disk
+# and skips all training. It reads the scvi_config.yaml that was written by the
 # original step2 job into the output directory.
 #
 # Usage (from project root):
