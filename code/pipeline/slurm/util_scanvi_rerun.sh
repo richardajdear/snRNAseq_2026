@@ -9,15 +9,25 @@
 #SBATCH --mem=128G
 #SBATCH --account=vertes-sl2-gpu
 
-# Utility: re-run scANVI label transfer on an existing scVI model.
+# Utility: force-retrain scANVI label transfer on an existing scVI model.
 #
-# NOT part of the normal pipeline chain. Use this when you want to re-run
-# scANVI label transfer (e.g. after updating label mappings) without retraining
-# scVI from scratch.
+# Use this when you want to RETRAIN scANVI from scratch (e.g. after updating
+# label mappings or cell_type_for_scanvi assignments). This overwrites any
+# existing scanvi_model/ and updates integrated.h5ad with new predictions.
+#
+# For the more common case where scANVI simply never ran (scvi_model/ exists
+# but scanvi_model/ is missing), you do NOT need this script — just re-submit
+# the main pipeline without --overwrite and it will resume automatically:
+#
+#   sbatch --export=ALL,CONFIG=<config.yaml> \
+#          code/pipeline/slurm/step2_scvi.sh
+#
+# This script is equivalent to running:
+#   pipeline.run_pipeline --config <CONFIG> --steps scanvi --overwrite
 #
 # Reads:  existing scvi_model/ inside the output_dir specified by CONFIG
-# Writes: overwrites integrated.h5ad with updated cell_type_aligned labels
-#         and scanvi_normalized layer; then re-runs diagnostics.
+# Writes: overwrites scanvi_model/, updates integrated.h5ad with new
+#         cell_type_aligned labels and scanvi_normalized layer; re-runs diagnostics.
 #
 # Usage:
 #   sbatch --export=ALL,CONFIG=code/pipeline/configs/excitatory_1y+_tuning4.yaml \

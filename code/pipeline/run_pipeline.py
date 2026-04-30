@@ -27,7 +27,7 @@ Steps (in order)
     6. notebook     — render the analysis notebook from template
 
     scanvi (utility) — scANVI-only rerun on an existing scVI model (no scVI retraining).
-                       Not part of the default chain; use util_scanvi_rerun.sh manually.
+                       Use --steps scanvi to run this explicitly.
 
 Downsampling
 ------------
@@ -51,6 +51,49 @@ Memory note: full PsychAD PFC cells are ~600 k after deduplication. Combined
 with VELMESHEV and WANG at full scale the pipeline requires ~200 GB RAM for the
 scVI step. Use `n_cells` for testing or on memory-constrained nodes.
 
+Partial-run resumption (overwrite=false)
+-----------------------------------------
+Each step is idempotent and checks for existing outputs before running. Steps
+are skipped only when their outputs are fully present. This means you can
+re-submit any config to pick up where a failed or partial run left off:
+
+    - 'downsample' is skipped per-dataset if the per_dataset/<name>.h5ad exists.
+    - 'combine' is skipped if combined.h5ad exists.
+    - 'scvi' is skipped only when BOTH integrated.h5ad AND scanvi_model/ exist
+      (when scanvi_label_transfer.enabled=true). If the scVI model exists but
+      scanvi_model/ is missing, the existing scVI model is loaded (not retrained)
+      and scANVI training resumes automatically. combined.h5ad is not required
+      for this resumption — integrated.h5ad is used as input if combined.h5ad
+      was already cleaned up.
+    - 'scanvi' (standalone step) is skipped only when scanvi_model/ already exists.
+    - 'diagnostics', 'pseudobulk', 'notebook' always re-run (outputs are fast to
+      regenerate and do not have skip logic).
+
+Utility scripts (not part of the normal pipeline chain)
+---------------------------------------------------------
+    util_scanvi_rerun.sh  — force-retrain scANVI (e.g. after updating label
+                            mappings). Equivalent to --steps scanvi --overwrite.
+                            Use when you want to discard the existing scANVI model
+                            and retrain from scratch.
+
+    util_retransform.sh   — re-run inference with a different transform_batch, then
+                            run pseudobulk. This unique use case (changing the
+                            normalization reference batch without retraining) is
+                            not covered by the main pipeline and requires this
+                            script.
+
+    util_replot.sh        — regenerate scvi_output/plots/ from an existing
+                            integrated.h5ad without re-running any model. Calls
+                            scVI.run_pipeline --steps plot directly.
+
+    step2_scvi_resume_infer.sh — resume after scVI+scANVI training both completed
+                            but the job timed out before integrated.h5ad was
+                            written. Calls scVI.run_pipeline --steps prep infer
+                            umap plot save directly (requires both scvi_model/ and
+                            scanvi_model/ to already exist). For the more common
+                            case where only scVI is done, simply re-submit the
+                            main pipeline with --steps scvi (no --overwrite needed).
+
 Usage (from project root)
 --------------------------
     Requires the 'scvi' micromamba environment (scvi-tools, scanpy, anndata).
@@ -62,7 +105,12 @@ Usage (from project root)
     micromamba run -n scvi env PYTHONPATH=code python -m pipeline.run_pipeline --config code/pipeline/test_config.yaml \\
         --steps downsample combine scvi
 
-    # Re-run scANVI label transfer without retraining scVI:
+    # Resume a partial run (e.g. scVI done but scANVI missing) — loads existing
+    # scVI model and trains scANVI without retraining scVI:
+    micromamba run -n scvi env PYTHONPATH=code python -m pipeline.run_pipeline --config code/pipeline/test_config.yaml \\
+        --steps scvi
+
+    # Re-run scANVI label transfer without retraining scVI (standalone):
     micromamba run -n scvi env PYTHONPATH=code python -m pipeline.run_pipeline --config code/pipeline/test_config.yaml \\
         --steps scanvi
 
@@ -70,7 +118,7 @@ Usage (from project root)
     micromamba run -n scvi env PYTHONPATH=code python -m pipeline.run_pipeline --config code/pipeline/test_config.yaml \\
         --overwrite
 
-    # Re-run scVI+scANVI to regenerate integrated.h5ad (e.g. after adding cell_type_aligned):
+    # Force-retrain scVI+scANVI from scratch:
     micromamba run -n scvi env PYTHONPATH=code python -m pipeline.run_pipeline --config code/pipeline/test_config.yaml \\
         --steps scvi --overwrite
 """
@@ -108,6 +156,27 @@ def _run(cmd: list, logger: logging.Logger, required: bool = True):
         level(f"Command failed (exit {result.returncode})")
         if required:
             sys.exit(result.returncode)
+
+
+def _is_scvi_step_complete(cfg: dict, scvi_output_dir: Path) -> bool:
+    """Return True only when the scvi step has fully completed for the given config.
+
+    Completeness is defined as:
+      - integrated.h5ad exists, AND
+      - scanvi_model/ exists, when scanvi_label_transfer.enabled=true
+
+    Using the scanvi_model/ directory as a proxy for scANVI completion allows
+    partial runs (scVI done, scANVI missing) to be resumed by re-submitting
+    --steps scvi without --overwrite. In that case the existing scVI model is
+    loaded (not retrained) and scANVI training picks up from where it left off.
+    """
+    if not (scvi_output_dir / 'integrated.h5ad').exists():
+        return False
+    slt = cfg.get('scanvi_label_transfer', {})
+    if slt.get('enabled', False):
+        if not (scvi_output_dir / 'scanvi_model').exists():
+            return False
+    return True
 
 
 def step_downsample(cfg: dict, output_dir: Path, overwrite: bool,
@@ -203,13 +272,34 @@ def step_scvi(cfg: dict, output_dir: Path, combined_path: Path,
     scvi_output_dir = output_dir / 'scvi_output'
     integrated_path = scvi_output_dir / 'integrated.h5ad'
 
-    if integrated_path.exists() and not overwrite:
-        logger.info(f"  scVI output already exists, skipping ({integrated_path})")
+    if _is_scvi_step_complete(cfg, scvi_output_dir) and not overwrite:
+        logger.info(f"  scVI step already complete, skipping ({integrated_path})")
         return integrated_path
 
-    # Build a temporary scVI config that points to combined_path
+    # When integrated.h5ad exists but the step is incomplete (e.g. scanvi_model/
+    # is missing), resume without retraining scVI.  combined.h5ad may have been
+    # deleted after the previous scVI run, so fall back to integrated.h5ad as
+    # input — it contains the same cells and all required metadata.
+    if integrated_path.exists() and not overwrite:
+        if not combined_path.exists():
+            logger.info(
+                f"  integrated.h5ad exists but step is incomplete "
+                f"(scanvi_model/ missing). Resuming: using integrated.h5ad as "
+                f"input and loading existing scVI model (overwrite_scvi=false)."
+            )
+            input_h5ad = integrated_path
+        else:
+            logger.info(
+                f"  integrated.h5ad exists but step is incomplete "
+                f"(scanvi_model/ missing). Resuming with existing scVI model."
+            )
+            input_h5ad = combined_path
+    else:
+        input_h5ad = combined_path
+
+    # Build a temporary scVI config that points to input_h5ad
     scvi_cfg = {
-        'input_h5ad': str(combined_path),
+        'input_h5ad': str(input_h5ad),
         'output_dir': str(scvi_output_dir),
         'batch_key': 'source',
         'cell_type_key': 'cell_class',
@@ -310,8 +400,9 @@ def step_scanvi(cfg: dict, output_dir: Path, combined_path: Path,
         )
         sys.exit(1)
 
-    if integrated_path.exists() and not overwrite:
-        logger.info(f"  integrated.h5ad already exists, skipping ({integrated_path})")
+    scanvi_model_dir = scvi_output_dir / 'scanvi_model'
+    if scanvi_model_dir.exists() and not overwrite:
+        logger.info(f"  scANVI step already complete, skipping ({scanvi_model_dir})")
         logger.info("  Use --overwrite to force a fresh scANVI-only rerun.")
         return integrated_path
 
