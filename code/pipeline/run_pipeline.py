@@ -163,7 +163,7 @@ def _is_scvi_step_complete(cfg: dict, scvi_output_dir: Path) -> bool:
 
     Completeness is defined as:
       - integrated.h5ad exists, AND
-      - scanvi_model/ exists, when scanvi_label_transfer.enabled=true
+      - scanvi_model/ exists, when ``scanvi_label_transfer.enabled: true``
 
     Using the scanvi_model/ directory as a proxy for scANVI completion allows
     partial runs (scVI done, scANVI missing) to be resumed by re-submitting
@@ -285,7 +285,7 @@ def step_scvi(cfg: dict, output_dir: Path, combined_path: Path,
             logger.info(
                 f"  integrated.h5ad exists but step is incomplete "
                 f"(scanvi_model/ missing). Resuming: using integrated.h5ad as "
-                f"input and loading existing scVI model (overwrite_scvi=false)."
+                f"input; existing scVI model will be loaded without retraining."
             )
             input_h5ad = integrated_path
         else:
