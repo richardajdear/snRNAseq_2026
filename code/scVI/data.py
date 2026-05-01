@@ -13,8 +13,22 @@ from .utils import Timer, log_memory
 
 def load_adata(config: PipelineConfig, logger: logging.Logger) -> ad.AnnData:
     """Load h5ad file and validate expected structure."""
-    with Timer(f"Loading {config.input_h5ad}", logger):
-        adata = sc.read_h5ad(config.input_h5ad)
+    input_path = Path(config.input_h5ad)
+    if not input_path.exists():
+        fallback = config._resolved_output_dir / config.output_h5ad
+        if fallback.exists():
+            logger.info(
+                f"input_h5ad not found at {input_path}; "
+                f"falling back to {fallback}"
+            )
+            input_path = fallback
+        else:
+            raise FileNotFoundError(
+                f"input_h5ad not found: {input_path}\n"
+                f"Fallback also missing: {fallback}"
+            )
+    with Timer(f"Loading {input_path}", logger):
+        adata = sc.read_h5ad(input_path)
 
     logger.info(f"Loaded: {adata.shape[0]} cells x {adata.shape[1]} genes")
     logger.info(f"Layers: {list(adata.layers.keys())}")

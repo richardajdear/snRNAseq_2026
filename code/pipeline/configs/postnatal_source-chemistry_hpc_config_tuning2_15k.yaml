@@ -87,10 +87,14 @@ pseudobulk:
       filter:
         cell_class: Inhibitory
 
+notebook:
+  template: notebooks/templates/grn_dev.qmd
+
 steps:
   - downsample
   - combine
   - scvi
   - diagnostics
   - pseudobulk
+  - notebook
 overwrite: true

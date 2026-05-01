@@ -69,6 +69,8 @@ pseudobulk:
 
 notebook:
   template: notebooks/templates/grn_dev.qmd
+  cell_class_col: ''    # data is already excitatory-only; skip the default 'Excitatory' filter
+  cell_class_value: ''
 
 steps:
   - downsample
