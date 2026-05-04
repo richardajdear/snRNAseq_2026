@@ -46,10 +46,9 @@ PARAMS_ENV=""
 OUTPUT_ARG=""
 if [[ -n "$OUTPUT_DIR" && -n "$OUTPUT_FILE" ]]; then
     mkdir -p "$OUTPUT_DIR"
-    OUTPUT_ARG="--output-dir '${OUTPUT_DIR}' --output '${OUTPUT_FILE}'"
+    OUTPUT_ARG="--output '${OUTPUT_FILE}'"
 elif [[ -n "$OUTPUT_DIR" ]]; then
     mkdir -p "$OUTPUT_DIR"
-    OUTPUT_ARG="--output-dir '${OUTPUT_DIR}'"
 fi
 
 CACHE_FLAG=""
@@ -59,6 +58,21 @@ SIF="/home/rajd2/rds/hpc-work/shortcake.sif"
 QUARTO_DIR="/usr/local/Cluster-Apps/ceuadmin/quarto/1.7.13"
 CONDA_ENV="shortcake_default"
 PYTHON_BIN="/opt/micromamba/envs/${CONDA_ENV}/bin/python3"
+
+# When OUTPUT_DIR is set, copy the notebook there before rendering so that
+# Quarto's intermediate files (*.quarto_ipynb, *_files/) land in the
+# job-specific output directory rather than the shared templates directory.
+# Without this, concurrent renders of the same template collide on those paths.
+if [[ -n "$OUTPUT_DIR" ]]; then
+    RENDER_NOTEBOOK="${OUTPUT_DIR}/${NOTEBOOK_FILE}"
+    cp "${NOTEBOOK}" "${RENDER_NOTEBOOK}"
+    RENDER_PWD="${OUTPUT_DIR}"
+    _CLEANUP_NOTEBOOK=1
+else
+    RENDER_NOTEBOOK="${NOTEBOOK_FILE}"
+    RENDER_PWD="${NOTEBOOK_DIR}"
+    _CLEANUP_NOTEBOOK=0
+fi
 
 echo "========================================"
 echo "Rendering: $NOTEBOOK"
@@ -72,13 +86,16 @@ echo "========================================"
 _JOB_START=$(date +%s)
 
 singularity exec \
-    --pwd "$NOTEBOOK_DIR" \
+    --pwd "$RENDER_PWD" \
     --bind "${QUARTO_DIR}:/quarto" \
     --env "R_LIBS_USER=/home/rajd2/R/library" \
     ${PARAMS_ENV:+--env "$PARAMS_ENV"} \
     "$SIF" \
     micromamba run -n "$CONDA_ENV" \
-    bash -c "QUARTO_PYTHON=${PYTHON_BIN} /quarto/bin/quarto render '${NOTEBOOK_FILE}' ${OUTPUT_ARG} ${CACHE_FLAG}"
+    bash -c "QUARTO_PYTHON=${PYTHON_BIN} /quarto/bin/quarto render '${RENDER_NOTEBOOK}' ${OUTPUT_ARG} ${CACHE_FLAG}"
+
+# Remove the notebook copy; keep all generated output files
+[[ "${_CLEANUP_NOTEBOOK}" -eq 1 ]] && rm -f "${RENDER_NOTEBOOK}"
 
 _ELAPSED=$(( $(date +%s) - _JOB_START ))
 _TIME_LIMIT=$(squeue -j "${SLURM_JOB_ID}" -h -o "%l" 2>/dev/null || echo "N/A")

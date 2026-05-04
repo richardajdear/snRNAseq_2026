@@ -44,6 +44,25 @@ cat > "${PARAMS_FILE}" << EOF
 EXPERIMENT_NAME: ${CONFIG_STEM}
 PSEUDOBULK_FILE: ${PSEUDOBULK_FILE}
 EOF
+
+# Append optional cell-class filter params from notebook config section.
+# When cell_class_col is set to '' in the config, the notebook skips filtering
+# (needed for single-class datasets that are already pre-filtered).
+_cell_class_col=$(python3 -c "
+import yaml
+cfg = yaml.safe_load(open('${WORK_DIR}/${CONFIG}'))
+nb = cfg.get('notebook', {})
+print(nb.get('cell_class_col', '__NOTSET__'))
+" 2>/dev/null || echo "__NOTSET__")
+if [[ "${_cell_class_col}" != "__NOTSET__" ]]; then
+    _cell_class_val=$(python3 -c "
+import yaml
+cfg = yaml.safe_load(open('${WORK_DIR}/${CONFIG}'))
+print(cfg.get('notebook', {}).get('cell_class_value', ''))
+" 2>/dev/null || echo "")
+    echo "CELL_CLASS_COL: '${_cell_class_col}'" >> "${PARAMS_FILE}"
+    echo "CELL_CLASS_VALUE: '${_cell_class_val}'" >> "${PARAMS_FILE}"
+fi
 echo "Params written: ${PARAMS_FILE}"
 
 echo "========================================"

@@ -75,6 +75,6 @@ steps:
   # - downsample
   # - combine
   # - scvi
-  - pseudobulk
+  # - pseudobulk
   - notebook
 overwrite: false

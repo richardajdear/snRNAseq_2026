@@ -157,7 +157,7 @@ def train_scvi(
     logger.info(f"scVI model saved to {model_path}")
 
     history_path = model_path.parent / "training_history_scvi.csv"
-    pd.DataFrame(model.history).to_csv(str(history_path), index_label="epoch")
+    pd.DataFrame({k: list(v) for k, v in model.history.items()}).to_csv(str(history_path), index_label="epoch")
     logger.info(f"Training history saved to {history_path}")
 
     log_memory("After scVI training", logger)
