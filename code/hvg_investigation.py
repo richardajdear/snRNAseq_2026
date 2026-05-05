@@ -168,6 +168,143 @@ def run_hvg_conditions(adata, adata_log, ahba_GRN, conditions, total_grn_genes):
     return scores_df, stats_df, hvg_df
 
 
+def load_pseudobulk(pb_file, scvi_layer='scanvi_normalized'):
+    """Load a pseudobulk h5ad and prepare for HVG selection + GRN projection.
+
+    Sets adata.X to *scvi_layer* (mean batch-corrected expression per
+    pseudobulk sample).  The raw ``counts`` layer is left intact for use by
+    ``pearson_residuals`` HVG selection.
+
+    Parameters
+    ----------
+    pb_file : str
+        Path to a pseudobulk .h5ad produced by pipeline/pseudobulk.py.
+    scvi_layer : str, default 'scanvi_normalized'
+        Which layer to use as adata.X.
+
+    Returns
+    -------
+    adata : AnnData
+    """
+    _log_mem("load_pseudobulk: start")
+    adata = sc.read_h5ad(pb_file)
+    if scvi_layer not in adata.layers:
+        available = list(adata.layers.keys())
+        raise ValueError(
+            f"Layer '{scvi_layer}' not found in {pb_file}. "
+            f"Available layers: {available}"
+        )
+    adata.X = adata.layers[scvi_layer].copy()
+    _log_mem("load_pseudobulk: after loading")
+    print(f"Shape:       {adata.shape}")
+    print(f"Layers:      {list(adata.layers.keys())}")
+    print(f"Obs columns: {sorted(adata.obs.columns.tolist())}")
+    return adata
+
+
+def build_conditions_pearson_only(n_values):
+    """Build HVG conditions using only pearson_residuals (+ all_genes baseline).
+
+    Parameters
+    ----------
+    n_values : list of int
+        Numbers of top HVGs to test (e.g. [2000, 8000]).
+
+    Returns
+    -------
+    conditions : list of dict
+    """
+    conditions = [{'label': 'all_genes', 'flavor': None, 'n_top_genes': None}]
+    for n in n_values:
+        conditions.append({
+            'label': f'pearson_{n}',
+            'flavor': 'pearson_residuals',
+            'n_top_genes': n,
+        })
+    return conditions
+
+
+def prepare_pseudobulk_for_r(scores_df, adata, n_values):
+    """Merge pseudobulk GRN scores with obs metadata for R analysis.
+
+    Unlike :func:`prepare_for_r`, this function:
+    * does **not** filter to excitatory cells (cell type is already encoded in
+      the pseudobulk obs, e.g. via ``cell_class`` or ``cell_type_aligned``).
+    * includes ``cell_type_aligned``, ``dataset``, and ``n_cells`` when present.
+    * uses only pearson condition ordering (no seurat_v3 / seurat).
+
+    Parameters
+    ----------
+    scores_df : DataFrame
+        Melted C3+/C3- scores from :func:`run_hvg_conditions`.
+    adata : AnnData
+        Pseudobulk AnnData whose obs contains donor/cell metadata.
+    n_values : list of int
+        Same n_values used in :func:`build_conditions_pearson_only`.
+
+    Returns
+    -------
+    final_df : DataFrame
+    """
+    cols_to_keep = [
+        'individual', 'age_years', 'cell_class', 'cell_subclass',
+        'cell_type', 'cell_type_aligned', 'source', 'dataset', 'n_cells',
+    ]
+    # Build a copy of obs so we do not mutate the caller's AnnData
+    obs = adata.obs.copy()
+    if 'individual' not in obs.columns and 'donor_id' in obs.columns:
+        obs['individual'] = obs['donor_id']
+    cols_to_keep = [c for c in cols_to_keep if c in obs.columns]
+
+    meta = obs[cols_to_keep].copy()
+    meta['obs_names'] = meta.index
+
+    final_df = pd.merge(scores_df, meta, on='obs_names')
+
+    condition_order = ['all_genes'] + [f'pearson_{n}' for n in n_values]
+    final_df['condition'] = pd.Categorical(
+        final_df['condition'], categories=condition_order, ordered=True)
+
+    return final_df
+
+
+def run_pseudobulk_pipeline(adata, ahba_GRN, total_grn_genes, N_VALUES, CACHE_DIR):
+    """Run pearson-only HVG projection on pseudobulk data, cache, and return results.
+
+    Convenience wrapper for pseudobulk notebooks:
+    ``build_conditions_pearson_only`` → ``run_hvg_conditions``
+    → ``prepare_pseudobulk_for_r`` → ``save_cache``.
+
+    Parameters
+    ----------
+    adata : AnnData
+        Pseudobulk AnnData loaded via :func:`load_pseudobulk`.
+    ahba_GRN, total_grn_genes
+        From :func:`setup_grn`.
+    N_VALUES : list of int
+        HVG counts to test (e.g. [2000, 8000]).
+    CACHE_DIR : str
+        Directory to write parquet cache files.
+
+    Returns
+    -------
+    scores_df, stats_df, final_df, hvg_df
+    """
+    _log_mem("run_pseudobulk_pipeline: start")
+    conditions = build_conditions_pearson_only(N_VALUES)
+    # run_hvg_conditions accepts an adata_log parameter used only by the
+    # 'seurat' flavor.  Since build_conditions_pearson_only never generates
+    # seurat-flavor conditions, adata_log is never accessed; we pass adata
+    # again as a safe no-op placeholder rather than requiring a separate copy.
+    scores_df, stats_df, hvg_df = run_hvg_conditions(
+        adata, adata, ahba_GRN, conditions, total_grn_genes)
+    _log_mem("run_pseudobulk_pipeline: after run_hvg_conditions")
+    final_df = prepare_pseudobulk_for_r(scores_df, adata, N_VALUES)
+    save_cache(CACHE_DIR, scores_df, stats_df, final_df, hvg_df)
+    _log_mem("run_pseudobulk_pipeline: done")
+    return scores_df, stats_df, final_df, hvg_df
+
+
 def prepare_for_r(scores_df, adata, n_values):
     """Merge scores with metadata, filter to excitatory, set condition ordering."""
     cols_to_keep = ['individual', 'age_years', 'cell_class', 'cell_subclass',
