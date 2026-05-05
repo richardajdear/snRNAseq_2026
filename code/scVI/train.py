@@ -273,6 +273,11 @@ def train_scanvi(
             n_layers=config.n_layers,
         )
 
+    plan_kwargs = {}
+    if config.scanvi_lr is not None:
+        plan_kwargs["lr"] = config.scanvi_lr
+        logger.info(f"scANVI learning rate: {config.scanvi_lr} (overriding default)")
+
     with Timer(f"Training scANVI ({config.max_epochs_scanvi} max epochs)", logger):
         model.train(
             max_epochs=config.max_epochs_scanvi,
@@ -281,6 +286,7 @@ def train_scanvi(
             validation_size=1.0 - config.train_size,
             batch_size=config.batch_size,
             enable_progress_bar=True,
+            plan_kwargs=plan_kwargs if plan_kwargs else None,
             **extra_kwargs,
             **accel,
         )

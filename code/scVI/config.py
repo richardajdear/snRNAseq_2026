@@ -44,6 +44,7 @@ class PipelineConfig:
     batch_size: int = 128
     num_workers: int = 4
     random_seed: int = 42
+    scanvi_lr: Optional[float] = None  # None → scvi-tools default (~1e-3); set lower (e.g. 1e-4) to avoid NaN explosions
 
     # -- Inference --
     run_scvi_inference: bool = True

@@ -151,11 +151,14 @@ def fig_trial_ranking(df: pd.DataFrame) -> plt.Figure:
     y = np.arange(len(df))
     ax.barh(y, df["objective"], color=colors, edgecolor="white", height=0.7)
 
-    # Overlay the batch-mixing-PCA component as a lighter inner bar (80% scaled)
-    bm_col = "batch_mixing_pca_score" if "batch_mixing_pca_score" in df.columns else None
+    # Overlay the chemistry mixing component as a lighter inner bar (80% scaled)
+    bm_col = (
+        "chem_mixing_score"      if "chem_mixing_score"      in df.columns else
+        "batch_mixing_pca_score" if "batch_mixing_pca_score" in df.columns else None
+    )
     if bm_col:
         ax.barh(y, df[bm_col] * 0.8, color=[c + "88" for c in colors],
-                edgecolor="none", height=0.3, label="_bm_pca component")
+                edgecolor="none", height=0.3, label="_chem_mix component")
 
     for i, (_, row) in enumerate(df.iterrows()):
         ax.text(row["objective"] + 0.002, i, _param_label(row),
@@ -176,19 +179,22 @@ def fig_trial_ranking(df: pd.DataFrame) -> plt.Figure:
     ]
     ax.legend(handles=legend_patches, fontsize=8, loc="lower right")
 
-    # Right: batch_mixing_pca_score (y) vs decoder_score_norm (x)
+    # Right: age_pres_score (y) vs chem_mixing_score (x) — the two new metrics
     ax2 = axes[1]
-    # Use whichever column is present; None means no data available for that axis.
-    bm_col  = "batch_mixing_pca_score" if "batch_mixing_pca_score" in df.columns else None
-    dec_col = "decoder_score_norm"     if "decoder_score_norm"     in df.columns else None
+    chem_col = (
+        "chem_mixing_score"      if "chem_mixing_score"      in df.columns else
+        "batch_mixing_pca_score" if "batch_mixing_pca_score" in df.columns else None
+    )
+    age_col = (
+        "age_pres_score"    if "age_pres_score"    in df.columns else
+        "decoder_score_norm" if "decoder_score_norm" in df.columns else None
+    )
 
     x_vals = (
-        df[dec_col].values if dec_col and dec_col in df.columns
-        else np.full(len(df), float("nan"))
+        df[chem_col].values if chem_col else np.full(len(df), float("nan"))
     )
     y_vals = (
-        df[bm_col].values if bm_col and bm_col in df.columns
-        else np.full(len(df), float("nan"))
+        df[age_col].values if age_col else np.full(len(df), float("nan"))
     )
 
     sc = ax2.scatter(
@@ -204,9 +210,9 @@ def fig_trial_ranking(df: pd.DataFrame) -> plt.Figure:
             fontsize=6.5, ha="left", va="bottom",
         )
     fig.colorbar(sc, ax=ax2, label="Objective")
-    ax2.set_xlabel("Decoder score norm (50%)")
-    ax2.set_ylabel("Batch mixing PCA score (50%)")
-    ax2.set_title("Score components\n(50:50 cross-trial normalized)")
+    ax2.set_xlabel(chem_col or "chem_mixing_score")
+    ax2.set_ylabel(age_col or "age_pres_score")
+    ax2.set_title("Score components\n(cross-trial normalized)")
     ax2.grid(alpha=0.3)
 
     fig.tight_layout()
@@ -296,14 +302,14 @@ def fig_parameter_effects(df: pd.DataFrame) -> plt.Figure:
     def _jitter(vals, scale=0.08):
         return vals + np.random.default_rng(0).uniform(-scale, scale, len(vals))
 
-    # Use whichever batch mixing column is present (new runs: batch_mixing_pca_score,
-    # old runs: age_batch_score for backward compatibility).
+    # Use whichever component columns are present (newest first).
     bm_col = (
-        "batch_mixing_pca_score" if "batch_mixing_pca_score" in df.columns
-        else "age_batch_score" if "age_batch_score" in df.columns
-        else None
+        "chem_mixing_score"      if "chem_mixing_score"      in df.columns else
+        "batch_mixing_pca_score" if "batch_mixing_pca_score" in df.columns else
+        "age_batch_score"        if "age_batch_score"        in df.columns else None
     )
-    metrics = ["objective"] + ([bm_col] if bm_col else [])
+    age_col = "age_pres_score" if "age_pres_score" in df.columns else None
+    metrics = ["objective"] + ([bm_col] if bm_col else []) + ([age_col] if age_col else [])
     cmap = plt.cm.Set2
 
     for ax_idx, param in enumerate(PARAM_COLS):
@@ -334,12 +340,14 @@ def fig_parameter_effects(df: pd.DataFrame) -> plt.Figure:
         ax.set_title(f"Effect of {param}")
 
     # Combined legend: metric colour + n_layers dot colour
-    bm_label = bm_col if bm_col else "batch mixing (no column)"
+    bm_label = bm_col if bm_col else "chem_mixing (no column)"
     metric_handles = [
         mpatches.Patch(color=cmap(0), label="objective (filled)"),
     ]
     if bm_col:
         metric_handles.append(mpatches.Patch(color=cmap(1), label=f"{bm_label} (filled)"))
+    if age_col:
+        metric_handles.append(mpatches.Patch(color=cmap(2), label=f"{age_col} (filled)"))
     layer_handles = [
         mpatches.Patch(color=c, label=f"n_layers={lay}")
         for lay, c in sorted(PALETTE.items()) if lay in df["n_layers"].astype(int).values
@@ -453,29 +461,29 @@ def fig_scanvi_comparison(df: pd.DataFrame, scanvi: pd.DataFrame) -> plt.Figure:
                 f"{sign}{delta:.3f}", ha="center", va="bottom", fontsize=7.5, color="#D65F5F")
 
     ax2 = axes[1]
-    # Show batch mixing PCA scores side by side (scVI vs scANVI)
-    # Use whichever column name is present for backward compatibility.
-    scvi_bm_col = "scvi_batch_mixing_pca_score"
-    scanvi_bm_col = "scanvi_batch_mixing_pca_score"
-    has_bm = scvi_bm_col in merged.columns and scanvi_bm_col in merged.columns
+    # Show chemistry mixing scores side by side (scVI vs scANVI).
+    # Try new column names first, fall back to old names for backward compatibility.
+    def _find_col(candidates, df):
+        return next((c for c in candidates if c in df.columns), None)
 
-    if has_bm:
-        ax2.bar(x - w / 2, merged[scvi_bm_col],  w, label="scVI bm_pca",   color="#4878CF88", alpha=0.85)
-        ax2.bar(x + w / 2, merged[scanvi_bm_col], w, label="scANVI bm_pca", color="#D65F5F88", alpha=0.85)
-        ax2.set_ylabel("Batch mixing PCA score (expression space)")
-        ax2.set_title("Batch mixing in expression PCA space\n(higher = better integrated)")
+    scvi_chem_col   = _find_col(["scvi_chem_mixing_score",   "scvi_batch_mixing_pca_score"],  merged)
+    scanvi_chem_col = _find_col(["scanvi_chem_mixing_score", "scanvi_batch_mixing_pca_score"], merged)
+    scvi_age_col    = _find_col(["scvi_age_pres_score",  "scvi_recon_error"],  merged)
+    scanvi_age_col  = _find_col(["scanvi_age_pres_score", "scanvi_recon_error"], merged)
+
+    if scvi_chem_col and scanvi_chem_col:
+        ax2.bar(x - w / 2, merged[scvi_chem_col],   w, label=f"scVI {scvi_chem_col}",   color="#4878CF88", alpha=0.85)
+        ax2.bar(x + w / 2, merged[scanvi_chem_col], w, label=f"scANVI {scanvi_chem_col}", color="#D65F5F88", alpha=0.85)
+        ax2.set_ylabel("Score (higher = better)")
+        ax2.set_title("Chemistry mixing score\n(latent space, higher = better integrated)")
         ax2.set_ylim(0, 1.0)
+    elif scvi_age_col and scanvi_age_col:
+        ax2.bar(x - w / 2, merged[scvi_age_col],   w, label=f"scVI {scvi_age_col}",   color="#4878CF88", alpha=0.85)
+        ax2.bar(x + w / 2, merged[scanvi_age_col], w, label=f"scANVI {scanvi_age_col}", color="#D65F5F88", alpha=0.85)
+        ax2.set_ylabel("Score")
+        ax2.set_title("Age preservation / component score")
     else:
-        # Fallback for old runs that recorded recon_error instead
-        scvi_re_col  = "scvi_recon_error"
-        scanvi_re_col = "scanvi_recon_error"
-        if scvi_re_col in merged.columns and scanvi_re_col in merged.columns:
-            ax2.bar(x - w / 2, merged[scvi_re_col],  w, label="scVI recon",   color="#4878CF88", alpha=0.85)
-            ax2.bar(x + w / 2, merged[scanvi_re_col], w, label="scANVI recon", color="#D65F5F88", alpha=0.85)
-            ax2.set_ylabel("Reconstruction error (lower = better)")
-            ax2.set_title("Decoder reconstruction error\n(lower = better generative model)")
-        else:
-            ax2.set_title("No component breakdown available")
+        ax2.set_title("No component breakdown available")
 
     ax2.set_xticks(x)
     ax2.set_xticklabels([f"T{int(r['trial'])}" for _, r in merged.iterrows()], fontsize=8)

@@ -57,7 +57,7 @@ class Timer:
         self.logger.info(f"Starting: {self.label}")
         return self
 
-    def __exit__(self, *args):
+    def __exit__(self, exc_type, exc_val, exc_tb):
         elapsed = time.time() - self.start
         if elapsed < 1.0:
             duration = f"{elapsed * 1000:.0f}ms"
@@ -65,7 +65,10 @@ class Timer:
             h, rem = divmod(elapsed, 3600)
             m, s = divmod(rem, 60)
             duration = f"{int(h)}h {int(m)}m {s:.1f}s"
-        self.logger.info(f"Completed: {self.label} [{duration}]")
+        if exc_type is None:
+            self.logger.info(f"Completed: {self.label} [{duration}]")
+        else:
+            self.logger.error(f"Failed: {self.label} [{duration}] — {exc_type.__name__}: {exc_val}")
 
 
 def get_device_info(logger: logging.Logger) -> dict:

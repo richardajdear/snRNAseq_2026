@@ -1,4 +1,4 @@
-"""Hyperparameter tuning for scVI batch correction with expression-based integration metrics.
+"""Hyperparameter tuning for scVI batch correction with latent-space integration metrics.
 
 This script is intentionally separate from `code/pipeline/` so tuning can run as an
 overnight optimization job and then feed best parameters back into the pipeline config.
@@ -9,22 +9,34 @@ dropout_rate) are left at scVI defaults: they are secondary to architecture for 
 integration quality and work well with early stopping at the production epoch horizon.
 The output best_hyperparameters.yaml maps directly to fields in scVI/config.py.
 
-Optimization objective (50:50 cross-trial normalized combination):
-  1. Age-binned batch mixing computed on PCA of batch-corrected normalized expression
-     (get_normalized_expression with transform_batch), not the latent space.  This
-     directly measures integration quality in the expression space that is used in
-     production (scanvi_normalized), rather than in the latent representation.
-  2. Decoder reconstruction accuracy (get_reconstruction_error without transform_batch).
-     Including this term prevents architectures that improve batch mixing by collapsing
-     the latent space at the expense of accurate generative modeling.
+Optimization objective (weighted cross-trial normalized combination):
+  1. Conditioned chemistry mixing (weight: metric.weights.chem_mixing, default 0.5)
+     Within each age_bin × cell_type stratum, compute kNN Shannon entropy of
+     source-chemistry labels in the latent space.  Conditioning on age bin and cell
+     type prevents rewarding models that mix batches simply because batches correlate
+     with developmental stage — which would destroy the biological signal we want to
+     preserve.  Normalised by log(n_batches_global) for cross-bin comparability.
 
-Both components are min-max normalized across all successful trials so they contribute
-equally to the final objective regardless of their absolute scales.  The raw component
-values are also recorded so the user can inspect trade-offs.
+  2. Developmental age preservation (weight: metric.weights.age_preservation, default 0.5)
+     kNN regression of log(age) from the latent representation, evaluated per cell type
+     and averaged.  A well-formed latent space should predict log age accurately from
+     proximity alone; this rewards architectures that preserve the developmental
+     gradient even after batch correction.
+
+  3. Lineage coherence (weight: metric.weights.lineage_coherence, default 0.0 — deferred)
+     Reserved for a future metric measuring within-lineage trajectory ordering.
+     Set weight > 0 only after reviewing diagnostic_report output.
+
+All components are min-max normalized across successful trials so they contribute
+proportionally to the final objective regardless of absolute scale.  Raw values are
+recorded in trial_results.csv for post-hoc trade-off inspection.
 
 After all scVI trials, the top-k models are evaluated with scANVI (using
 SCANVI.from_scvi_model) to report whether scANVI fine-tuning changes integration
 quality — since production inference uses scANVI, not scVI.
+
+NOTE: age_log_pc must NOT be included in continuous_covariate_keys — it carries
+developmental signal that must be preserved, not regressed out.
 """
 
 from __future__ import annotations
@@ -47,10 +59,8 @@ import scvi
 import torch
 import yaml
 from scvi.model import SCANVI, SCVI, LinearSCVI
-from sklearn.decomposition import PCA
-from sklearn.neighbors import NearestNeighbors
-
-EXPRESSION_PCA_SEED_OFFSET = 2000
+from sklearn.neighbors import KNeighborsRegressor, NearestNeighbors
+from sklearn.metrics import r2_score
 
 
 # ---------------------------------------------------------------------------
@@ -412,38 +422,157 @@ def _evaluate_age_aware_batch_score(
 
 
 # ---------------------------------------------------------------------------
-# Trial evaluation: expression-based metric
+# Trial evaluation: latent-space metrics (round 5+)
 # ---------------------------------------------------------------------------
 
-def _get_normalized_expr_chunked(
-    model,
-    adata,
-    transform_batch: str | None,
-    n_samples: int = 1,
-    chunk_size: int = 2000,
-    logger: logging.Logger | None = None,
-) -> np.ndarray:
-    """Get normalized expression for all cells in `adata`, processing in chunks.
+def _conditioned_chemistry_mixing(
+    latent: np.ndarray,
+    obs: pd.DataFrame,
+    batch_key: str,
+    age_bin_col: str,
+    cell_type_key: str | None,
+    k_neighbors: int,
+    n_batches_global: int,
+    min_cells_per_group: int,
+) -> tuple[float, dict[str, Any]]:
+    """kNN Shannon entropy of chemistry labels within age_bin × cell_type strata.
 
-    Returns a (n_cells, n_genes) float32 array.  Chunking avoids OOM when
-    the full expression matrix is larger than available GPU/CPU memory.
+    Conditioning on cell type and age bin prevents rewarding models that mix
+    batches only because different batches correspond to different developmental
+    stages.  Each stratum is weighted by its cell count in the returned average.
+    Entropy is normalised by log(n_batches_global) so prenatal bins with fewer
+    batches present are not artificially inflated relative to postnatal bins.
     """
-    n_cells = adata.n_obs
-    n_chunks = math.ceil(n_cells / chunk_size)
-    chunks: list[np.ndarray] = []
+    stratum_col = obs[age_bin_col].astype(str)
+    if cell_type_key and cell_type_key in obs.columns:
+        stratum_col = stratum_col + "_" + obs[cell_type_key].astype(str)
 
-    for i, start in enumerate(range(0, n_cells, chunk_size)):
-        end = min(start + chunk_size, n_cells)
-        chunk_adata = adata[start:end].copy()
-        kwargs: dict[str, Any] = {"n_samples": n_samples}
-        if transform_batch is not None:
-            kwargs["transform_batch"] = transform_batch
-        result = model.get_normalized_expression(adata=chunk_adata, **kwargs)
-        chunks.append(result.values.astype(np.float32))
-        if logger and (i + 1) % max(1, n_chunks // 5) == 0:
-            logger.info(f"    expr chunk {i + 1}/{n_chunks}: [{start}:{end}) done")
+    batch_labels = obs[batch_key].astype(str).values
+    denom = math.log(n_batches_global) if n_batches_global >= 2 else 1.0
 
-    return np.vstack(chunks)
+    weighted_scores: list[tuple[float, int]] = []
+    details: dict[str, Any] = {}
+
+    for stratum, grp_obs in obs.groupby(stratum_col, observed=True):
+        idx = grp_obs.index
+        n = len(idx)
+        if n < min_cells_per_group:
+            continue
+
+        sub_latent = latent[obs.index.get_indexer(idx)]
+        sub_batch  = batch_labels[obs.index.get_indexer(idx)]
+
+        k_actual = min(k_neighbors, max(2, n // 3))
+        nn = NearestNeighbors(n_neighbors=k_actual + 1, metric="euclidean")
+        nn.fit(sub_latent)
+        inds = nn.kneighbors(return_distance=False)[:, 1:]  # exclude self
+
+        neigh_batches = sub_batch[inds]  # shape (n, k_actual)
+        entropies: list[float] = []
+        for row in neigh_batches:
+            unique, counts = np.unique(row, return_counts=True)
+            probs = counts / counts.sum()
+            ent = float(-np.sum(probs * np.log(probs + 1e-12)) / denom)
+            entropies.append(ent)
+
+        score = float(np.mean(entropies))
+        weighted_scores.append((score, n))
+        details[str(stratum)] = round(score, 4)
+
+    if not weighted_scores:
+        return 0.0, details
+
+    numer = sum(s * w for s, w in weighted_scores)
+    denom_w = sum(w for _, w in weighted_scores)
+    return float(numer / max(denom_w, 1)), details
+
+
+def _age_preservation_score(
+    latent: np.ndarray,
+    log_age: np.ndarray,
+    obs: pd.DataFrame,
+    cell_type_key: str | None,
+    k_neighbors: int,
+    min_cells_per_type: int,
+    seed: int,
+    age_bin_col: str,
+) -> tuple[float, dict[str, Any]]:
+    """kNN regression R² of log age from the latent space, averaged per cell type.
+
+    Stratified 80/20 train/test split (stratified by age bin within each cell
+    type) to avoid test sets dominated by a single developmental stage.  R² is
+    clipped to [0, 1]: negative values (worse than predicting the mean) are
+    treated as 0.  A random latent space scores ≈ 0; a perfect developmental
+    gradient scores ≈ 1.
+    """
+    from sklearn.model_selection import StratifiedShuffleSplit
+
+    rng = np.random.default_rng(seed)
+    details: dict[str, Any] = {}
+    scores: list[float] = []
+
+    if cell_type_key and cell_type_key in obs.columns:
+        groups = obs.groupby(cell_type_key, observed=True)
+    else:
+        groups = [("all", obs)]
+
+    for ct, grp_obs in groups:
+        idx = obs.index.get_indexer(grp_obs.index)
+        n = len(idx)
+        if n < min_cells_per_type:
+            continue
+
+        sub_latent = latent[idx]
+        sub_age    = log_age[idx]
+        sub_bins   = obs[age_bin_col].iloc[idx].astype(str).values if age_bin_col in obs.columns else None
+
+        # Stratified split by age bin; fall back to random if too few samples per bin.
+        try:
+            if sub_bins is not None:
+                sss = StratifiedShuffleSplit(n_splits=1, test_size=0.2, random_state=int(rng.integers(1e6)))
+                train_rel, test_rel = next(sss.split(sub_latent, sub_bins))
+            else:
+                perm = rng.permutation(n)
+                split = int(0.8 * n)
+                train_rel, test_rel = perm[:split], perm[split:]
+        except ValueError:
+            perm = rng.permutation(n)
+            split = int(0.8 * n)
+            train_rel, test_rel = perm[:split], perm[split:]
+
+        if len(test_rel) < 2:
+            continue
+
+        k_eff = min(k_neighbors, len(train_rel) - 1)
+        if k_eff < 1:
+            continue
+
+        reg = KNeighborsRegressor(n_neighbors=k_eff, weights="distance")
+        reg.fit(sub_latent[train_rel], sub_age[train_rel])
+        pred = reg.predict(sub_latent[test_rel])
+
+        r2 = float(r2_score(sub_age[test_rel], pred))
+        r2 = max(0.0, min(1.0, r2))
+        scores.append(r2)
+        details[str(ct)] = round(r2, 4)
+
+    mean_r2 = float(np.mean(scores)) if scores else 0.0
+    return mean_r2, details
+
+
+def _lineage_coherence_score(
+    latent: np.ndarray,
+    obs: pd.DataFrame,
+    cell_type_key: str | None,
+    age_bin_col: str,
+) -> float | None:
+    """Placeholder: deferred until diagnostic output reviewed.
+
+    Enable by setting metric.weights.lineage_coherence > 0 in the tuning config
+    and implementing the marker-ordering or local-age-variance metric here.
+    Returns None when not yet implemented; the objective treats None as 0.
+    """
+    return None
 
 
 def _evaluate_trial_components(
@@ -455,220 +584,191 @@ def _evaluate_trial_components(
     metric_cfg: dict[str, Any],
     n_batches_global: int,
     logger: logging.Logger,
-    npy_prefix: "Path | None" = None,
+    npy_prefix=None,
 ) -> dict[str, Any]:
-    """Evaluate a trial with the expression-based metric.
+    """Evaluate a trial with the latent-space metrics.
 
     Returns raw metric components; the combined objective is computed post-hoc
-    by _normalize_trial_objectives() so both components are on the same scale.
+    by _normalize_trial_objectives() so all components are on the same scale.
 
     Components:
-    - batch_mixing_pca_score : age-binned batch mixing on PCA of batch-corrected
-                               normalized expression (transform_batch applied).
-                               Higher is better; already in [0, 1].
-    - recon_error            : mean reconstruction error on the full tuning set
-                               without transform_batch.  Lower is better.
-    - age_bin_scores         : per-bin batch mixing details dict.
-    - batch_scores           : per-batch global mixing scores dict.
-    - pca_explained_variance : cumulative variance explained by the PCA (info only).
+    - chem_mixing_score : conditioned chemistry mixing in latent space.
+                          Higher is better; in [0, 1].
+    - age_pres_score    : kNN regression R² of log age per cell type.
+                          Higher is better; in [0, 1].
+    - lineage_coh_score : None (deferred).
+    - age_bin_scores    : per-stratum conditioned mixing details dict.
+    - age_pres_details  : per-cell-type age preservation R² dict.
+    - batch_scores      : per-batch global mixing scores dict (diagnostic).
     """
-    transform_batch = metric_cfg.get("transform_batch")
-    if not transform_batch:
-        raise ValueError(
-            "metric.transform_batch is required for the expression-based metric"
-        )
+    k_neighbors       = int(metric_cfg.get("k_neighbors",        50))
+    min_cells_group   = int(metric_cfg.get("min_cells_per_group", 75))
+    min_cells_type    = int(metric_cfg.get("min_cells_per_type",  150))
+    seed              = int(metric_cfg.get("latent_seed",          42))
 
-    n_pca        = int(metric_cfg.get("n_pca_components",     50))
-    n_samples    = int(metric_cfg.get("n_normalized_samples",  1))
-    max_cells    = int(metric_cfg.get("max_cells_expr",    20000))
-    chunk_size   = int(metric_cfg.get("expr_chunk_size",    2000))
-    subsamp_seed = int(metric_cfg.get("expr_subsample_seed",  42))
+    # Latent representation — the primary space for all new metrics.
+    logger.info("  Computing latent representation ...")
+    latent = model.get_latent_representation(adata)  # (n_cells, n_latent)
+    logger.info(f"  Latent shape: {latent.shape}")
 
-    # -----------------------------------------------------------------------
-    # Component 1: batch mixing on PCA of normalized expression
-    # -----------------------------------------------------------------------
-    n_cells = adata.n_obs
-    if n_cells > max_cells:
-        # Stratified subsample so all batches and age bins are represented.
-        rng = np.random.default_rng(subsamp_seed)
-        obs = adata.obs.copy()
-        age_bins = _make_age_bins(obs, age_key, metric_cfg["age_bin_edges"])
-        obs["_expr_age_bin"] = age_bins.astype(str)
-        group_key = obs[[batch_key, "_expr_age_bin"]].astype(str).agg("|".join, axis=1)
-        group_counts = group_key.value_counts()
-        frac = max_cells / n_cells
-        keep_idx: list[int] = []
-        for group, n in group_counts.items():
-            idx = np.where(group_key.values == group)[0]
-            n_take = max(1, int(round(n * frac)))
-            n_take = min(n_take, idx.size)
-            keep_idx.extend(rng.choice(idx, size=n_take, replace=False).tolist())
-        keep_idx_arr = np.array(sorted(set(keep_idx)), dtype=int)
-        if keep_idx_arr.size > max_cells:
-            keep_idx_arr = np.sort(rng.choice(keep_idx_arr, size=max_cells, replace=False))
-        adata_expr = adata[keep_idx_arr].copy()
-        logger.info(
-            f"  Expression PCA subsample: {n_cells:,} → {adata_expr.n_obs:,} cells"
-        )
-    else:
-        adata_expr = adata
-
-    logger.info(
-        f"  Computing normalized expression "
-        f"(transform_batch={transform_batch!r}, n_samples={n_samples}, "
-        f"chunk_size={chunk_size}) ..."
-    )
-    expr = _get_normalized_expr_chunked(
-        model=model,
-        adata=adata_expr,
-        transform_batch=transform_batch,
-        n_samples=n_samples,
-        chunk_size=chunk_size,
-        logger=logger,
-    )
-    logger.info(f"  Normalized expression shape: {expr.shape}")
-
-    # Fit PCA on the normalized expression.
-    n_components = min(n_pca, expr.shape[1], expr.shape[0] - 1)
-    logger.info(f"  Fitting PCA (n_components={n_components}) ...")
-    pca = PCA(n_components=n_components, random_state=0)
-    X_pca = pca.fit_transform(expr).astype(np.float32)
-    explained_var = float(np.sum(pca.explained_variance_ratio_))
-    logger.info(f"  PCA explained variance (first {n_components} PCs): {explained_var:.3f}")
-    del expr  # free memory before batch mixing
-
-    # Save expression PCA + cell indices for UMAP diagnostics.
     if npy_prefix is not None:
-        cell_idx = keep_idx_arr if n_cells > max_cells else np.arange(n_cells, dtype=np.int32)
-        np.save(str(npy_prefix) + "_expr_pca.npy",     X_pca)
-        np.save(str(npy_prefix) + "_expr_pca_idx.npy", cell_idx.astype(np.int32))
+        np.save(str(npy_prefix) + "_latent.npy", latent.astype(np.float32))
 
+    obs = adata.obs.copy()
+    age_bins = _make_age_bins(obs, age_key=age_key, edges=metric_cfg["age_bin_edges"])
+    obs["_tune_age_bin"] = age_bins.astype(str)
 
-    # Age-binned batch mixing on the PCA embedding.
-    age_score, age_details = _evaluate_age_aware_batch_score(
-        adata=adata_expr,
-        X=X_pca,
-        batch_key=batch_key,
-        age_key=age_key,
-        age_bin_edges=metric_cfg["age_bin_edges"],
-        prenatal_weight=float(metric_cfg.get("prenatal_weight", 2.0)),
-        cell_type_key=cell_type_key,
-        k_neighbors=int(metric_cfg.get("k_neighbors", 20)),
-        min_cells_per_bin=int(metric_cfg.get("min_cells_per_bin", 100)),
-        min_cells_per_group=int(metric_cfg.get("min_cells_per_group", 75)),
-        n_batches_global=n_batches_global,
-    )
-
-    # Per-batch global mixing scores (single global k-NN on expression PCA).
-    batch_labels_expr = np.asarray(adata_expr.obs[batch_key].astype(str))
-    batch_scores = _per_batch_mixing_scores(
-        X_pca, batch_labels_expr,
-        k_neighbors=int(metric_cfg.get("k_neighbors", 20)),
-        n_batches_global=n_batches_global,
-    )
-
-    # -----------------------------------------------------------------------
-    # Component 2: decoder reconstruction error (no transform_batch)
-    # -----------------------------------------------------------------------
-    logger.info("  Computing reconstruction error (no transform_batch) ...")
-    recon_raw = model.get_reconstruction_error()
-    if isinstance(recon_raw, dict):
-        # scvi-tools ≥1.x may return a dict; prefer "reconstruction_loss" key
-        recon_error = float(
-            recon_raw.get("reconstruction_loss", next(iter(recon_raw.values())))
-        )
+    # Log age: use age_log_pc if present (already computed), else log1p(age_years).
+    if "age_log_pc" in obs.columns:
+        log_age = obs["age_log_pc"].values.astype(np.float32)
     else:
-        recon_error = float(recon_raw)
-    logger.info(f"  Reconstruction error: {recon_error:.4f}")
+        log_age = np.log1p(np.maximum(obs[age_key].values, -0.999)).astype(np.float32)
+
+    # -----------------------------------------------------------------------
+    # Metric 1: conditioned chemistry mixing
+    # -----------------------------------------------------------------------
+    logger.info("  Computing conditioned chemistry mixing ...")
+    chem_mix, chem_details = _conditioned_chemistry_mixing(
+        latent=latent,
+        obs=obs,
+        batch_key=batch_key,
+        age_bin_col="_tune_age_bin",
+        cell_type_key=cell_type_key,
+        k_neighbors=k_neighbors,
+        n_batches_global=n_batches_global,
+        min_cells_per_group=min_cells_group,
+    )
+    logger.info(f"  Conditioned chemistry mixing: {chem_mix:.4f}  (n_strata={len(chem_details)})")
+
+    # -----------------------------------------------------------------------
+    # Metric 2: developmental age preservation
+    # -----------------------------------------------------------------------
+    logger.info("  Computing age preservation score ...")
+    age_pres, age_pres_details = _age_preservation_score(
+        latent=latent,
+        log_age=log_age,
+        obs=obs,
+        cell_type_key=cell_type_key,
+        k_neighbors=k_neighbors,
+        min_cells_per_type=min_cells_type,
+        seed=seed,
+        age_bin_col="_tune_age_bin",
+    )
+    logger.info(f"  Age preservation R²: {age_pres:.4f}  (n_cell_types={len(age_pres_details)})")
+
+    # -----------------------------------------------------------------------
+    # Metric 3: lineage coherence (deferred)
+    # -----------------------------------------------------------------------
+    lineage_coh = _lineage_coherence_score(latent, obs, cell_type_key, "_tune_age_bin")
+
+    # -----------------------------------------------------------------------
+    # Per-batch global mixing (diagnostic; not part of objective)
+    # -----------------------------------------------------------------------
+    batch_scores = _per_batch_mixing_scores(
+        latent,
+        np.asarray(obs[batch_key].astype(str)),
+        k_neighbors=k_neighbors,
+        n_batches_global=n_batches_global,
+    )
 
     return {
-        "batch_mixing_pca_score": float(age_score),
-        "recon_error":            float(recon_error),
-        "age_bin_scores":         age_details,
-        "batch_scores":           batch_scores,
-        "pca_explained_variance": float(explained_var),
+        "chem_mixing_score":   float(chem_mix),
+        "age_pres_score":      float(age_pres),
+        "lineage_coh_score":   lineage_coh,
+        "age_bin_scores":      chem_details,
+        "age_pres_details":    age_pres_details,
+        "batch_scores":        batch_scores,
     }
 
 
 def _normalize_trial_objectives(
     results: list[dict[str, Any]],
+    weights: dict[str, float] | None = None,
 ) -> None:
-    """Compute 50:50 cross-trial normalized objectives in place.
+    """Compute weighted cross-trial normalized objectives in place.
 
-    Both components are min-max normalized across all successful trials so
-    they contribute equally to the final objective regardless of absolute scale:
+    Each component is min-max normalized across all successful trials so
+    components contribute proportionally regardless of absolute scale.
+    When all trials share the same value for a component (range ≈ 0),
+    that component contributes its neutral 0.5 × weight so ranking is
+    driven by the remaining components.
 
-        bm_pca_norm   = (bm - bm_min) / (bm_max - bm_min)
-        decoder_norm  = 1 - (recon - recon_min) / (recon_max - recon_min)
-        objective     = 0.5 * bm_pca_norm + 0.5 * decoder_norm
-
-    When all trials share the same value for a component (range ≈ 0), that
-    component contributes a neutral 0.5 to every trial so ranking is driven
-    entirely by the other component.
+    Default weights: chem_mixing=0.5, age_preservation=0.5, lineage_coherence=0.0
+    (read from metric_cfg.weights in the config YAML).
     """
+    if weights is None:
+        weights = {}
+    w_chem  = float(weights.get("chem_mixing",       0.5))
+    w_age   = float(weights.get("age_preservation",  0.5))
+    w_lin   = float(weights.get("lineage_coherence",  0.0))
+    total_w = w_chem + w_age + w_lin
+    if total_w < 1e-8:
+        total_w = 1.0
+
     valid = [
         r for r in results
         if r["status"] == "ok"
-        and np.isfinite(r.get("batch_mixing_pca_score", float("nan")))
-        and np.isfinite(r.get("recon_error", float("nan")))
+        and np.isfinite(r.get("chem_mixing_score", float("nan")))
+        and np.isfinite(r.get("age_pres_score",    float("nan")))
     ]
 
     for r in results:
-        r.setdefault("batch_mixing_pca_norm", float("nan"))
-        r.setdefault("decoder_score_norm",    float("nan"))
-        r.setdefault("objective",             float("-inf"))
+        r.setdefault("chem_mixing_norm",  float("nan"))
+        r.setdefault("age_pres_norm",     float("nan"))
+        r.setdefault("objective",         float("-inf"))
 
     if not valid:
         return
 
-    bm_vals = [r["batch_mixing_pca_score"] for r in valid]
-    re_vals = [r["recon_error"]             for r in valid]
+    def _minmax_norm(vals: list[float]) -> list[float]:
+        lo, hi = min(vals), max(vals)
+        rng = hi - lo
+        return [(v - lo) / rng if rng > 1e-8 else 0.5 for v in vals]
 
-    bm_min, bm_max = min(bm_vals), max(bm_vals)
-    re_min, re_max = min(re_vals), max(re_vals)
-    bm_range = bm_max - bm_min
-    re_range = re_max - re_min
+    chem_vals = [r["chem_mixing_score"] for r in valid]
+    age_vals  = [r["age_pres_score"]    for r in valid]
 
-    for r in valid:
-        bm_norm = (
-            (r["batch_mixing_pca_score"] - bm_min) / bm_range
-            if bm_range > 1e-8 else 0.5
-        )
-        dec_norm = (
-            1.0 - (r["recon_error"] - re_min) / re_range
-            if re_range > 1e-8 else 0.5
-        )
-        r["batch_mixing_pca_norm"] = float(bm_norm)
-        r["decoder_score_norm"]    = float(dec_norm)
-        r["objective"]             = float(0.5 * bm_norm + 0.5 * dec_norm)
+    chem_norms = _minmax_norm(chem_vals)
+    age_norms  = _minmax_norm(age_vals)
+
+    for r, cn, an in zip(valid, chem_norms, age_norms):
+        r["chem_mixing_norm"] = float(cn)
+        r["age_pres_norm"]    = float(an)
+        r["objective"]        = float((w_chem * cn + w_age * an) / total_w)
 
 
 def _compute_objective_with_norms(
-    batch_mixing_pca_score: float,
-    recon_error: float,
-    bm_min: float,
-    bm_max: float,
-    re_min: float,
-    re_max: float,
+    chem_mixing_score: float,
+    age_pres_score: float,
+    chem_min: float,
+    chem_max: float,
+    age_min: float,
+    age_max: float,
+    weights: dict[str, float] | None = None,
 ) -> tuple[float, float, float]:
     """Compute objective for an out-of-sample model using scVI normalization constants.
 
-    Used to put scANVI objectives on the same scale as the scVI trial objectives so
-    the scVI→scANVI delta is directly interpretable.  The scANVI values are clamped
-    to [0, 1] before combining in case they fall outside the scVI range.
+    Used to put scANVI objectives on the same scale as the scVI trial objectives
+    so the scVI→scANVI delta is directly interpretable.  Values are clamped to
+    [0, 1] before combining in case they fall outside the scVI range.
     """
-    bm_range = bm_max - bm_min
-    re_range = re_max - re_min
+    if weights is None:
+        weights = {}
+    w_chem = float(weights.get("chem_mixing",      0.5))
+    w_age  = float(weights.get("age_preservation", 0.5))
+    total_w = w_chem + w_age
+    if total_w < 1e-8:
+        total_w = 1.0
 
-    bm_norm = (
-        (batch_mixing_pca_score - bm_min) / bm_range if bm_range > 1e-8 else 0.5
-    )
-    dec_norm = (
-        1.0 - (recon_error - re_min) / re_range if re_range > 1e-8 else 0.5
-    )
-    bm_norm  = max(0.0, min(1.0, bm_norm))
-    dec_norm = max(0.0, min(1.0, dec_norm))
-    return float(0.5 * bm_norm + 0.5 * dec_norm), float(bm_norm), float(dec_norm)
+    chem_range = chem_max - chem_min
+    age_range  = age_max  - age_min
+
+    cn = (chem_mixing_score - chem_min) / chem_range if chem_range > 1e-8 else 0.5
+    an = (age_pres_score    - age_min)  / age_range  if age_range  > 1e-8 else 0.5
+    cn = max(0.0, min(1.0, cn))
+    an = max(0.0, min(1.0, an))
+    obj = float((w_chem * cn + w_age * an) / total_w)
+    return obj, float(cn), float(an)
 
 
 # ---------------------------------------------------------------------------
@@ -695,12 +795,12 @@ def _train_and_evaluate_scanvi(
     SCANVI.from_scvi_model transfers all learned scVI weights and then fine-tunes
     with cell-type supervision, which is exactly what production does.  Evaluating
     the top scVI trials with scANVI reveals whether scANVI changes the relative
-    ranking and quantifies the delta in batch-mixing quality.
+    ranking and quantifies the delta in integration quality.
 
-    The expression-based metric (PCA of normalized expression + reconstruction error)
-    is used so the scANVI objective is on the same scale as the scVI trial objectives.
-    If norm_constants is provided (bm_min, bm_max, re_min, re_max from the scVI
-    cross-trial normalization), the scANVI objective is computed on the same scale.
+    The latent-space metrics (conditioned chemistry mixing + age preservation) are
+    used so the scANVI objective is on the same scale as the scVI trial objectives.
+    If norm_constants is provided (chem_min, chem_max, age_min, age_max from the
+    scVI cross-trial normalization), the scANVI objective is computed on the same scale.
 
     For linear decoder trials, SCANVI.from_scvi_model() is attempted (encoder
     architecture is identical); falls back to scANVI from scratch on rejection.
@@ -746,18 +846,19 @@ def _train_and_evaluate_scanvi(
     )
 
     if norm_constants is not None:
-        obj, bm_norm, dec_norm = _compute_objective_with_norms(
-            batch_mixing_pca_score=components["batch_mixing_pca_score"],
-            recon_error=components["recon_error"],
-            **norm_constants,
+        obj, cn, an = _compute_objective_with_norms(
+            chem_mixing_score=components["chem_mixing_score"],
+            age_pres_score=components["age_pres_score"],
+            weights=norm_constants.get("weights"),
+            **{k: v for k, v in norm_constants.items() if k != "weights"},
         )
-        components["objective"]             = obj
-        components["batch_mixing_pca_norm"] = bm_norm
-        components["decoder_score_norm"]    = dec_norm
+        components["objective"]        = obj
+        components["chem_mixing_norm"] = cn
+        components["age_pres_norm"]    = an
     else:
-        components["objective"]             = float("nan")
-        components["batch_mixing_pca_norm"] = float("nan")
-        components["decoder_score_norm"]    = float("nan")
+        components["objective"]        = float("nan")
+        components["chem_mixing_norm"] = float("nan")
+        components["age_pres_norm"]    = float("nan")
 
     return components
 
@@ -858,12 +959,8 @@ def run_tuning(config_path: Path):
     metric_cfg = cfg.get("metric", {})
     if "age_bin_edges" not in metric_cfg:
         raise ValueError("metric.age_bin_edges is required in the config")
-    if "transform_batch" not in metric_cfg:
-        raise ValueError(
-            "metric.transform_batch is required (the reference batch for normalized expression, "
-            "e.g. 'WANG-multiome').  Set it in the metric: section of your tuning YAML config."
-        )
-    metric_cfg.setdefault("expr_subsample_seed", random_seed + EXPRESSION_PCA_SEED_OFFSET)
+    metric_cfg.setdefault("latent_seed", random_seed)
+    metric_weights = dict(metric_cfg.get("weights") or {})
 
     search_space = cfg.get("search_space", {})
 
@@ -910,18 +1007,6 @@ def run_tuning(config_path: Path):
             missing.append(key)
     if missing:
         raise ValueError(f"Required obs columns missing: {missing}. Available: {list(adata.obs.columns)}")
-
-    # Validate that transform_batch is a known batch value (warn, not error, to allow
-    # cases where a batch only appears in some age ranges or is spelled differently).
-    transform_batch_ref = metric_cfg["transform_batch"]
-    if batch_key in adata.obs.columns:
-        known_batches = sorted(adata.obs[batch_key].astype(str).unique().tolist())
-        if transform_batch_ref not in known_batches:
-            logger.warning(
-                f"metric.transform_batch='{transform_batch_ref}' not found in "
-                f"obs['{batch_key}'].  Available values: {known_batches}.  "
-                "get_normalized_expression will raise at evaluation time if this is wrong."
-            )
 
     if cell_type_key not in adata.obs.columns:
         logger.warning(
@@ -1016,7 +1101,7 @@ def run_tuning(config_path: Path):
     # -----------------------------------------------------------------------
     results: list[dict[str, Any]] = []
 
-    # During the loop we track top models by batch_mixing_pca_score (a preliminary
+    # During the loop we track top models by chem_mixing_score (a preliminary
     # rank that is already in [0, 1]).  We save a double-size buffer so that
     # post-loop cross-trial normalization can reshuffle the final top-k without
     # losing any candidate model.
@@ -1027,7 +1112,53 @@ def run_tuning(config_path: Path):
     start = time.time()
     rng = np.random.default_rng(random_seed)
 
-    for trial in range(1, n_trials + 1):
+    # -----------------------------------------------------------------------
+    # Resume: load any existing trial_results.csv so a walltime-killed job
+    # can continue where it left off.  The RNG is advanced past completed
+    # trials to keep the parameter sequence deterministic.
+    # -----------------------------------------------------------------------
+    resume_from_trial = 1
+    results_csv = output_dir / "trial_results.csv"
+    if results_csv.exists():
+        try:
+            prev_df = pd.read_csv(results_csv)
+            if not prev_df.empty:
+                results = prev_df.to_dict("records")
+                resume_from_trial = int(prev_df["trial"].max()) + 1
+                logger.info(
+                    f"Resuming from trial {resume_from_trial} "
+                    f"({len(results)} trials loaded from {results_csv.name})"
+                )
+                # Advance RNG past completed trials to maintain the deterministic sequence.
+                for _ in range(len(results)):
+                    _sample_trial_params(search_space, rng)
+                # Rebuild top_model_records from saved model directories.
+                _param_keys = ["decoder_type", "n_latent", "n_hidden", "n_layers", "gene_likelihood", "batch_size"]
+                for row in results:
+                    if row.get("status") != "ok":
+                        continue
+                    t = int(row["trial"])
+                    model_dir = output_dir / f"trial_{t:02d}_scvi_model"
+                    if not model_dir.exists():
+                        continue
+                    prelim_score = float(row.get("chem_mixing_score", float("nan")))
+                    if not np.isfinite(prelim_score):
+                        continue
+                    top_model_records.append({
+                        "trial":        t,
+                        "prelim_score": prelim_score,
+                        "objective":    float(row.get("objective", float("nan"))),
+                        "model_dir":    model_dir,
+                        "params":       {k: row[k] for k in _param_keys if k in row},
+                    })
+                top_model_records.sort(key=lambda x: x.get("prelim_score", float("-inf")))
+                logger.info(f"Rebuilt top_model_records: {len(top_model_records)} saved models")
+        except Exception as e:
+            logger.warning(f"Could not load {results_csv.name}: {e} — starting fresh")
+            results = []
+            resume_from_trial = 1
+
+    for trial in range(resume_from_trial, n_trials + 1):
         elapsed_h = (time.time() - start) / 3600.0
         if elapsed_h >= max_hours:
             logger.info(f"Reached max_hours={max_hours}; stopping before trial {trial}")
@@ -1081,14 +1212,10 @@ def run_tuning(config_path: Path):
                 train_kwargs["early_stopping_patience"] = early_stopping_patience
             model.train(**train_kwargs)
 
-            # Save latent representation for the UMAP diagnostic step.
-            adata.obsm["X_scVI"] = model.get_latent_representation()
-            np.save(str(output_dir / f"trial_{trial:02d}_latent.npy"),
-                    adata.obsm["X_scVI"].astype(np.float32))
-
-            # Expression-based metric evaluation (the objective components are
+            # Latent-space metric evaluation (the objective components are
             # stored as raw values; the combined objective is computed post-hoc
             # once all trials are done via cross-trial normalization).
+            # _evaluate_trial_components also saves the latent .npy file.
             components = _evaluate_trial_components(
                 model=model,
                 adata=adata,
@@ -1108,11 +1235,12 @@ def run_tuning(config_path: Path):
             status = "failed"
             error = repr(e)
             components = {
-                "batch_mixing_pca_score": float("nan"),
-                "recon_error":            float("nan"),
-                "age_bin_scores":         {},
-                "batch_scores":           {},
-                "pca_explained_variance": float("nan"),
+                "chem_mixing_score":  float("nan"),
+                "age_pres_score":     float("nan"),
+                "lineage_coh_score":  None,
+                "age_bin_scores":     {},
+                "age_pres_details":   {},
+                "batch_scores":       {},
             }
             logger.exception(f"Trial {trial} failed")
 
@@ -1127,30 +1255,30 @@ def run_tuning(config_path: Path):
             # zinb→nb for linear decoder before the try block above).
             "gene_likelihood":          gene_likelihood,
             # Raw metric components (objective computed post-hoc)
-            "batch_mixing_pca_score":   components["batch_mixing_pca_score"],
-            "recon_error":              components["recon_error"],
-            "pca_explained_variance":   components.get("pca_explained_variance", float("nan")),
+            "chem_mixing_score":        components["chem_mixing_score"],
+            "age_pres_score":           components["age_pres_score"],
             "age_bin_scores_json":      json.dumps(components["age_bin_scores"], sort_keys=True),
+            "age_pres_details_json":    json.dumps(components.get("age_pres_details", {}), sort_keys=True),
             "batch_scores_json":        json.dumps(components.get("batch_scores", {}), sort_keys=True),
             # Placeholders filled by _normalize_trial_objectives after the loop
             "objective":                float("nan"),
-            "batch_mixing_pca_norm":    float("nan"),
-            "decoder_score_norm":       float("nan"),
+            "chem_mixing_norm":         float("nan"),
+            "age_pres_norm":            float("nan"),
         }
         results.append(row)
 
         logger.info(
             f"Trial {trial} done: "
-            f"bm_pca={row['batch_mixing_pca_score']:.4f}  "
-            f"recon={row['recon_error']:.4f}  "
+            f"chem_mix={row['chem_mixing_score']:.4f}  "
+            f"age_pres={row['age_pres_score']:.4f}  "
             f"({duration_min:.1f} min)"
         )
 
-        # Save model if it enters the preliminary top-k (by batch_mixing_pca_score).
+        # Save model if it enters the preliminary top-k (by chem_mixing_score).
         # The double-buffer (max_saved_k = 2 × scanvi_top_k) ensures that post-loop
         # normalization can reshuffle the final ranking without losing candidate models.
         if status == "ok" and model is not None and max_saved_k > 0:
-            prelim_score = row["batch_mixing_pca_score"]
+            prelim_score = row["chem_mixing_score"]
             enters_top_k = (
                 np.isfinite(prelim_score)
                 and (
@@ -1190,8 +1318,9 @@ def run_tuning(config_path: Path):
     # Post-loop: cross-trial normalization → final combined objectives
     # -----------------------------------------------------------------------
     logger.info("=" * 80)
-    logger.info("Computing cross-trial normalized objectives (50:50 bm_pca + decoder) ...")
-    _normalize_trial_objectives(results)
+    w_str = f"chem={metric_weights.get('chem_mixing', 0.5):.2f}  age={metric_weights.get('age_preservation', 0.5):.2f}  lin={metric_weights.get('lineage_coherence', 0.0):.2f}"
+    logger.info(f"Computing cross-trial normalized objectives (weights: {w_str}) ...")
+    _normalize_trial_objectives(results, weights=metric_weights)
 
     best = max(
         (r for r in results if r["status"] == "ok" and np.isfinite(r.get("objective", float("nan")))),
@@ -1203,8 +1332,8 @@ def run_tuning(config_path: Path):
 
     logger.info(
         f"Best trial: {best['trial']}  objective={best['objective']:.4f}  "
-        f"bm_pca={best['batch_mixing_pca_score']:.4f} (norm={best['batch_mixing_pca_norm']:.4f})  "
-        f"recon={best['recon_error']:.4f} (dec_norm={best['decoder_score_norm']:.4f})"
+        f"chem_mix={best['chem_mixing_score']:.4f} (norm={best['chem_mixing_norm']:.4f})  "
+        f"age_pres={best['age_pres_score']:.4f} (norm={best['age_pres_norm']:.4f})"
     )
 
     # Update final objectives in top_model_records and trim to the true top-k.
@@ -1239,12 +1368,14 @@ def run_tuning(config_path: Path):
             "early_stopping_patience": early_stopping_patience,
         },
         "best_metrics": {
-            "objective":               float(best["objective"]),
-            "batch_mixing_pca_score":  float(best["batch_mixing_pca_score"]),
-            "batch_mixing_pca_norm":   float(best["batch_mixing_pca_norm"]),
-            "recon_error":             float(best["recon_error"]),
-            "decoder_score_norm":      float(best["decoder_score_norm"]),
-            "age_bin_scores":          json.loads(best["age_bin_scores_json"]),
+            "objective":          float(best["objective"]),
+            "chem_mixing_score":  float(best["chem_mixing_score"]),
+            "chem_mixing_norm":   float(best["chem_mixing_norm"]),
+            "age_pres_score":     float(best["age_pres_score"]),
+            "age_pres_norm":      float(best["age_pres_norm"]),
+            "chem_strata_scores": json.loads(best["age_bin_scores_json"]),
+            "age_pres_details":   json.loads(best["age_pres_details_json"]),
+            "metric_weights":     metric_weights,
         },
     }
 
@@ -1271,16 +1402,17 @@ def run_tuning(config_path: Path):
         valid_results = [
             r for r in results
             if r["status"] == "ok"
-            and np.isfinite(r.get("batch_mixing_pca_score", float("nan")))
-            and np.isfinite(r.get("recon_error", float("nan")))
+            and np.isfinite(r.get("chem_mixing_score", float("nan")))
+            and np.isfinite(r.get("age_pres_score",    float("nan")))
         ]
-        bm_vals = [r["batch_mixing_pca_score"] for r in valid_results]
-        re_vals = [r["recon_error"]             for r in valid_results]
-        norm_constants: dict[str, float] = {
-            "bm_min": min(bm_vals) if bm_vals else 0.0,
-            "bm_max": max(bm_vals) if bm_vals else 1.0,
-            "re_min": min(re_vals) if re_vals else 0.0,
-            "re_max": max(re_vals) if re_vals else 1.0,
+        chem_vals = [r["chem_mixing_score"] for r in valid_results]
+        age_vals  = [r["age_pres_score"]    for r in valid_results]
+        norm_constants: dict[str, Any] = {
+            "chem_min": min(chem_vals) if chem_vals else 0.0,
+            "chem_max": max(chem_vals) if chem_vals else 1.0,
+            "age_min":  min(age_vals)  if age_vals  else 0.0,
+            "age_max":  max(age_vals)  if age_vals  else 1.0,
+            "weights":  metric_weights,
         }
 
         logger.info("=" * 80)
@@ -1325,14 +1457,14 @@ def run_tuning(config_path: Path):
                 # than prelim_score which was only used for buffer management).
                 scvi_row = next((r for r in results if r["trial"] == t), {})
                 scanvi_results.append({
-                    "trial":                           t,
-                    "scvi_objective":                  scvi_obj,
-                    "scvi_batch_mixing_pca_score":     scvi_row.get("batch_mixing_pca_score", float("nan")),
-                    "scvi_recon_error":                scvi_row.get("recon_error", float("nan")),
-                    "scanvi_objective":                scanvi_metrics["objective"],
-                    "scanvi_batch_mixing_pca_score":   scanvi_metrics["batch_mixing_pca_score"],
-                    "scanvi_recon_error":              scanvi_metrics["recon_error"],
-                    "delta_objective":                 delta,
+                    "trial":                      t,
+                    "scvi_objective":             scvi_obj,
+                    "scvi_chem_mixing_score":     scvi_row.get("chem_mixing_score", float("nan")),
+                    "scvi_age_pres_score":        scvi_row.get("age_pres_score",    float("nan")),
+                    "scanvi_objective":           scanvi_metrics["objective"],
+                    "scanvi_chem_mixing_score":   scanvi_metrics["chem_mixing_score"],
+                    "scanvi_age_pres_score":      scanvi_metrics["age_pres_score"],
+                    "delta_objective":            delta,
                 })
                 logger.info(
                     f"    scVI={scvi_obj:.4f}  →  scANVI={scanvi_metrics['objective']:.4f}  "
@@ -1341,14 +1473,14 @@ def run_tuning(config_path: Path):
             except Exception:
                 logger.exception(f"  scANVI evaluation failed for trial {t}")
                 scanvi_results.append({
-                    "trial":                           t,
-                    "scvi_objective":                  scvi_obj,
-                    "scvi_batch_mixing_pca_score":     float("nan"),
-                    "scvi_recon_error":                float("nan"),
-                    "scanvi_objective":                float("nan"),
-                    "scanvi_batch_mixing_pca_score":   float("nan"),
-                    "scanvi_recon_error":              float("nan"),
-                    "delta_objective":                 float("nan"),
+                    "trial":                      t,
+                    "scvi_objective":             scvi_obj,
+                    "scvi_chem_mixing_score":     float("nan"),
+                    "scvi_age_pres_score":        float("nan"),
+                    "scanvi_objective":           float("nan"),
+                    "scanvi_chem_mixing_score":   float("nan"),
+                    "scanvi_age_pres_score":      float("nan"),
+                    "delta_objective":            float("nan"),
                 })
 
         if scanvi_results:
@@ -1399,17 +1531,12 @@ def run_tuning(config_path: Path):
             exc_info=True,
         )
 
-    # Remove per-trial latent and expression PCA .npy files — they are only needed
-    # during the diagnostic UMAP step above and consume significant disk space.
-    npy_files = (
-        sorted(output_dir.glob("trial_*_latent.npy"))
-        + sorted(output_dir.glob("trial_*_expr_pca.npy"))
-        + sorted(output_dir.glob("trial_*_expr_pca_idx.npy"))
-    )
+    # Remove per-trial latent .npy files — only needed during diagnostic plotting.
+    npy_files = sorted(output_dir.glob("trial_*_latent.npy"))
     if npy_files:
         for npy in npy_files:
             npy.unlink()
-        logger.info(f"Deleted {len(npy_files)} trial latent/expr-PCA .npy file(s)")
+        logger.info(f"Deleted {len(npy_files)} trial latent .npy file(s)")
 
 
 def main():

@@ -1,13 +1,13 @@
-# snRNAseq Pipeline Config — HPC, Pearson residuals HVG, postnatal only + source-chemistry batch correction
+# snRNAseq Pipeline Config — HPC, Pearson residuals HVG, prepost + source-chemistry batch correction
 #
 # Uses a combined per-cell batch column created in downsample.py:
 #   source-chemistry = source + '-' + chemistry
 #
 # Submit via:
 #   cd /home/rajd2/rds/hpc-work/snRNAseq_2026
-#   bash code/pipeline/slurm/submit_pipeline.sh code/pipeline/excitatory_postnatal_tuning4.yaml
+#   bash code/pipeline/slurm/submit_pipeline.sh code/pipeline/source-chemistry_hpc_config.yaml
 
-output_dir: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/VelWangPsychAD_excitatory_prepost_noage
+output_dir: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/VelWangPsychAD_200k_prepost_noage_tuning5
 
 sources:
   - name: WANG
@@ -15,14 +15,14 @@ sources:
     dataset_type: Wang
     cell_type_field: "Type_updated"
     pfc_only: true
-    n_cells: 250000
+    n_cells: 200000
 
   - name: VELMESHEV
     path: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/velmeshev/velmeshev.h5ad
     dataset_type: Velmeshev
     cell_type_field: "Cell_Type"
     pfc_only: true
-    n_cells: 250000
+    n_cells: 200000
 
   - name: PSYCHAD
     paths:
@@ -31,11 +31,10 @@ sources:
     dataset_type: PsychAD
     cell_type_field: "subclass"
     pfc_only: true
-    n_cells: 250000
+    n_cells: 200000
 
 age_downsample: true
-postnatal_only: true
-cell_class_filter: [Excitatory]
+postnatal_only: false
 seed: 42
 
 scvi:
@@ -43,9 +42,9 @@ scvi:
   hvg_flavor: pearson_residuals
   hvg_batch_key: source-chemistry
   batch_key: source-chemistry
-  n_latent: 50
-  n_hidden: 128
-  n_layers: 5
+  n_latent: 30
+  n_hidden: 512
+  n_layers: 3
   gene_likelihood: zinb
   max_epochs_scvi: 400
   batch_size: 512
@@ -60,6 +59,7 @@ scanvi_label_transfer:
   enabled: true
   label_column: cell_type_for_scanvi
   max_epochs_scanvi: 100
+  scanvi_lr: 0.0001  # 10x lower than default to prevent NaN explosion when fine-tuning from scVI weights
   confidence_threshold: 0.5
 
 pseudobulk:
@@ -70,31 +70,15 @@ pseudobulk:
       aggregation: mean
     - name: scanvi_normalized
       aggregation: mean
-  min_cells: 10
+  min_cells: 100
   groups:
-    - name: all_cells_by_donor
-      group_cols: [individual]
-
     - name: by_cell_class
       group_cols: [individual, cell_class]
-
-    - name: excitatory_by_celltype
-      group_cols: [individual, cell_type_aligned]
-      filter:
-        cell_class: Excitatory
-
-    - name: inhibitory_by_celltype
-      group_cols: [individual, cell_type_aligned]
-      filter:
-        cell_class: Inhibitory
-
-notebook:
-  template: notebooks/templates/grn_dev.qmd
 
 steps:
   # - downsample
   # - scvi
-  - diagnostics
+  # - diagnostics
   - pseudobulk
   - notebook
 overwrite: false

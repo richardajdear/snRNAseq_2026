@@ -1,0 +1,97 @@
+# scVI hyperparameter tuning config — round 5 (latent-space metrics, age NOT a covariate)
+#
+# Run with:
+#   cd /home/rajd2/rds/hpc-work/snRNAseq_2026
+#   sbatch --export=ALL,CONFIG=code/tuning/source-chemistry_tuning_config_round5.yaml \
+#          code/tuning/slurm/tune_scvi_source_chemistry.sh
+#
+# --- Changes from round 4 ---
+# 1. CRITICAL: continuous_covariate_keys is now EMPTY.
+#    Round 4 incorrectly included age_log_pc, which regressed out developmental
+#    age signal that scVI should preserve.  This is the primary fix.
+#
+# 2. Metric replaced: expression-PCA batch mixing + reconstruction error
+#    → latent-space conditioned chemistry mixing + age preservation R².
+#    The new metrics do not require transform_batch expression inference,
+#    making each trial ~2–3× faster.
+#
+# 3. k_neighbors increased from 20 to 50 (latent-space kNN is cheaper than
+#    expression PCA kNN, so larger k is feasible).
+#
+# 4. weights block added: 50:50 between chem_mixing and age_preservation.
+#    Set lineage_coherence > 0 only after reviewing diagnostic_report output.
+
+input_h5ad: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/VelWangPsychAD_100k_source-chemistry/combined.h5ad
+output_dir: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/VelWangPsychAD_100k_source-chemistry/scvi_tuning_round5
+
+batch_key: source-chemistry
+age_key: age_years
+cell_type_key: cell_class
+counts_layer: counts
+
+# KEY FIX: age is NOT a covariate — it is biological signal to preserve.
+continuous_covariate_keys: []
+categorical_covariate_keys: [sex]
+
+hvg:
+  n_top_genes: 15000
+  hvg_flavor: pearson_residuals
+  # hvg_batch_key is ignored for pearson_residuals (not supported by scanpy).
+
+tuning:
+  random_seed: 42
+  n_trials: 40             # 60 valid combinations; 40 trials ≈ 67% coverage
+  max_hours: 19.0          # 1h buffer inside the 20h SLURM wall
+  max_cells: 120000        # stratified subsample; ~40% of full 300k dataset
+  num_workers: 4
+  scanvi_top_k: 3          # evaluate top-3 scVI trials with scANVI post-loop
+
+training:
+  max_epochs_scvi: 400
+  early_stopping: true
+  early_stopping_patience: 20
+  train_size: 0.9
+  max_epochs_scanvi: 50
+
+# Search space: same as round 4 (results remain useful as prior on architecture).
+# gene_likelihood fixed at "zinb"; batch_size fixed at 512.
+# Space size: 5 × 3 × 4 × 1 × 1 = 60 combinations
+search_space:
+  n_latent: [20, 30, 40, 50, 60]
+  n_hidden: [128, 256, 512]
+  n_layers: [2, 3, 4, 5]
+  gene_likelihood: ["zinb"]
+  batch_size: [512]
+
+# Metric: latent-space only (no expression inference, no PCA, no transform_batch).
+#
+# Metric 1 — Conditioned chemistry mixing (weight: 0.5)
+#   Within each age_bin × cell_type stratum, compute kNN Shannon entropy of
+#   source-chemistry labels in the LATENT SPACE.  Conditioning prevents rewarding
+#   models that mix batches simply because different batches cover different ages.
+#   Normalised by log(n_batches_global) for cross-bin comparability.
+#
+# Metric 2 — Developmental age preservation (weight: 0.5)
+#   kNN regression R² of log(age_years) from the latent representation, evaluated
+#   per cell_type and averaged.  Rewards architectures that maintain a smooth
+#   developmental gradient in latent space even after batch correction.
+#
+# Metric 3 — Lineage coherence (weight: 0.0 — deferred)
+#   Set > 0 only after reviewing diagnostic_report output:
+#     python -m tuning.diagnostic_report --input <integrated.h5ad>
+#   and confirming that cell_type_aligned labels are reliable enough for the
+#   excitatory lineage ordering metric.
+#
+# age_bin_edges: GW↔age_years mapping (negative = prenatal, 0 = birth):
+#   GW14 ≈ -0.50    GW20 ≈ -0.38    GW26 ≈ -0.27
+#   GW33 ≈ -0.13    GW37 ≈ -0.06    GW40 =  0.00
+metric:
+  age_bin_edges: [-1.0, -0.5, -0.38, -0.27, -0.15, -0.05, 0.0, 1.0, 5.0, 12.0, 20.0, 40.0, 90.0]
+  k_neighbors: 50            # larger k feasible without expression inference overhead
+  min_cells_per_bin: 100
+  min_cells_per_group: 75    # min cells per age_bin × cell_type stratum for chemistry mixing
+  min_cells_per_type: 150    # min cells per cell_type for age preservation regression
+  weights:
+    chem_mixing: 0.5
+    age_preservation: 0.5
+    lineage_coherence: 0.0   # deferred — set > 0 after diagnostic review

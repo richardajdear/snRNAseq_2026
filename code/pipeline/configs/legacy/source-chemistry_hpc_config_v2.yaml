@@ -1,13 +1,20 @@
-# snRNAseq Pipeline Config — HPC, Pearson residuals HVG, postnatal only + source-chemistry batch correction
+# snRNAseq Pipeline Config v2 — HPC, source-chemistry batch correction, age NOT a covariate
 #
-# Uses a combined per-cell batch column created in downsample.py:
-#   source-chemistry = source + '-' + chemistry
+# KEY FIX from v1: age_log_pc is removed from continuous_covariate_keys.
+# Including age as a covariate causes scVI to regress out developmental age signal,
+# which is the biological gradient we need to preserve for downstream trajectory
+# analysis.  Only Illumina chemistry (source-chemistry) is corrected as a batch effect.
+#
+# Architecture: best from round 4 tuning (n_latent=50, n_hidden=128, n_layers=5).
+# Update scvi.n_latent / n_hidden / n_layers from best_hyperparameters.yaml after
+# round 5 tuning completes.
 #
 # Submit via:
 #   cd /home/rajd2/rds/hpc-work/snRNAseq_2026
-#   bash code/pipeline/slurm/submit_pipeline.sh code/pipeline/excitatory_postnatal_tuning4.yaml
+#   bash code/pipeline/slurm/submit_pipeline.sh \
+#        code/pipeline/configs/source-chemistry_hpc_config_v2.yaml
 
-output_dir: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/VelWangPsychAD_excitatory_prepost_noage
+output_dir: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/VelWangPsychAD_100k_source-chemistry_v2
 
 sources:
   - name: WANG
@@ -15,14 +22,14 @@ sources:
     dataset_type: Wang
     cell_type_field: "Type_updated"
     pfc_only: true
-    n_cells: 250000
+    n_cells: 100000
 
   - name: VELMESHEV
     path: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/velmeshev/velmeshev.h5ad
     dataset_type: Velmeshev
     cell_type_field: "Cell_Type"
     pfc_only: true
-    n_cells: 250000
+    n_cells: 100000
 
   - name: PSYCHAD
     paths:
@@ -31,18 +38,18 @@ sources:
     dataset_type: PsychAD
     cell_type_field: "subclass"
     pfc_only: true
-    n_cells: 250000
+    n_cells: 100000
 
 age_downsample: true
-postnatal_only: true
-cell_class_filter: [Excitatory]
+postnatal_only: false
 seed: 42
 
 scvi:
-  n_top_genes: 15000
+  n_top_genes: 10000
   hvg_flavor: pearson_residuals
   hvg_batch_key: source-chemistry
   batch_key: source-chemistry
+  # Architecture: round4 best — update after round5 tuning completes.
   n_latent: 50
   n_hidden: 128
   n_layers: 5
@@ -51,8 +58,9 @@ scvi:
   batch_size: 512
   early_stopping: true
   early_stopping_patience: 20
-  num_workers: 16
+  num_workers: 4
   transform_batch: WANG-multiome
+  # KEY FIX: age_log_pc removed — developmental age is signal to preserve, not a batch effect.
   continuous_covariate_keys: []
   categorical_covariate_keys: [sex]
 
@@ -88,13 +96,10 @@ pseudobulk:
       filter:
         cell_class: Inhibitory
 
-notebook:
-  template: notebooks/templates/grn_dev.qmd
-
 steps:
-  # - downsample
-  # - scvi
+  - downsample
+  - combine
+  - scvi
   - diagnostics
   - pseudobulk
-  - notebook
-overwrite: false
+overwrite: true

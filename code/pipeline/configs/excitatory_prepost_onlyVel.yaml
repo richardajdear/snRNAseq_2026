@@ -7,7 +7,7 @@
 #   cd /home/rajd2/rds/hpc-work/snRNAseq_2026
 #   bash code/pipeline/slurm/submit_pipeline.sh code/pipeline/excitatory_prepost_tuning4.yaml
 
-output_dir: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/Vel_excitatory_prepost
+output_dir: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/Vel_excitatory_prepost_noage
 
 sources:
   - name: VELMESHEV
@@ -36,7 +36,7 @@ scvi:
   early_stopping_patience: 20
   num_workers: 16
   transform_batch: VELMESHEV-V3
-  continuous_covariate_keys: [age_log_pc]
+  continuous_covariate_keys: []
   categorical_covariate_keys: [sex]
 
 scanvi_label_transfer:
@@ -72,9 +72,9 @@ notebook:
   cell_class_value: ''
 
 steps:
-  # - downsample
-  # - combine
-  # - scvi
-  # - pseudobulk
+  - downsample
+  - combine
+  - scvi
+  - pseudobulk
   - notebook
 overwrite: false

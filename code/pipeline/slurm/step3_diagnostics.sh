@@ -1,11 +1,11 @@
 #!/bin/bash
 #SBATCH --output=/home/rajd2/rds/hpc-work/snRNAseq_2026/logs/%j_step3_diagnostics.out
 #SBATCH --error=/home/rajd2/rds/hpc-work/snRNAseq_2026/logs/%j_step3_diagnostics.err
-#SBATCH --time=00:30:00
+#SBATCH --time=01:00:00
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --partition=icelake
-#SBATCH --mem=64G
+#SBATCH --mem=256G
 #SBATCH --account=vertes-sl2-cpu
 
 # Run scANVI label-transfer diagnostics on an existing integrated.h5ad.

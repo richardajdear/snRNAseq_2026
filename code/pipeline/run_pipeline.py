@@ -316,6 +316,8 @@ def step_scvi(cfg: dict, output_dir: Path, combined_path: Path,
         scvi_cfg['predict_cell_types'] = True
         if 'max_epochs_scanvi' in slt:
             scvi_cfg['max_epochs_scanvi'] = slt['max_epochs_scanvi']
+        if 'scanvi_lr' in slt:
+            scvi_cfg['scanvi_lr'] = slt['scanvi_lr']
         # Run both scVI and scANVI inference so that:
         #   scvi_normalized  → inferred UMAP column showing age gradient without
         #                       cell-type conditioning (useful diagnostic)
@@ -426,6 +428,8 @@ def step_scanvi(cfg: dict, output_dir: Path, combined_path: Path,
         scvi_cfg['cell_type_key'] = slt.get('label_column', 'cell_type_for_scanvi')
         if 'max_epochs_scanvi' in slt:
             scvi_cfg['max_epochs_scanvi'] = slt['max_epochs_scanvi']
+        if 'scanvi_lr' in slt:
+            scvi_cfg['scanvi_lr'] = slt['scanvi_lr']
     else:
         logger.warning(
             "scanvi_label_transfer.enabled=false in config, "
