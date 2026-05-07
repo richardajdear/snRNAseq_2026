@@ -13,7 +13,7 @@ set -euo pipefail
 WORK_DIR="${WORK_DIR:-/home/rajd2/rds/hpc-work/snRNAseq_2026}"
 CONFIG="${CONFIG:-code/pipeline/configs/source_hpc_config.yaml}"
 # Override these at submission time if needed:
-NOTEBOOK_TEMPLATE="${NOTEBOOK_TEMPLATE:-notebooks/templates/grn_dev.qmd}"
+NOTEBOOK_TEMPLATE="${NOTEBOOK_TEMPLATE:-notebooks/templates/grn_dev_v2.qmd}"
 PSEUDOBULK_GROUP="${PSEUDOBULK_GROUP:-by_cell_class}"
 # PSEUDOBULK_FILE and EXPERIMENT_NAME can be set directly to bypass CONFIG
 # parsing (used by util_retransform.sh when submitting a dependency notebook).

@@ -50,7 +50,7 @@ singularity exec \
     micromamba run -n scvi-scgen-scmomat-unitvelo \
     env PYTHONPATH="code" python3 -m pipeline.run_pipeline \
         --config "${CONFIG}" \
-        --steps diagnostics
+        --steps umap diagnostics
 
 _ELAPSED=$(( $(date +%s) - _JOB_START ))
 _TIME_LIMIT=$(squeue -j "${SLURM_JOB_ID}" -h -o "%l" 2>/dev/null || echo "N/A")

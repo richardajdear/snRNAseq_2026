@@ -28,7 +28,7 @@ if [[ -z "$NOTEBOOK" ]]; then
     exit 1
 fi
 
-REPO_ROOT="/home/rajd2/rds/hpc-work/snRNAseq_2026"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # Resolve to absolute paths
 [[ "$NOTEBOOK"    != /* ]] && NOTEBOOK="${REPO_ROOT}/${NOTEBOOK}"
@@ -53,11 +53,6 @@ fi
 
 CACHE_FLAG=""
 [[ "$FORCE" == "--force" ]] && CACHE_FLAG="--cache-refresh"
-
-SIF="/home/rajd2/rds/hpc-work/shortcake.sif"
-QUARTO_DIR="/usr/local/Cluster-Apps/ceuadmin/quarto/1.7.13"
-CONDA_ENV="shortcake_default"
-PYTHON_BIN="/opt/micromamba/envs/${CONDA_ENV}/bin/python3"
 
 # When OUTPUT_DIR is set, copy the notebook there before rendering so that
 # Quarto's intermediate files (*.quarto_ipynb, *_files/) land in the
@@ -85,14 +80,35 @@ echo "Start:     $(date)"
 echo "========================================"
 _JOB_START=$(date +%s)
 
-singularity exec \
-    --pwd "$RENDER_PWD" \
-    --bind "${QUARTO_DIR}:/quarto" \
-    --env "R_LIBS_USER=/home/rajd2/R/library" \
-    ${PARAMS_ENV:+--env "$PARAMS_ENV"} \
-    "$SIF" \
-    micromamba run -n "$CONDA_ENV" \
-    bash -c "QUARTO_PYTHON=${PYTHON_BIN} /quarto/bin/quarto render '${RENDER_NOTEBOOK}' ${OUTPUT_ARG} ${CACHE_FLAG}"
+if command -v singularity >/dev/null 2>&1; then
+    # HPC (sbatch job or login node): run inside Singularity container
+    SIF="/home/rajd2/rds/hpc-work/shortcake.sif"
+    QUARTO_DIR="/usr/local/Cluster-Apps/ceuadmin/quarto/1.7.13"
+    CONDA_ENV="shortcake_default"
+    PYTHON_BIN="/opt/micromamba/envs/${CONDA_ENV}/bin/python3"
+    singularity exec \
+        --pwd "$RENDER_PWD" \
+        --bind "${QUARTO_DIR}:/quarto" \
+        --env "R_LIBS_USER=/home/rajd2/R/library" \
+        ${PARAMS_ENV:+--env "$PARAMS_ENV"} \
+        "$SIF" \
+        micromamba run -n "$CONDA_ENV" \
+        bash -c "QUARTO_PYTHON=${PYTHON_BIN} /quarto/bin/quarto render '${RENDER_NOTEBOOK}' ${OUTPUT_ARG} ${CACHE_FLAG}"
+else
+    # Local workstation: use native quarto installation
+    if ! command -v quarto >/dev/null 2>&1; then
+        echo "Error: quarto not found in PATH (and singularity is not available)" >&2
+        exit 1
+    fi
+    QUARTO_CMD=(quarto render "${RENDER_NOTEBOOK}")
+    [[ -n "$OUTPUT_FILE" ]] && QUARTO_CMD+=(--output "${OUTPUT_FILE}")
+    [[ -n "$CACHE_FLAG"  ]] && QUARTO_CMD+=("$CACHE_FLAG")
+    (
+        cd "$RENDER_PWD"
+        [[ -n "$PARAMS_FILE" ]] && export NOTEBOOK_PARAMS="$PARAMS_FILE"
+        "${QUARTO_CMD[@]}"
+    )
+fi
 
 # Remove the notebook copy; keep all generated output files
 [[ "${_CLEANUP_NOTEBOOK}" -eq 1 ]] && rm -f "${RENDER_NOTEBOOK}"

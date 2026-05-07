@@ -3,7 +3,7 @@
 # Render a single notebook experiment by config name.
 #
 # Usage:
-#   bash render_single.sh <config_name> [template_override] [--force]
+#   bash render_single.sh <config_name> [template_override] [--force] [--local]
 #
 # <config_name> is the YAML filename without extension, e.g.:
 #   sensitivity_chemistry_scANVI
@@ -17,41 +17,60 @@
 # --force  deletes the CACHE_DIR from the config before rendering, forcing a
 #          full re-run of the projection pipeline (overwrites the cache).
 #
-# Always invoke with `bash`, not `sbatch` directly — the script submits itself
-# to SLURM with the correct per-config log paths automatically.
+# --local  run directly in the current shell instead of submitting to SLURM.
+#          On the HPC login node this is useful for interactive tests
+#          (Singularity is still used, so the environment matches production).
+#          On a local workstation (no sbatch/singularity) this flag is optional —
+#          local execution is detected automatically.
+#
+# Execution modes:
+#   HPC default   bash render_single.sh <config>           → auto-submits via sbatch
+#   HPC direct    bash render_single.sh <config> --local   → runs in current shell
+#   MacBook       bash render_single.sh <config>           → auto-detects, runs directly
 #
 # Output goes to:  notebooks/results/<config_name>/
-# Logs go to:      logs/render_<config_name>_%j.{out,err}
+# Logs go to:      logs/render_<config_name>_%j.{out,err}  (sbatch mode only)
 #
 # Examples:
 #   bash render_single.sh sensitivity_chemistry_scANVI
 #   bash render_single.sh sensitivity_chemistry_scANVI "" --force
-
-#SBATCH --job-name=render_notebook
-#SBATCH --time=00:10:00
-#SBATCH --mem=10G
-#SBATCH --partition=icelake
+#   bash render_single.sh sensitivity_chemistry_scANVI --local
 
 set -euo pipefail
 
-CONFIG_NAME="${1:-}"
-TEMPLATE_OVERRIDE="${2:-}"
-FORCE="${3:-}"
-
-if [[ -z "$CONFIG_NAME" ]]; then
-    echo "Usage: $0 <config_name> [template_override]" >&2
-    echo ""
-    echo "Available configs:"
-    ls /home/rajd2/rds/hpc-work/snRNAseq_2026/notebooks/configs/*.yaml 2>/dev/null \
-        | xargs -n1 basename | sed 's/\.yaml$//'
-    exit 1
-fi
-
-REPO_ROOT="/home/rajd2/rds/hpc-work/snRNAseq_2026"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CONFIGS_DIR="${REPO_ROOT}/notebooks/configs"
 TEMPLATES_DIR="${REPO_ROOT}/notebooks/templates"
 RESULTS_DIR="${REPO_ROOT}/notebooks/results"
 LOGS_DIR="${REPO_ROOT}/logs"
+
+CONFIG_NAME=""
+TEMPLATE_OVERRIDE=""
+FORCE=""
+LOCAL=""
+_pos=0
+for _arg in "$@"; do
+    case "$_arg" in
+        --force) FORCE="--force" ;;
+        --local) LOCAL="--local" ;;
+        *)
+            (( ++_pos ))
+            case $_pos in
+                1) CONFIG_NAME="$_arg" ;;
+                2) TEMPLATE_OVERRIDE="$_arg" ;;
+            esac
+            ;;
+    esac
+done
+
+if [[ -z "$CONFIG_NAME" ]]; then
+    echo "Usage: $0 <config_name> [template_override] [--force] [--local]" >&2
+    echo ""
+    echo "Available configs:"
+    ls "${CONFIGS_DIR}"/*.yaml 2>/dev/null \
+        | xargs -n1 basename | sed 's/\.yaml$//'
+    exit 1
+fi
 
 CONFIG_FILE="${CONFIGS_DIR}/${CONFIG_NAME}.yaml"
 if [[ ! -f "$CONFIG_FILE" ]]; then
@@ -59,19 +78,22 @@ if [[ ! -f "$CONFIG_FILE" ]]; then
     exit 1
 fi
 
-# If not already inside a SLURM job, re-submit via sbatch so that --output and
-# --error can be set dynamically to include the config name.  The exec replaces
-# this shell process — nothing below runs until the re-submitted job starts.
-if [[ -z "${SLURM_JOB_ID:-}" ]]; then
-    mkdir -p "$LOGS_DIR"
-    exec sbatch \
-        --job-name="render_${CONFIG_NAME}" \
-        --output="${LOGS_DIR}/render_${CONFIG_NAME}_%j.out" \
-        --error="${LOGS_DIR}/render_${CONFIG_NAME}_%j.err" \
-        --time=02:00:00 \
-        --mem=200G \
-        --partition=icelake \
-        "$0" "$@"
+# If not already inside a SLURM job and --local was not requested, submit via
+# sbatch (HPC default).  On a local workstation with no sbatch this block is
+# skipped and execution falls through directly.
+if [[ -z "${SLURM_JOB_ID:-}" && -z "$LOCAL" ]]; then
+    if command -v sbatch >/dev/null 2>&1; then
+        mkdir -p "$LOGS_DIR"
+        exec sbatch \
+            --job-name="render_${CONFIG_NAME}" \
+            --output="${LOGS_DIR}/%j_render_${CONFIG_NAME}.out" \
+            --error="${LOGS_DIR}/%j_render_${CONFIG_NAME}.err" \
+            --time=00:10:00 \
+            --mem=32G \
+            --partition=icelake \
+            "$0" "$@"
+    fi
+    # No sbatch available (local workstation): fall through and run directly.
 fi
 
 # Infer template from first-line comment "# Template: <name>"
@@ -107,16 +129,19 @@ if [[ "$FORCE" == "--force" ]]; then
     fi
 fi
 
+PARAMS_SNAPSHOT="${OUTPUT_DIR}/${TEMPLATE_NAME}_params.yaml"
+cp "$CONFIG_FILE" "$PARAMS_SNAPSHOT"
+
 echo "========================================"
 echo "Config:    ${CONFIG_NAME}"
 echo "Template:  ${TEMPLATE_NAME}"
-echo "Params:    ${CONFIG_FILE}"
+echo "Params:    ${PARAMS_SNAPSHOT}"
 echo "Output:    ${OUTPUT_DIR}"
 [[ "$FORCE" == "--force" ]] && echo "Mode:      FORCE (cache cleared)"
 echo "========================================"
 
 bash "${REPO_ROOT}/notebooks/render_notebook.sh" \
     "$TEMPLATE" \
-    "$CONFIG_FILE" \
+    "$PARAMS_SNAPSHOT" \
     "$OUTPUT_DIR" \
     "$FORCE"

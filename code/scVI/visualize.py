@@ -659,7 +659,7 @@ def plot_umap_grids(
       Latent cols  : Uncorrected PCA | scVI latent | scANVI latent
       Inferred cols: Uncorrected PCA | scVI normalized | scANVI normalized
     """
-    plots_dir = config._resolved_output_dir / "plots"
+    plots_dir = config._resolved_output_dir.parent / "plots" / "all"
 
     batch_col = getattr(config, "batch_key", "source")
 
@@ -714,7 +714,7 @@ def plot_pca_grids(
     """
     compute_latent_pcas(adata, logger)
 
-    plots_dir = config._resolved_output_dir / "plots"
+    plots_dir = config._resolved_output_dir.parent / "plots" / "all"
     batch_col = getattr(config, "batch_key", "source")
 
     row_specs = [
@@ -748,6 +748,78 @@ def plot_pca_grids(
         point_size=config.umap_point_size,
         x_axis_label="PC1", y_axis_label="PC2",
     )
+
+
+def plot_excitatory_grids(
+    adata: ad.AnnData,
+    config,
+    logger: logging.Logger,
+):
+    """Recompute UMAPs/PCAs on excitatory neurons and write 4 plot files.
+
+    UMAPs and PCAs are computed fresh on the excitatory subset so the embedding
+    reflects only excitatory cell variation. Plots show a single row coloured by
+    cell type (cell_type_aligned if present from scANVI label transfer, else
+    cell_type_raw). Written to <run>/plots/excitatory/.
+    """
+    if "cell_class" not in adata.obs.columns:
+        logger.warning("cell_class column not found — skipping excitatory plots")
+        return
+
+    mask = adata.obs["cell_class"] == "Excitatory"
+    excitatory = adata[mask].copy()
+    if excitatory.n_obs == 0:
+        logger.warning("No excitatory cells found — skipping excitatory plots")
+        return
+    logger.info(f"Excitatory subset: {excitatory.n_obs:,} cells")
+
+    if "cell_type_aligned" in excitatory.obs.columns:
+        ct_col, ct_label = "cell_type_aligned", "Cell type (aligned)"
+    else:
+        ct_col, ct_label = "cell_type_raw", "Cell type (raw)"
+
+    with Timer("UMAP computation (excitatory subset)", logger):
+        compute_umaps(excitatory, config, logger)
+
+    plots_dir = config._resolved_output_dir.parent / "plots" / "excitatory"
+    row_specs = [(ct_col, ct_label)]
+
+    latent_cols = [
+        ("X_umap_raw",    "Uncorrected (PCA)"),
+        ("X_umap_scvi",   "scVI latent"),
+        ("X_umap_scanvi", "scANVI latent"),
+    ]
+    inferred_cols = [
+        ("X_umap_raw",             "Uncorrected (PCA)"),
+        ("X_umap_scvi_inferred",   "scVI normalized"),
+        ("X_umap_scanvi_inferred", "scANVI normalized"),
+    ]
+    _plot_grid(excitatory, row_specs, latent_cols,
+               output_path=str(plots_dir / "umaps_latent.png"),
+               config=config, logger=logger, point_size=config.umap_point_size)
+    _plot_grid(excitatory, row_specs, inferred_cols,
+               output_path=str(plots_dir / "umaps_inferred.png"),
+               config=config, logger=logger, point_size=config.umap_point_size)
+
+    compute_latent_pcas(excitatory, logger)
+    pca_latent_cols = [
+        ("X_pca_raw",           "Uncorrected (PCA)"),
+        ("X_pca_scvi_latent",   "scVI latent"),
+        ("X_pca_scanvi_latent", "scANVI latent"),
+    ]
+    pca_inferred_cols = [
+        ("X_pca_raw",             "Uncorrected (PCA)"),
+        ("X_pca_scvi_inferred",   "scVI normalised"),
+        ("X_pca_scanvi_inferred", "scANVI normalised"),
+    ]
+    _plot_grid(excitatory, row_specs, pca_latent_cols,
+               output_path=str(plots_dir / "pca_latent.png"),
+               config=config, logger=logger, point_size=config.umap_point_size,
+               x_axis_label="PC1", y_axis_label="PC2")
+    _plot_grid(excitatory, row_specs, pca_inferred_cols,
+               output_path=str(plots_dir / "pca_inferred.png"),
+               config=config, logger=logger, point_size=config.umap_point_size,
+               x_axis_label="PC1", y_axis_label="PC2")
 
 
 def plot_batch_comparison(

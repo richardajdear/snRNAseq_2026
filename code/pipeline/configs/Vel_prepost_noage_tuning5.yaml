@@ -1,0 +1,77 @@
+# snRNAseq Pipeline Config — HPC, Pearson residuals HVG, prepost + source-chemistry batch correction
+#
+#
+# Submit via:
+#   cd /home/rajd2/rds/hpc-work/snRNAseq_2026
+#   bash code/pipeline/slurm/submit_pipeline.sh code/pipeline/prepost_onlyVel.yaml
+
+output_dir: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/Vel_prepost_noage_tuning5
+
+sources:
+  - name: VELMESHEV
+    path: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/velmeshev/velmeshev.h5ad
+    dataset_type: Velmeshev
+    cell_type_field: "Cell_Type"
+    pfc_only: true
+
+age_downsample: true
+seed: 42
+
+scvi:
+  n_top_genes: 15000
+  hvg_flavor: pearson_residuals
+  hvg_batch_key: source-chemistry
+  batch_key: source-chemistry
+  n_latent: 30
+  n_hidden: 512
+  n_layers: 3
+  gene_likelihood: zinb
+  max_epochs_scvi: 400
+  batch_size: 512
+  early_stopping: true
+  early_stopping_patience: 20
+  num_workers: 16
+  transform_batch: VELMESHEV-V3
+  continuous_covariate_keys: []
+  categorical_covariate_keys: [sex]
+
+scanvi_label_transfer:
+  enabled: true
+  label_column: cell_type_raw
+  max_epochs_scanvi: 100
+  scanvi_lr: 0.0001  # 10x lower than default to prevent NaN explosion when fine-tuning from scVI weights
+  confidence_threshold: 0.5
+
+pseudobulk:
+  layers:
+    - name: counts
+      aggregation: sum
+    - name: scvi_normalized
+      aggregation: mean
+    - name: scanvi_normalized
+      aggregation: mean
+  min_cells: 10
+  groups:
+    - name: all_cells_by_donor
+      group_cols: [individual]
+
+    - name: by_cell_class
+      group_cols: [individual, cell_class]
+
+    - name: excitatory_by_celltype
+      group_cols: [individual, cell_type_aligned]
+      filter:
+        cell_class: Excitatory
+
+notebook:
+  template: notebooks/templates/grn_dev_v2.qmd
+  cell_class_col: ''    # data is already excitatory-only; skip the default 'Excitatory' filter
+  cell_class_value: ''
+
+steps:
+  - downsample
+  - scvi
+  - diagnostics
+  - pseudobulk
+  - notebook
+overwrite: false

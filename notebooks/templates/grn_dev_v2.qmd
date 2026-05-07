@@ -84,9 +84,9 @@ CELL_CLASS_COL   = _cfg.get('CELL_CLASS_COL',   'cell_class') or ''
 CELL_CLASS_VALUE = _cfg.get('CELL_CLASS_VALUE', 'Excitatory') or ''
 
 # --- HVG selection ---
-# N_VALUES: top-N gene counts for Pearson residuals HVG conditions.
+# N_VALUES: top-N gene counts for HVG conditions.
 # An all-gene (no filtering) condition is always included.
-N_VALUES = _cfg.get('N_VALUES', [2000, 4000, 8000])
+N_VALUES = _cfg.get('N_VALUES', [4000])
 
 # --- 4D sensitivity axes ---
 CHILD_STARTS = _cfg.get('CHILD_STARTS', [1, 2, 3, 4, 5])
@@ -179,14 +179,14 @@ _grn_pivot = ahba_GRN.pivot_table(
     index='Network', columns='Gene', values='Importance', fill_value=0)
 ```
 
-### 2.3 GRN Projection — Pearson Residuals vs scANVI-Normalized
+### 2.3 GRN Projection — CPM vs scANVI-Normalized
 
 Two normalization methods × (all genes + top-N HVGs) = 10 conditions:
 
 | condition | description |
 |---|---|
-| `pearson_all` | Pearson residuals on raw counts, all genes |
-| `pearson_{n}` | Pearson residuals, top-*n* genes (by Pearson HVG method) |
+| `cpm_all` | CPM-normalized raw counts, all genes |
+| `cpm_{n}` | CPM-normalized, top-*n* genes (by Pearson HVG method) |
 | `scanvi_all` | scANVI batch-corrected expression, all genes |
 | `scanvi_{n}` | scANVI batch-corrected, top-*n* genes by variance |
 
@@ -204,22 +204,17 @@ def _project_and_collect(adata, ahba_GRN, condition_name, use_highly_variable=Fa
 
 all_scores = []
 
-# ── Method 1: Pearson residuals on raw counts ─────────────────────────────────
+# ── Method 1: CPM normalization on raw counts ─────────────────────────────────
 adata.X = adata.layers['counts'].copy()
-sc.experimental.pp.normalize_pearson_residuals(adata, inplace=True)
-_pearson_X = (adata.X.toarray() if _sp.issparse(adata.X) else adata.X).copy()
-_n_nan = np.isnan(_pearson_X).sum()
-if _n_nan > 0:
-    _n_bad = int(np.isnan(_pearson_X).any(axis=0).sum())
-    print(f"Warning: {_n_nan} NaN residuals in {_n_bad} gene(s) (all-zero counts); filling with 0.")
-    _pearson_X = np.nan_to_num(_pearson_X, nan=0.0)
-print(f"Pearson residuals: {adata.n_vars} genes, {adata.n_obs} donors.")
+sc.pp.normalize_total(adata, target_sum=1e6, inplace=True)
+_cpm_X = (adata.X.toarray() if _sp.issparse(adata.X) else adata.X).copy()
+print(f"CPM: {adata.n_vars} genes, {adata.n_obs} donors.")
 
-adata.X = _pearson_X.copy()
+adata.X = _cpm_X.copy()
 if 'highly_variable' in adata.var.columns:
     del adata.var['highly_variable']
-all_scores.append(_project_and_collect(adata, ahba_GRN, 'pearson_all'))
-print(f"pearson_all : {adata.n_vars} genes, "
+all_scores.append(_project_and_collect(adata, ahba_GRN, 'cpm_all'))
+print(f"cpm_all : {adata.n_vars} genes, "
       f"{len(np.intersect1d(_grn_pivot.columns, adata.var_names))} GRN genes")
 
 for n in N_VALUES:
@@ -227,11 +222,14 @@ for n in N_VALUES:
     n_hvg = int(adata.var['highly_variable'].sum())
     n_grn = len(np.intersect1d(
         _grn_pivot.columns, adata.var_names[adata.var['highly_variable']]))
-    adata.X = _pearson_X.copy()
-    all_scores.append(_project_and_collect(adata, ahba_GRN, f'pearson_{n}',
+    adata.X = _cpm_X.copy()
+    all_scores.append(_project_and_collect(adata, ahba_GRN, f'cpm_{n}',
                                            use_highly_variable=True))
-    print(f"pearson_{n:<5}: {n_hvg} HVGs, {n_grn} GRN genes")
-del _pearson_X
+    print(f"cpm_{n:<5}: {n_hvg} HVGs, {n_grn} GRN genes")
+
+# Stash raw CPM for unweighted sum in section 4.2
+_cpm_raw_X = _cpm_X.copy()
+del _cpm_X
 
 # ── Method 2: scANVI batch-corrected (linear scale) ──────────────────────────
 if 'scanvi_normalized' not in adata.layers:
@@ -316,7 +314,7 @@ Childhood = `[child_start, gap_start)`, Adolescence = `[gap_start + gap_length, 
 source(file.path(code_dir, 'plotting', 'hvg_plots.r'))
 source(file.path(code_dir, 'plotting', 'sensitivity_gap_plots.r'))
 
-selected_conds <- c('pearson_all', paste0('pearson_', N_VALUES),
+selected_conds <- c('cpm_all', paste0('cpm_', N_VALUES),
                     'scanvi_all',  paste0('scanvi_', N_VALUES))
 
 df <- prepare_r_data_single(final_df, condition_order = selected_conds)
@@ -384,15 +382,78 @@ plot_4d_power(sens_4d, filter_cond = best_cond)
 
 ## 4. Developmental Trends (Best Age Range)
 
-All subsequent sections use the age boundaries selected above (lowest p-value for `scanvi_all`),
-applied identically to both normalization methods for a direct comparison.
+All subsequent sections use the scANVI sensitivity-selected age boundaries for scANVI panels,
+and fixed boundaries (childhood 1–9, adolescence 9–25) for CPM panels.
 
 ```{python}
 %%R
 
 cat(sprintf(
-    "Using: Childhood = [%d, %d)  Gap = [%d, %d)  Adolescence = [%d, %d)\n",
+    "scANVI best range: Childhood = [%d, %d)  Gap = [%d, %d)  Adolescence = [%d, %d)\n",
     best_cs, best_ce, best_ce, best_as, best_as, best_ae))
+cat("CPM fixed range:  Childhood = [1, 9)  Adolescence = [9, 25)\n")
+```
+
+```{python}
+%%R
+
+# ── Shared plot helper functions ──────────────────────────────────────────────
+
+make_traj_plot <- function(pb_data, cs, ce, as_, ae, y_label, title, subtitle) {
+    ggplot(pb_data, aes(x = age_years, y = value)) +
+        facet_wrap(~ n_genes, scales = 'free', ncol = 1) +
+        annotate('rect', xmin = ce, xmax = as_,
+                 ymin = -Inf, ymax = Inf, fill = 'grey80', alpha = 0.3) +
+        geom_point(aes(color = source_chemistry), size = 1.5, alpha = 0.7) +
+        geom_smooth(aes(group = 1), se = FALSE, color = 'black', linewidth = 0.5) +
+        geom_vline(xintercept = cs,  linetype = 'dotted', color = 'blue', linewidth = 0.3) +
+        geom_vline(xintercept = ce,  linetype = 'dashed', color = 'red',  linewidth = 0.4) +
+        geom_vline(xintercept = as_, linetype = 'dashed', color = 'red',  linewidth = 0.4) +
+        geom_vline(xintercept = ae,  linetype = 'dotted', color = 'blue', linewidth = 0.3) +
+        scale_x_continuous(
+            name = 'Donor Age (years)',
+            limits = c(0, 30),
+            breaks = seq(0, 30, 5)
+        ) +
+        scale_y_continuous(name = y_label) +
+        scale_color_discrete(name = 'Source-chemistry',
+            guide = guide_legend(override.aes = list(size = 2, alpha = 1))) +
+        theme_classic() +
+        theme(
+            text = element_text(size = 8),
+            strip.text = element_text(size = 7),
+            strip.background = element_blank(),
+            axis.text.x = element_text(size = 6),
+            panel.spacing = unit(0.3, 'lines')
+        ) +
+        ggtitle(title, subtitle = subtitle)
+}
+
+make_box_plot <- function(df_boxes_data, y_label, title) {
+    ggplot(df_boxes_data, aes(x = age_range, y = value)) +
+        facet_wrap(~ n_genes, scales = 'free', ncol = 1) +
+        geom_boxplot(aes(alpha = box_alpha), outlier.shape = NA) +
+        geom_jitter(aes(color = source_chemistry, alpha = pt_alpha), width = 0.15, size = 1.5) +
+        scale_alpha_identity(guide = 'none') +
+        stat_compare_means(comparisons = list(c('Childhood', 'Adolescence'),
+                                              c('Adolescence', 'Early Adult'),
+                                              c('Early Adult', 'Late Adult')),
+                           label = 'p.signif', size = 3) +
+        scale_y_continuous(name = y_label) +
+        scale_color_discrete(name = 'Source-chemistry',
+            guide = guide_legend(override.aes = list(size = 2, alpha = 1))) +
+        coord_cartesian(clip = 'off') +
+        theme_classic() +
+        theme(
+            text = element_text(size = 8),
+            strip.text = element_text(size = 7),
+            strip.background = element_blank(),
+            axis.text.x = element_text(angle = 45, hjust = 1, size = 7),
+            axis.title.x = element_blank(),
+            panel.spacing = unit(0.3, 'lines')
+        ) +
+        ggtitle(title)
+}
 ```
 
 ### 4.1 Pseudobulk Trajectories + Stage Boxes
@@ -400,7 +461,9 @@ cat(sprintf(
 ```{python}
 #| message: false
 #| warning: false
-%%R -i TOTAL_GENES -i N_VALUES -w 280 -h 220 -u mm -r 300
+%%R -i TOTAL_GENES -i N_VALUES -w 280 -h 280 -u mm -r 300
+
+FIX_CS <- 1L; FIX_CE <- 9L; FIX_AS <- 9L; FIX_AE <- 25L
 
 facet_levels <- c(paste0("all\n(", TOTAL_GENES, ")"), rev(as.character(N_VALUES)))
 
@@ -408,12 +471,12 @@ decorate_hvg_facets <- function(data_tbl) {
     data_tbl %>%
         mutate(
             flavor = case_when(
-                grepl('pearson', condition) ~ 'pearson',
-                grepl('scanvi',  condition) ~ 'scanvi',
+                grepl('cpm',    condition) ~ 'cpm',
+                grepl('scanvi', condition) ~ 'scanvi',
                 TRUE ~ 'other'
             ),
             n_genes = case_when(
-                condition %in% c('pearson_all', 'scanvi_all') ~
+                condition %in% c('cpm_all', 'scanvi_all') ~
                     paste0("all\n(", TOTAL_GENES, ")"),
                 grepl('_(\\d+)$', as.character(condition)) ~
                     gsub('.*_(\\d+)$', '\\1', as.character(condition)),
@@ -423,128 +486,173 @@ decorate_hvg_facets <- function(data_tbl) {
         )
 }
 
-df_boxes <- make_boxes_gap_df(df, best_cs, best_ce, best_as, best_ae)
+df_dec <- df %>% decorate_hvg_facets()
 
-pb <- df %>%
-    filter(C == 'C3+') %>%
-    decorate_hvg_facets() %>%
-    group_by(condition, flavor, n_genes, individual, age_years, source, source_chemistry) %>%
-    summarize(value = mean(value), .groups = 'drop') %>%
-    group_by(condition) %>%
-    mutate(value = (value - mean(value)) / sd(value)) %>%
-    ungroup()
+prep_pb <- function(df_in, flavor_str) {
+    df_in %>%
+        filter(C == 'C3+', flavor == flavor_str) %>%
+        group_by(condition, n_genes, individual, age_years, source, source_chemistry) %>%
+        summarize(value = mean(value), .groups = 'drop') %>%
+        group_by(condition) %>%
+        mutate(value = (value - mean(value)) / sd(value)) %>%
+        ungroup()
+}
 
-df_boxes_plot <- df_boxes %>%
-    filter(network == 'C3+') %>%
-    decorate_hvg_facets() %>%
-    group_by(condition) %>%
-    mutate(
-        value    = (value - mean(value)) / sd(value),
-        box_alpha = ifelse(age_range == 'Gap', 0.3, 0.4),
-        pt_alpha = ifelse(age_range == 'Gap', 0.3, 0.7)
-    ) %>%
-    ungroup()
+prep_boxes <- function(df_in, flavor_str, cs, ce, as_, ae) {
+    make_boxes_gap_df(df_in %>% filter(flavor == flavor_str),
+                      cs, ce, as_, ae) %>%
+        filter(network == 'C3+') %>%
+        decorate_hvg_facets() %>%
+        group_by(condition) %>%
+        mutate(
+            value     = (value - mean(value)) / sd(value),
+            box_alpha = ifelse(age_range == 'Gap', 0.3, 0.4),
+            pt_alpha  = ifelse(age_range == 'Gap', 0.3, 0.7)
+        ) %>%
+        ungroup()
+}
 
-p_traj <- pb %>%
-    ggplot(aes(x = age_years, y = value)) +
-    facet_grid(n_genes ~ flavor, scales = 'free') +
-    annotate('rect', xmin = best_ce, xmax = best_as,
-                     ymin = -Inf, ymax = Inf, fill = 'grey80', alpha = 0.3) +
-    geom_point(aes(color = source_chemistry), size = 1.5, alpha = 0.7) +
-    geom_smooth(aes(group = 1), se = FALSE, color = 'black', linewidth = 0.5) +
-    geom_vline(xintercept = best_cs, linetype = 'dotted',
-                         color = 'blue', linewidth = 0.3) +
-    geom_vline(xintercept = best_ce, linetype = 'dashed',
-                         color = 'red', linewidth = 0.4) +
-    geom_vline(xintercept = best_as, linetype = 'dashed',
-                         color = 'red', linewidth = 0.4) +
-    geom_vline(xintercept = best_ae, linetype = 'dotted',
-                         color = 'blue', linewidth = 0.3) +
-    scale_x_continuous(
-        name = 'Donor Age (years)',
-        limits = c(0, 30),
-        breaks = seq(0, 30, 5)
-    ) +
-    scale_y_continuous(name = 'C3+ score (z-scored)') +
-    scale_color_discrete(name = 'Source-chemistry',
-        guide = guide_legend(override.aes = list(size = 2, alpha = 1))) +
-    theme_classic() +
-    theme(
-        text = element_text(size = 8),
-        strip.text = element_text(size = 7),
-        strip.text.y.right = element_text(angle = 0),
-        axis.text.x = element_text(size = 6),
-        panel.spacing = unit(0.3, 'lines')
-    ) +
-    ggtitle(
-        "C3+ age trajectories — Pearson residuals vs scANVI-normalized",
-        subtitle = sprintf(
-            "Childhood [%d, %d), gap [%d, %d), Adolescence [%d, %d)",
+# CPM: fixed boundaries --------------------------------------------------------
+pb_cpm    <- prep_pb(df_dec, 'cpm')
+boxes_cpm <- prep_boxes(df_dec, 'cpm', FIX_CS, FIX_CE, FIX_AS, FIX_AE)
+
+p_traj_cpm <- make_traj_plot(
+    pb_cpm, FIX_CS, FIX_CE, FIX_AS, FIX_AE,
+    'C3+ score (z-scored)',
+    'CPM — C3+ age trajectories',
+    sprintf('Childhood [%d, %d), Adolescence [%d, %d)', FIX_CS, FIX_CE, FIX_AS, FIX_AE))
+
+p_box_cpm <- make_box_plot(
+    boxes_cpm, 'C3+ score (z-scored)',
+    sprintf('CPM: Childhood [%d, %d) vs Adolescence [%d, %d)',
+            FIX_CS, FIX_CE, FIX_AS, FIX_AE))
+
+# scANVI: sensitivity-selected boundaries --------------------------------------
+pb_scanvi    <- prep_pb(df_dec, 'scanvi')
+boxes_scanvi <- prep_boxes(df_dec, 'scanvi', best_cs, best_ce, best_as, best_ae)
+
+p_traj_scanvi <- make_traj_plot(
+    pb_scanvi, best_cs, best_ce, best_as, best_ae,
+    'C3+ score (z-scored)',
+    'scANVI — C3+ age trajectories',
+    sprintf('Childhood [%d, %d), gap [%d, %d), Adolescence [%d, %d)',
             best_cs, best_ce, best_ce, best_as, best_as, best_ae))
 
-p_boxes <- df_boxes_plot %>%
-    ggplot(aes(x = age_range, y = value)) +
-    facet_grid(n_genes ~ flavor, scales = 'free') +
-    geom_boxplot(aes(alpha = box_alpha), outlier.shape = NA) +
-    geom_jitter(aes(color = source_chemistry, alpha = pt_alpha), width = 0.15, size = 1.5) +
-    scale_alpha_identity(guide = 'none') +
-    stat_compare_means(comparisons = list(c('Childhood', 'Adolescence'),
-                                          c('Adolescence', 'Early Adult'),
-                                          c('Early Adult', 'Late Adult')),
-                       label = 'p.signif', size = 3) +
-    scale_y_continuous(name = 'C3+ score (z-scored)') +
-    scale_color_discrete(name = 'Source-chemistry',
-        guide = guide_legend(override.aes = list(size = 2, alpha = 1))) +
-    coord_cartesian(clip = 'off') +
-    theme_classic() +
-    theme(
-        text = element_text(size = 8),
-        strip.text = element_text(size = 7),
-        strip.text.y.right = element_text(angle = 0),
-        axis.text.x = element_text(angle = 45, hjust = 1, size = 7),
-        axis.title.x = element_blank(),
-        panel.spacing.x = unit(0.3, 'lines'),
-        panel.spacing.y = unit(1.5, 'lines'),
-        panel.margin = margin(t = 15, r = 5, b = 5, l = 5)
-    ) +
-    ggtitle(sprintf(
-        "C3+ Childhood [%d, %d) vs Adolescence [%d, %d) — Pearson vs scANVI-normalized",
-        best_cs, best_ce, best_as, best_ae))
+p_box_scanvi <- make_box_plot(
+    boxes_scanvi, 'C3+ score (z-scored)',
+    sprintf('scANVI: Childhood [%d, %d) vs Adolescence [%d, %d)',
+            best_cs, best_ce, best_as, best_ae))
 
-(p_traj | p_boxes) + plot_layout(guides = 'collect')
+# Combine: CPM row / scANVI row ------------------------------------------------
+(p_traj_cpm | p_box_cpm) / (p_traj_scanvi | p_box_scanvi) +
+    plot_layout(guides = 'collect')
 ```
 
-### 4.2 C3+ Effect Summary
+### 4.2 Unweighted Sum of Top-1000 C3+ Genes
 
 ```{python}
-%%R
+# Top-1000 C3+ genes by GRN importance (from all genes)
+_top_c3 = (ahba_GRN[ahba_GRN['Network'] == 'C3+']
+           .nlargest(1000, 'Importance')['Gene'].values)
+_top_c3_all = np.intersect1d(_top_c3, adata.var_names)
+print(f"Top-1000 C3+ (all genes): {len(_top_c3_all)}")
 
-effect_tbl <- df_boxes %>%
-  filter(network == 'C3+') %>%
-  group_by(condition) %>%
-  summarize(
-    n_child    = sum(age_range == 'Childhood'),
-    n_adol     = sum(age_range == 'Adolescence'),
-    mean_child = mean(value[age_range == 'Childhood']),
-    mean_adol  = mean(value[age_range == 'Adolescence']),
-    sd_child   = sd(value[age_range == 'Childhood']),
-    sd_adol    = sd(value[age_range == 'Adolescence']),
-    p_value    = wilcox.test(value[age_range == 'Childhood'],
-                             value[age_range == 'Adolescence'])$p.value,
-    .groups = 'drop'
-  ) %>%
-  mutate(
-    pooled_sd = sqrt(((n_child - 1) * sd_child^2 + (n_adol - 1) * sd_adol^2) /
-                     (n_child + n_adol - 2)),
-    cohens_d  = (mean_child - mean_adol) / pooled_sd
-  ) %>%
-        mutate(
-                condition = as.character(condition),
-                cond_rank_num = suppressWarnings(as.numeric(gsub('.*_(\\d+)$', '\\1', condition))),
-                cond_rank = ifelse(condition == 'pearson_all', Inf, cond_rank_num)
+# Intersect with 4000 HVGs
+sc.experimental.pp.highly_variable_genes(adata, n_top_genes=4000, layer='counts')
+_hvg4000 = adata.var_names[adata.var['highly_variable']]
+_top_c3_hvg = np.intersect1d(_top_c3_all, _hvg4000)
+print(f"Top-1000 C3+ ∩ HVG4000: {len(_top_c3_hvg)}")
+
+_meta42 = adata.obs[['individual', 'age_years', 'source', 'source_chemistry']].copy()
+_meta42['obs_names'] = _meta42.index
+
+_scanvi_raw = adata.layers['scanvi_normalized']
+_scanvi_arr = (_scanvi_raw.toarray() if _sp.issparse(_scanvi_raw)
+               else np.array(_scanvi_raw, dtype=np.float32))
+
+all_rows = []
+for _label, _genes in [('all', _top_c3_all), ('4000', _top_c3_hvg)]:
+    _idx = np.array([np.where(adata.var_names == g)[0][0] for g in _genes])
+    all_rows.extend([
+        _meta42.assign(condition='cpm_unweighted',    C='C3+', n_genes=_label,
+                       value=_cpm_raw_X[:, _idx].sum(axis=1)),
+        _meta42.assign(condition='scanvi_unweighted', C='C3+', n_genes=_label,
+                       value=_scanvi_arr[:, _idx].sum(axis=1)),
+    ])
+
+unweighted_df = pd.concat(all_rows, ignore_index=True)
+del _top_c3, _top_c3_all, _top_c3_hvg, _hvg4000, _scanvi_arr, _idx, _cpm_raw_X
+```
+
+```{python}
+#| message: false
+#| warning: false
+%%R -i unweighted_df -w 280 -h 280 -u mm -r 300
+
+FIX_CS <- 1L; FIX_CE <- 9L; FIX_AS <- 9L; FIX_AE <- 25L
+
+df42 <- unweighted_df %>%
+    mutate(
+        flavor    = ifelse(grepl('cpm', condition), 'cpm', 'scanvi'),
+        n_genes   = factor(n_genes, levels = c('all', '4000')),
+        age_years = as.numeric(age_years)
+    )
+
+prep_pb42 <- function(flavor_str) {
+    df42 %>%
+        filter(C == 'C3+', flavor == flavor_str) %>%
+        group_by(condition, n_genes, individual, age_years, source, source_chemistry) %>%
+        summarize(value = mean(value), .groups = 'drop') %>%
+        group_by(condition, n_genes) %>%
+        mutate(value = (value - mean(value)) / sd(value)) %>%
+        ungroup()
+}
+
+prep_boxes42 <- function(flavor_str, cs, ce, as_, ae) {
+    bind_rows(lapply(levels(df42$n_genes), function(ng) {
+        make_boxes_gap_df(
+            df42 %>% filter(flavor == flavor_str, n_genes == ng),
+            cs, ce, as_, ae
         ) %>%
-    arrange(cond_rank) %>%
-        select(-cond_rank, -cond_rank_num)
+            filter(network == 'C3+') %>%
+            mutate(n_genes = factor(ng, levels = levels(df42$n_genes)))
+    })) %>%
+        group_by(condition, n_genes) %>%
+        mutate(
+            value     = (value - mean(value)) / sd(value),
+            box_alpha = ifelse(age_range == 'Gap', 0.3, 0.4),
+            pt_alpha  = ifelse(age_range == 'Gap', 0.3, 0.7)
+        ) %>%
+        ungroup()
+}
 
-knitr::kable(effect_tbl, format = 'pipe', digits = 3)
+# CPM panel (fixed boundaries)
+p_traj42_cpm <- make_traj_plot(
+    prep_pb42('cpm'), FIX_CS, FIX_CE, FIX_AS, FIX_AE,
+    'Sum expression (z-scored)',
+    'CPM — top-1000 C3+ gene sum',
+    sprintf('Childhood [%d, %d), Adolescence [%d, %d)', FIX_CS, FIX_CE, FIX_AS, FIX_AE))
+
+p_box42_cpm <- make_box_plot(
+    prep_boxes42('cpm', FIX_CS, FIX_CE, FIX_AS, FIX_AE),
+    'Sum expression (z-scored)',
+    sprintf('CPM: Childhood [%d, %d) vs Adolescence [%d, %d)',
+            FIX_CS, FIX_CE, FIX_AS, FIX_AE))
+
+# scANVI panel (sensitivity-selected boundaries)
+p_traj42_scanvi <- make_traj_plot(
+    prep_pb42('scanvi'), best_cs, best_ce, best_as, best_ae,
+    'Sum expression (z-scored)',
+    'scANVI — top-1000 C3+ gene sum',
+    sprintf('Childhood [%d, %d), gap [%d, %d), Adolescence [%d, %d)',
+            best_cs, best_ce, best_ce, best_as, best_as, best_ae))
+
+p_box42_scanvi <- make_box_plot(
+    prep_boxes42('scanvi', best_cs, best_ce, best_as, best_ae),
+    'Sum expression (z-scored)',
+    sprintf('scANVI: Childhood [%d, %d) vs Adolescence [%d, %d)',
+            best_cs, best_ce, best_as, best_ae))
+
+(p_traj42_cpm | p_box42_cpm) / (p_traj42_scanvi | p_box42_scanvi) +
+    plot_layout(guides = 'collect')
 ```
