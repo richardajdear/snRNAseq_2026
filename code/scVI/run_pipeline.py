@@ -15,6 +15,7 @@ Usage (from project root):
     PYTHONPATH=code python -m scVI.run_pipeline --config code/scVI/default_config.yaml --steps infer save
 """
 
+import gc
 from pathlib import Path
 
 import anndata as ad
@@ -126,6 +127,18 @@ def run(config: PipelineConfig):
             adata = load_adata(config, logger)
             adata_scvi = prepare_for_scvi(adata, config, logger)
         log_memory("After prep", logger)
+
+        # adata_scvi is a copy of the HVG subset and inherits all layers from the
+        # input h5ad (including any existing scvi_normalized / scanvi_normalized).
+        # Only the counts layer is needed for scVI/scANVI; drop the rest to free
+        # ~2×29 GB when re-running inference on an already-normalised h5ad.
+        _unneeded_layers = [l for l in list(adata_scvi.layers.keys()) if l != config.counts_layer]
+        if _unneeded_layers:
+            for _l in _unneeded_layers:
+                del adata_scvi.layers[_l]
+            gc.collect()
+            logger.info(f"Freed adata_scvi layers not needed for inference: {_unneeded_layers}")
+            log_memory("After freeing adata_scvi layers", logger)
 
     # Load saved checkpoint when running downstream steps (umap/plot/save) without training
     if adata is None and any(s in steps for s in ["umap", "plot", "save"]):
@@ -243,6 +256,17 @@ def run(config: PipelineConfig):
 
     # --- INFERENCE ---
     if "infer" in steps:
+        # Free any existing normalized layers that we're about to recompute.
+        # In retransform runs the input h5ad already has these layers (~32 GB
+        # each, dense float32) which waste ~64 GB of the 250 GB job allocation
+        # throughout inference. Free them now — they're overwritten in this step.
+        for _layer in [config.output_layer_scvi, config.output_layer_scanvi]:
+            if _layer in adata.layers:
+                logger.info(f"Freeing existing layer '{_layer}' before inference (will be recomputed).")
+                del adata.layers[_layer]
+        gc.collect()
+        log_memory("After freeing old normalized layers", logger)
+
         # Load scVI/LDVAE model if not in memory
         if scvi_model is None and config.run_scvi_inference:
             from scvi.model import SCVI

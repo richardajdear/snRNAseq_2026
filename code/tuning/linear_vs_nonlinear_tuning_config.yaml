@@ -2,8 +2,14 @@
 # Run with: PYTHONPATH=code python -m tuning.tune_scvi_batch --config code/tuning/linear_vs_nonlinear_tuning_config.yaml
 #
 # Purpose: benchmark LinearDecoderSCVI (LDVAE) against standard scVI across
-#   matched architectural hyperparameters, using the same 50:50 objective
-#   (expression-based batch mixing + reconstruction error).
+#   matched architectural hyperparameters, using the latent-space metrics
+#   (conditioned chemistry mixing + developmental age preservation).
+#
+# Key questions:
+#   1. Does a linear decoder preserve the developmental age gradient as well as
+#      a nonlinear decoder? (age_pres_score)
+#   2. Does a linear decoder achieve comparable chemistry mixing? (chem_mixing_score)
+#   3. Does n_hidden=1024 improve on 512, which was the best in round 5?
 #
 # LinearDecoderSCVI replaces the nonlinear decoder with a single linear layer.
 # Each latent dimension maps linearly to genes (gene programs), making the latent
@@ -23,7 +29,7 @@ cell_type_key: cell_class
 counts_layer: counts
 
 # Match production covariates exactly.
-continuous_covariate_keys: [age_log_pc]
+continuous_covariate_keys: []
 categorical_covariate_keys: [sex]
 
 hvg:
@@ -32,7 +38,7 @@ hvg:
 
 tuning:
   random_seed: 42
-  n_trials: 40             # 96 combinations (2×4×2×3×2×1); 40 trials ≈ 42% coverage
+  n_trials: 40             # 16 combinations (2×2×2×2×1×1); 40 trials = 2.5× exhaustive coverage
   max_hours: 22.0          # 2h buffer inside a 24h SLURM wall; linear decoder trains faster
   max_cells: 120000        # stratified subsample; ~40% of full 300k dataset
   num_workers: 4
@@ -50,35 +56,51 @@ training:
 # decoder_type: "nonlinear" = standard SCVI (nonlinear MLP decoder)
 #               "linear"    = LinearDecoderSCVI (single linear layer decoder)
 #
-# gene_likelihood: both nb and zinb are included.  zinb is not supported by the
-#   linear decoder and will be demoted to nb automatically; this means linear trials
-#   are always nb, providing a clean nb-only comparison for those rows while nonlinear
-#   trials can use either.  You can restrict to gene_likelihood: ["nb"] if you want a
-#   fully matched comparison (both decoders, same likelihood).
+# gene_likelihood: fixed at "zinb".  Linear decoder does not support zinb and is
+#   automatically demoted to nb per trial; nonlinear uses zinb as in round 5.
+#   This means linear trials are always nb — a known limitation, but keeping zinb
+#   here avoids doubling the search space and is consistent with round 5 nonlinear runs.
 #
-# Architecture constraint: n_hidden >= 2×n_latent prevents encoder bottleneck collapse.
-#   All combinations below satisfy this (n_hidden=128 ≥ 2×50=100; n_hidden=256 ≥ 100).
+# n_hidden: [512, 1024] — round 5 found 512 > 256 > 128 clearly; testing whether
+#   1024 improves further on both chemistry mixing and age preservation.
+#   For the linear decoder, n_hidden only affects the encoder (decoder is a single
+#   linear layer regardless), so n_hidden=1024 gives the encoder richer intermediate
+#   representations while keeping the interpretable linear gene-program mapping.
 #
-# Space size: 2 × 4 × 2 × 3 × 2 × 1 = 96 combinations
+# n_layers: [3, 5] — round 5 found n_layers=3 optimal for balance; n_layers=5
+#   maximises chemistry mixing at the cost of age preservation.  Testing both here
+#   to characterise whether linear decoder shifts this trade-off.
+#
+# Architecture constraint: n_hidden >= 2×n_latent satisfied for all combos
+#   (512 ≥ 2×50=100; 1024 ≥ 100).
+#
+# Space size: 2 × 2 × 2 × 2 × 1 × 1 = 16 combinations
 search_space:
   decoder_type: ["nonlinear", "linear"]
   n_latent: [30, 50]
-  n_hidden: [128, 256]
+  n_hidden: [512, 1024]
   n_layers: [3, 5]
-  gene_likelihood: ["nb", "zinb"]
+  gene_likelihood: ["zinb"]
   batch_size: [512]
 
-# Objective: same 50:50 expression-based metric as all previous rounds.
-# Linear decoder may score lower on recon_error (nb-only, no zero-inflation)
-# but may score comparably or better on batch_mixing_pca_score if the compressed
-# linear representation removes batch-specific nonlinear variation.
+# Metric: latent-space metrics, matching round 5 exactly.
+#
+# Metric 1 — Conditioned chemistry mixing (weight: 0.5)
+#   kNN Shannon entropy of source-chemistry labels within age_bin × cell_type strata
+#   in the LATENT SPACE.  For the linear decoder this is the same latent space as
+#   the nonlinear decoder — the encoder architecture is identical.
+#
+# Metric 2 — Developmental age preservation (weight: 0.5)
+#   kNN regression R² of log(age_years) from the latent representation, per cell_type.
+#   Key question: does the linear decoder's constrained output structure affect the
+#   encoder's ability to organise the latent space along the developmental axis?
 metric:
-  transform_batch: "WANG-multiome"
-  n_pca_components: 50
-  n_normalized_samples: 1
-  max_cells_expr: 30000
   age_bin_edges: [-1.0, -0.5, -0.38, -0.27, -0.15, -0.05, 0.0, 1.0, 5.0, 12.0, 20.0, 40.0, 90.0]
-  prenatal_weight: 2.0
-  k_neighbors: 20
+  k_neighbors: 50
   min_cells_per_bin: 100
   min_cells_per_group: 75
+  min_cells_per_type: 150
+  weights:
+    chem_mixing: 0.5
+    age_preservation: 0.5
+    lineage_coherence: 0.0

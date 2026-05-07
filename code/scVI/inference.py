@@ -54,17 +54,8 @@ def get_normalized_expression(
         )
     logger.info(f"Inference chunk size: {chunk_size} (total cells: {n_cells})")
 
-    # Run chunked inference
-    hvg_results = _chunked_inference(
-        model=model,
-        adata=adata_scvi,
-        n_mc_samples=config.n_mc_samples,
-        transform_batch=config.transform_batch,
-        chunk_size=chunk_size,
-        logger=logger,
-    )
-
-    # Map HVG results to full gene space
+    # Compute HVG → full gene-space mapping before inference so we can
+    # pre-allocate and stream chunks directly into the output array.
     hvg_genes = adata_scvi.var_names
     gene_indices = adata_full.var_names.get_indexer(hvg_genes)
     valid = gene_indices >= 0
@@ -78,11 +69,24 @@ def get_normalized_expression(
 
     logger.info(f"Mapping {n_mapped} HVG genes into full gene space ({n_all_genes})")
 
+    # Pre-allocate the full output once. Chunks write directly into slices of
+    # this array, avoiding a growing chunks list, np.vstack, and a separate
+    # zeros array all existing in RAM simultaneously (~56 GB saved at peak).
     full_result = np.zeros((n_cells, n_all_genes), dtype=np.float32)
-    full_result[:, gene_indices[valid]] = hvg_results[:, np.where(valid)[0]]
+    adata_full.layers[layer_name] = full_result  # adata shares the same buffer
 
-    # Store
-    adata_full.layers[layer_name] = full_result
+    _chunked_inference(
+        model=model,
+        adata=adata_scvi,
+        n_mc_samples=config.n_mc_samples,
+        transform_batch=config.transform_batch,
+        chunk_size=chunk_size,
+        logger=logger,
+        output=full_result,
+        output_col_indices=gene_indices[valid],
+        input_col_mask=np.where(valid)[0],
+    )
+
     logger.info(f"Stored in adata.layers['{layer_name}'] shape={full_result.shape}")
 
     # Optional .npy backup
@@ -102,14 +106,22 @@ def _chunked_inference(
     chunk_size: int,
     logger: logging.Logger,
     min_chunk_size: int = 100,
-) -> np.ndarray:
+    output: Optional[np.ndarray] = None,
+    output_col_indices: Optional[np.ndarray] = None,
+    input_col_mask: Optional[np.ndarray] = None,
+) -> Optional[np.ndarray]:
     """
     Process inference in chunks with OOM retry logic.
 
     On OOM: clears cache, halves chunk size, retries the failed chunk.
     Raises RuntimeError if chunk size drops below min_chunk_size.
+
+    If output is provided, each chunk is written directly into
+    output[start:end, output_col_indices] and freed immediately, avoiding
+    RAM accumulation. Returns None in that case.
     """
     n_cells = adata.shape[0]
+    streaming = output is not None
 
     # Single pass if small enough
     if chunk_size >= n_cells:
@@ -117,12 +129,16 @@ def _chunked_inference(
         kwargs = {"n_samples": n_mc_samples, "library_size": 1e4}
         if transform_batch is not None:
             kwargs["transform_batch"] = transform_batch
-        return model.get_normalized_expression(adata=adata, **kwargs).values
+        result = model.get_normalized_expression(adata=adata, **kwargs)
+        if streaming:
+            output[:, output_col_indices] = result.values[:, input_col_mask]
+            return None
+        return result.values
 
     n_chunks = (n_cells + chunk_size - 1) // chunk_size
     logger.info(f"Processing {n_cells} cells in ~{n_chunks} chunks of {chunk_size}")
 
-    chunks = []
+    chunks = [] if not streaming else None
     current_chunk_size = chunk_size
     start_idx = 0
     chunk_num = 0
@@ -138,7 +154,12 @@ def _chunked_inference(
             if transform_batch is not None:
                 kwargs["transform_batch"] = transform_batch
             result = model.get_normalized_expression(adata=chunk_adata, **kwargs)
-            chunks.append(result.values)
+            if streaming:
+                output[start_idx:end_idx, output_col_indices] = result.values[:, input_col_mask]
+                del result
+            else:
+                chunks.append(result.values)
+            del chunk_adata
             chunk_num += 1
             cells_processed = end_idx - start_idx
             logger.info(
@@ -170,4 +191,6 @@ def _chunked_inference(
                 raise
 
     pbar.close()
+    if streaming:
+        return None
     return np.vstack(chunks)

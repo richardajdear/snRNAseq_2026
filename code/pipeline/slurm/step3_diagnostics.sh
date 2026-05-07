@@ -5,7 +5,7 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --partition=icelake
-#SBATCH --mem=256G
+#SBATCH --mem=228G
 #SBATCH --account=vertes-sl2-cpu
 
 # Run scANVI label-transfer diagnostics on an existing integrated.h5ad.

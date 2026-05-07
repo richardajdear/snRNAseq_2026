@@ -43,6 +43,10 @@ set -euo pipefail
 
 WORK_DIR="${WORK_DIR:-/home/rajd2/rds/hpc-work/snRNAseq_2026}"
 SIF="${SIF:-/home/rajd2/rds/hpc-work/shortcake_scvi.sif}"
+# Notebook dependency options (set SUBMIT_NOTEBOOK=false to skip):
+SUBMIT_NOTEBOOK="${SUBMIT_NOTEBOOK:-true}"
+PSEUDOBULK_GROUP="${PSEUDOBULK_GROUP:-by_cell_class}"
+NOTEBOOK_TEMPLATE="${NOTEBOOK_TEMPLATE:-notebooks/templates/grn_dev.qmd}"
 DATA_DIR="/home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc"
 
 for var in SCVI_CONFIG PB_OUTPUT PB_CONFIG; do
@@ -120,6 +124,21 @@ singularity exec \
         --overwrite
 
 echo "Pseudobulk complete."
+
+# ---- Optional: submit notebook job as afterok dependency ----
+if [[ "${SUBMIT_NOTEBOOK}" == "true" ]]; then
+    _NB_EXPERIMENT="$(basename "$(dirname "${PB_OUTPUT}")")"
+    _NB_PSEUDOBULK_FILE="${PB_OUTPUT}/${PSEUDOBULK_GROUP}.h5ad"
+    _NB_JOB_ID=$(sbatch --parsable \
+        --dependency=afterok:${SLURM_JOB_ID} \
+        --export=ALL,\
+PSEUDOBULK_FILE="${_NB_PSEUDOBULK_FILE}",\
+EXPERIMENT_NAME="${_NB_EXPERIMENT}",\
+NOTEBOOK_TEMPLATE="${NOTEBOOK_TEMPLATE}",\
+PSEUDOBULK_GROUP="${PSEUDOBULK_GROUP}" \
+        "${WORK_DIR}/code/pipeline/slurm/step5_notebook.sh")
+    echo "Notebook job submitted: ${_NB_JOB_ID} (depends on ${SLURM_JOB_ID}, pseudobulk: ${_NB_PSEUDOBULK_FILE})"
+fi
 
 _ELAPSED=$(( $(date +%s) - _JOB_START ))
 _TIME_LIMIT=$(squeue -j "${SLURM_JOB_ID}" -h -o "%l" 2>/dev/null || echo "N/A")

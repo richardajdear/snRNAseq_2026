@@ -1,10 +1,10 @@
 #!/bin/bash
 #SBATCH --output=/home/rajd2/rds/hpc-work/snRNAseq_2026/logs/%j_step5_notebook.out
 #SBATCH --error=/home/rajd2/rds/hpc-work/snRNAseq_2026/logs/%j_step5_notebook.err
-#SBATCH --time=02:00:00
+#SBATCH --time=00:10:00
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --mem=200G
+#SBATCH --mem=10G
 #SBATCH --partition=icelake
 #SBATCH --account=vertes-sl2-cpu
 
@@ -15,20 +15,30 @@ CONFIG="${CONFIG:-code/pipeline/configs/source_hpc_config.yaml}"
 # Override these at submission time if needed:
 NOTEBOOK_TEMPLATE="${NOTEBOOK_TEMPLATE:-notebooks/templates/grn_dev.qmd}"
 PSEUDOBULK_GROUP="${PSEUDOBULK_GROUP:-by_cell_class}"
+# PSEUDOBULK_FILE and EXPERIMENT_NAME can be set directly to bypass CONFIG
+# parsing (used by util_retransform.sh when submitting a dependency notebook).
 
 RENDER_SCRIPT="${WORK_DIR}/notebooks/render_notebook.sh"
 
-# Derive experiment name from config filename stem
-CONFIG_STEM=$(basename "${CONFIG}" .yaml)
-
-# Parse output_dir from config (same pattern as step2_scvi.sh)
-OUTPUT_DIR=$(awk '/^output_dir:/{print $2; exit}' "${WORK_DIR}/${CONFIG}")
+# Derive experiment name and pseudobulk file.
+# Direct-mode: if PSEUDOBULK_FILE is provided, use it as-is and skip CONFIG
+# parsing. EXPERIMENT_NAME defaults to the grandparent dir of PSEUDOBULK_FILE
+# (i.e. the retransform subdir, e.g. retransform_velmeshev_v3).
+if [[ -n "${PSEUDOBULK_FILE:-}" ]]; then
+    _direct_mode=true
+    EXPERIMENT_NAME="${EXPERIMENT_NAME:-$(basename "$(dirname "$(dirname "${PSEUDOBULK_FILE}")")")}"
+else
+    _direct_mode=false
+    CONFIG_STEM=$(basename "${CONFIG}" .yaml)
+    OUTPUT_DIR=$(awk '/^output_dir:/{print $2; exit}' "${WORK_DIR}/${CONFIG}")
+    PSEUDOBULK_FILE="${OUTPUT_DIR}/pseudobulk_output/${PSEUDOBULK_GROUP}.h5ad"
+    EXPERIMENT_NAME="${EXPERIMENT_NAME:-${CONFIG_STEM}}"
+fi
 
 TEMPLATE_PATH="${WORK_DIR}/${NOTEBOOK_TEMPLATE}"
-RESULTS_DIR="${WORK_DIR}/notebooks/results/${CONFIG_STEM}"
-PARAMS_FILE="${RESULTS_DIR}/${CONFIG_STEM}_params.yaml"
-OUTPUT_FILE="${CONFIG_STEM}.md"
-PSEUDOBULK_FILE="${OUTPUT_DIR}/pseudobulk_output/${PSEUDOBULK_GROUP}.h5ad"
+RESULTS_DIR="${WORK_DIR}/notebooks/results/${EXPERIMENT_NAME}"
+PARAMS_FILE="${RESULTS_DIR}/${EXPERIMENT_NAME}_params.yaml"
+OUTPUT_FILE="${EXPERIMENT_NAME}.md"
 
 mkdir -p "${RESULTS_DIR}"
 
@@ -41,39 +51,44 @@ fi
 
 # Generate params YAML for the notebook
 cat > "${PARAMS_FILE}" << EOF
-EXPERIMENT_NAME: ${CONFIG_STEM}
+EXPERIMENT_NAME: ${EXPERIMENT_NAME}
 PSEUDOBULK_FILE: ${PSEUDOBULK_FILE}
 EOF
 
 # Append optional cell-class filter params from notebook config section.
 # When cell_class_col is set to '' in the config, the notebook skips filtering
 # (needed for single-class datasets that are already pre-filtered).
-_cell_class_col=$(python3 -c "
+# Skipped in direct mode (no CONFIG to read from).
+if [[ "${_direct_mode}" == "false" ]]; then
+    _cell_class_col=$(python3 -c "
 import yaml
 cfg = yaml.safe_load(open('${WORK_DIR}/${CONFIG}'))
 nb = cfg.get('notebook', {})
 print(nb.get('cell_class_col', '__NOTSET__'))
 " 2>/dev/null || echo "__NOTSET__")
-if [[ "${_cell_class_col}" != "__NOTSET__" ]]; then
-    _cell_class_val=$(python3 -c "
+    if [[ "${_cell_class_col}" != "__NOTSET__" ]]; then
+        _cell_class_val=$(python3 -c "
 import yaml
 cfg = yaml.safe_load(open('${WORK_DIR}/${CONFIG}'))
 print(cfg.get('notebook', {}).get('cell_class_value', ''))
 " 2>/dev/null || echo "")
-    echo "CELL_CLASS_COL: '${_cell_class_col}'" >> "${PARAMS_FILE}"
-    echo "CELL_CLASS_VALUE: '${_cell_class_val}'" >> "${PARAMS_FILE}"
+        echo "CELL_CLASS_COL: '${_cell_class_col}'" >> "${PARAMS_FILE}"
+        echo "CELL_CLASS_VALUE: '${_cell_class_val}'" >> "${PARAMS_FILE}"
+    fi
 fi
 echo "Params written: ${PARAMS_FILE}"
 
 echo "========================================"
 echo "STEP 5: Notebook render"
-echo "Job ID:    ${SLURM_JOB_ID}"
-echo "Node:      $(hostname)"
-echo "Config:    ${CONFIG}"
-echo "Template:  ${TEMPLATE_PATH}"
-echo "Params:    ${PARAMS_FILE}"
-echo "Output:    ${RESULTS_DIR}/${OUTPUT_FILE}"
-echo "Start:     $(date)"
+echo "Job ID:       ${SLURM_JOB_ID}"
+echo "Node:         $(hostname)"
+echo "Experiment:   ${EXPERIMENT_NAME}"
+[[ "${_direct_mode}" == "false" ]] && echo "Config:       ${CONFIG}"
+echo "Pseudobulk:   ${PSEUDOBULK_FILE}"
+echo "Template:     ${TEMPLATE_PATH}"
+echo "Params:       ${PARAMS_FILE}"
+echo "Output:       ${RESULTS_DIR}/${OUTPUT_FILE}"
+echo "Start:        $(date)"
 echo "========================================"
 _JOB_START=$(date +%s)
 

@@ -7,7 +7,7 @@
 #   cd /home/rajd2/rds/hpc-work/snRNAseq_2026
 #   bash code/pipeline/slurm/submit_pipeline.sh code/pipeline/source-chemistry_hpc_config.yaml
 
-output_dir: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/VelWangPsychAD_200k_prepost_noage_tuning5
+output_dir: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/VelWangPsychAD_100k_postnatal_noage_tuning2
 
 sources:
   - name: WANG
@@ -15,14 +15,14 @@ sources:
     dataset_type: Wang
     cell_type_field: "Type_updated"
     pfc_only: true
-    n_cells: 200000
+    n_cells: 100000
 
   - name: VELMESHEV
     path: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/velmeshev/velmeshev.h5ad
     dataset_type: Velmeshev
     cell_type_field: "Cell_Type"
     pfc_only: true
-    n_cells: 200000
+    n_cells: 100000
 
   - name: PSYCHAD
     paths:
@@ -31,10 +31,10 @@ sources:
     dataset_type: PsychAD
     cell_type_field: "subclass"
     pfc_only: true
-    n_cells: 200000
+    n_cells: 100000
 
 age_downsample: true
-postnatal_only: false
+postnatal_only: true
 seed: 42
 
 scvi:
@@ -43,11 +43,11 @@ scvi:
   hvg_batch_key: source-chemistry
   batch_key: source-chemistry
   n_latent: 30
-  n_hidden: 512
-  n_layers: 3
+  n_hidden: 64
+  n_layers: 4
   gene_likelihood: zinb
   max_epochs_scvi: 400
-  batch_size: 512
+  batch_size: 256
   early_stopping: true
   early_stopping_patience: 20
   num_workers: 16
@@ -76,9 +76,9 @@ pseudobulk:
       group_cols: [individual, cell_class]
 
 steps:
-  # - downsample
-  # - scvi
+  - downsample
+  - scvi
   - diagnostics
-  # - pseudobulk
-  # - notebook
+  - pseudobulk
+  - notebook
 overwrite: false

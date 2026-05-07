@@ -584,7 +584,6 @@ def _evaluate_trial_components(
     metric_cfg: dict[str, Any],
     n_batches_global: int,
     logger: logging.Logger,
-    npy_prefix=None,
 ) -> dict[str, Any]:
     """Evaluate a trial with the latent-space metrics.
 
@@ -610,9 +609,6 @@ def _evaluate_trial_components(
     logger.info("  Computing latent representation ...")
     latent = model.get_latent_representation(adata)  # (n_cells, n_latent)
     logger.info(f"  Latent shape: {latent.shape}")
-
-    if npy_prefix is not None:
-        np.save(str(npy_prefix) + "_latent.npy", latent.astype(np.float32))
 
     obs = adata.obs.copy()
     age_bins = _make_age_bins(obs, age_key=age_key, edges=metric_cfg["age_bin_edges"])
@@ -805,7 +801,7 @@ def _train_and_evaluate_scanvi(
     For linear decoder trials, SCANVI.from_scvi_model() is attempted (encoder
     architecture is identical); falls back to scANVI from scratch on rejection.
     """
-    _scvi_cls = LinearDecoderSCVI if decoder_type == "linear" else SCVI
+    _scvi_cls = LinearSCVI if decoder_type == "linear" else SCVI
     scvi_model = _scvi_cls.load(str(scvi_model_dir), adata=adata)
 
     # Ensure labels column has no NaN (scANVI requires every cell to have a label
@@ -822,7 +818,7 @@ def _train_and_evaluate_scanvi(
         unlabeled_category="Unknown",
     )
     if decoder_type == "linear":
-        logger.info("  scANVI initialized from LinearDecoderSCVI encoder via from_scvi_model")
+        logger.info("  scANVI initialized from LinearSCVI encoder via from_scvi_model")
     scanvi_model.train(
         max_epochs=max_epochs_scanvi,
         early_stopping=True,
@@ -1058,16 +1054,8 @@ def run_tuning(config_path: Path):
     n_batches_global = int(adata.obs[batch_key].nunique())
     logger.info(f"Global batch count (for entropy normalisation): {n_batches_global}")
 
-    # Save obs metadata and key names once for diagnostics UMAP.
-    # Per-trial latent arrays are saved inside the trial loop below.
-    adata.obs[[batch_key, age_key]].to_csv(output_dir / "obs_tuning.csv")
-    with open(output_dir / "tuning_metadata.json", "w") as _mf:
-        json.dump({"batch_key": batch_key, "age_key": age_key,
-                   "cell_type_key": cell_type_key or ""}, _mf)
-    logger.info(f"Saved obs metadata ({adata.n_obs:,} cells) → obs_tuning.csv + tuning_metadata.json")
-
     # -----------------------------------------------------------------------
-    # scVI setup (once; reused across all trials and scANVI evaluation)
+    # scVI / LinearSCVI setup (once; reused across all trials and scANVI evaluation)
     # -----------------------------------------------------------------------
     covariate_kwargs: dict[str, Any] = {}
     if cfg.get("continuous_covariate_keys"):
@@ -1076,6 +1064,9 @@ def run_tuning(config_path: Path):
         covariate_kwargs["categorical_covariate_keys"] = list(cfg["categorical_covariate_keys"])
     logger.info(f"Setting up AnnData for scVI (covariates: {covariate_kwargs}) ...")
     SCVI.setup_anndata(adata, layer=counts_layer, batch_key=batch_key, **covariate_kwargs)
+    # LinearSCVI.setup_anndata does not support extra covariates in this version of scvi-tools.
+    logger.info("Setting up AnnData for LinearSCVI (no extra covariates; not supported by LinearSCVI) ...")
+    LinearSCVI.setup_anndata(adata, layer=counts_layer, batch_key=batch_key)
 
     accel: dict[str, Any] = (
         {"accelerator": "gpu", "devices": 1}
@@ -1180,11 +1171,11 @@ def run_tuning(config_path: Path):
         if params["decoder_type"] == "linear" and params["gene_likelihood"] == "zinb":
             logger.info(
                 "  decoder_type=linear: gene_likelihood 'zinb' → 'nb' "
-                "(LinearDecoderSCVI does not support zinb)"
+                "(LinearSCVI does not support zinb)"
             )
         try:
             if params["decoder_type"] == "linear":
-                model = LinearDecoderSCVI(
+                model = LinearSCVI(
                     adata,
                     n_latent=params["n_latent"],
                     n_hidden=params["n_hidden"],
@@ -1212,10 +1203,6 @@ def run_tuning(config_path: Path):
                 train_kwargs["early_stopping_patience"] = early_stopping_patience
             model.train(**train_kwargs)
 
-            # Latent-space metric evaluation (the objective components are
-            # stored as raw values; the combined objective is computed post-hoc
-            # once all trials are done via cross-trial normalization).
-            # _evaluate_trial_components also saves the latent .npy file.
             components = _evaluate_trial_components(
                 model=model,
                 adata=adata,
@@ -1225,7 +1212,6 @@ def run_tuning(config_path: Path):
                 metric_cfg=metric_cfg,
                 n_batches_global=n_batches_global,
                 logger=logger,
-                npy_prefix=output_dir / f"trial_{trial:02d}",
             )
             status = "ok"
             error = ""
@@ -1530,13 +1516,6 @@ def run_tuning(config_path: Path):
             "Re-run manually: python -m tuning.tuning_diagnostics --input_dir <output_dir>",
             exc_info=True,
         )
-
-    # Remove per-trial latent .npy files — only needed during diagnostic plotting.
-    npy_files = sorted(output_dir.glob("trial_*_latent.npy"))
-    if npy_files:
-        for npy in npy_files:
-            npy.unlink()
-        logger.info(f"Deleted {len(npy_files)} trial latent .npy file(s)")
 
 
 def main():
