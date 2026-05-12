@@ -1,0 +1,323 @@
+---
+title: "AHBA GRN Projection — Trajectory & Stage Comparison"
+format: md
+jupyter: python3
+execute:
+  echo: false
+---
+
+## 1. Setup
+
+### 1.1 Environment
+
+```{python}
+import os
+import sys
+import warnings
+from IPython import get_ipython
+_ip = get_ipython()
+if _ip:
+    _ip.run_line_magic('load_ext', 'autoreload')
+    _ip.run_line_magic('autoreload', '2')
+```
+
+```{python}
+def _find_repo_root(marker='.git'):
+    current = os.path.abspath(os.getcwd())
+    while True:
+        if os.path.exists(os.path.join(current, marker)):
+            return current
+        parent = os.path.dirname(current)
+        if parent == current:
+            raise RuntimeError(f"Could not find '{marker}' above {os.getcwd()}")
+        current = parent
+
+_repo_root = _find_repo_root()
+if os.path.join(_repo_root, 'code') not in sys.path:
+    sys.path.insert(0, os.path.join(_repo_root, 'code'))
+
+from environment import get_environment
+_env = get_environment()
+rds_dir  = _env['rds_dir']
+code_dir = _env['code_dir']
+ref_dir  = _env['ref_dir']
+
+print(f"Environment : {_env['name']}")
+print(f"  rds_dir  : {rds_dir}")
+print(f"  code_dir : {code_dir}")
+print(f"  ref_dir  : {ref_dir}")
+```
+
+### 1.2 Parameters
+
+Parameters are loaded from a YAML config file whose path is passed via the
+`NOTEBOOK_PARAMS` environment variable (set automatically by `render_single.sh`).
+Defaults below are used when no config is provided (e.g. for interactive use).
+
+```{python}
+import yaml as _yaml
+
+_cfg = {}
+_param_file = os.environ.get('NOTEBOOK_PARAMS', '')
+if _param_file:
+    print(f"Loading params from: {_param_file}")
+    with open(_param_file) as _f:
+        _cfg = _yaml.safe_load(_f) or {}
+else:
+    print("No NOTEBOOK_PARAMS set — using defaults (interactive mode)")
+
+# --- Experiment identity ---
+EXPERIMENT_NAME = _cfg.get('EXPERIMENT_NAME', 'grn_projection')
+
+# --- Single-cell h5ad to project onto ---
+_data_default = os.path.join(
+    rds_dir, 'Cam_snRNAseq/velmeshev/velmeshev_100k_PFC_lessOld.h5ad')
+DATA_FILE = _cfg.get('DATA_FILE', _data_default)
+
+# --- Optional cell-type filter (e.g. CELL_CLASS_COL=cell_class, CELL_CLASS_VALUE=Excitatory) ---
+CELL_CLASS_COL   = _cfg.get('CELL_CLASS_COL',   '') or ''
+CELL_CLASS_VALUE = _cfg.get('CELL_CLASS_VALUE', '') or ''
+
+# --- Expression source: name of a counts layer to use; falls back to .raw then .X ---
+COUNTS_LAYER = _cfg.get('COUNTS_LAYER', 'counts') or 'counts'
+
+# --- Colour variable for plots (must be a column in adata.obs) ---
+COLOR_VAR = _cfg.get('COLOR_VAR', 'source') or 'source'
+
+# --- Age-range boundaries (years) ---
+# Prenatal   : (-∞,         0)
+# Infancy    : [0,          CHILD_START)
+# Childhood  : [CHILD_START, CHILD_END)
+# Gap        : [CHILD_END,  ADOL_START)  — donors here are excluded from stage plots
+# Adolescence: [ADOL_START, ADOL_END)
+# Adulthood  : [ADOL_END,   ∞)
+CHILD_START = int(_cfg.get('CHILD_START', 1))
+CHILD_END   = int(_cfg.get('CHILD_END',   9))
+ADOL_START  = int(_cfg.get('ADOL_START',  9))
+ADOL_END    = int(_cfg.get('ADOL_END',    25))
+
+print(f"EXPERIMENT_NAME  : {EXPERIMENT_NAME}")
+print(f"DATA_FILE        : {DATA_FILE}")
+if CELL_CLASS_COL and CELL_CLASS_VALUE:
+    print(f"Filter           : {CELL_CLASS_COL} == '{CELL_CLASS_VALUE}'")
+else:
+    print("Filter           : none (all cells)")
+print(f"COUNTS_LAYER     : {COUNTS_LAYER}")
+print(f"COLOR_VAR        : {COLOR_VAR}")
+print(f"Age ranges       : Prenatal (-∞,0)  Infancy [0,{CHILD_START})  "
+      f"Childhood [{CHILD_START},{CHILD_END})  "
+      f"Adolescence [{ADOL_START},{ADOL_END})  "
+      f"Adulthood [{ADOL_END},∞)")
+```
+
+### 1.3 Libraries
+
+```{python}
+#| include: false
+import gc
+import scanpy as sc
+import pandas as pd
+import numpy as np
+import scipy.sparse as sp
+
+warnings.filterwarnings('ignore')
+
+if _env['name'] == 'local':
+    os.environ['R_HOME'] = '/Users/richard/mambaforge/envs/scanpy/lib/R'
+
+%load_ext rpy2.ipython
+```
+
+```{python}
+#| include: false
+%%R
+
+library(ggplot2)
+library(dplyr)
+library(patchwork)
+library(ggpubr)
+library(ggbeeswarm)
+library(tidyverse)
+library(scales)
+```
+
+## 2. Data Loading & Normalisation
+
+```{python}
+print(f"Loading: {DATA_FILE}")
+adata = sc.read_h5ad(DATA_FILE)
+print(f"Loaded: {adata.shape[0]:,} cells × {adata.shape[1]:,} genes")
+
+# --- Optional cell-type filter ---
+if CELL_CLASS_COL and CELL_CLASS_VALUE:
+    if CELL_CLASS_COL not in adata.obs.columns:
+        raise ValueError(
+            f"CELL_CLASS_COL='{CELL_CLASS_COL}' not found in obs. "
+            f"Available columns: {list(adata.obs.columns)}")
+    print(f"Cell classes before filter: {dict(adata.obs[CELL_CLASS_COL].value_counts())}")
+    adata = adata[adata.obs[CELL_CLASS_COL] == CELL_CLASS_VALUE].copy()
+    print(f"After filter ({CELL_CLASS_VALUE}): {adata.shape[0]:,} cells")
+
+# --- Expression source: counts layer > .raw > .X ---
+if COUNTS_LAYER in adata.layers:
+    print(f"Using layer '{COUNTS_LAYER}' as raw count input")
+    adata.X = adata.layers[COUNTS_LAYER].copy()
+elif adata.raw is not None:
+    print(f"Layer '{COUNTS_LAYER}' not found — using adata.raw")
+    raw_X = adata.raw.X
+    if raw_X.shape[1] == adata.n_vars:
+        # Same gene set: use directly
+        adata.X = sp.csr_matrix(raw_X) if sp.issparse(raw_X) else raw_X.copy()
+    else:
+        # Align raw genes to adata.var_names
+        raw_genes   = adata.raw.var_names
+        common_idx  = np.where(raw_genes.isin(adata.var_names))[0]
+        raw_sub     = raw_X[:, common_idx]
+        adata.X     = sp.csr_matrix(raw_sub) if sp.issparse(raw_X) else raw_sub.copy()
+else:
+    print(f"Layer '{COUNTS_LAYER}' not found and no .raw — "
+          "normalising adata.X directly (assumed to contain raw counts)")
+
+sc.pp.normalize_total(adata, target_sum=1e6, inplace=True)
+print("Normalised to CPM (target_sum=1e6).")
+
+gc.collect()
+```
+
+## 3. GRN Projection
+
+```{python}
+from regulons import get_ahba_GRN, project_GRN
+
+grn_file = os.path.join(ref_dir, 'ahba_dme_hcp_top8kgenes_weights.csv')
+ahba_GRN = get_ahba_GRN(path_to_ahba_weights=grn_file)
+print(f"GRN: {ahba_GRN['Network'].nunique()} networks, "
+      f"{ahba_GRN['Gene'].nunique()} unique genes")
+
+# project_GRN auto-detects Ensembl vs symbol mismatch via var columns
+project_GRN(adata, ahba_GRN, 'X_ahba',
+            use_highly_variable=False, log_transform=False)
+print(f"Projected: {adata.obsm['X_ahba'].shape[1]} networks, "
+      f"{adata.obsm['X_ahba'].shape[0]:,} cells")
+
+gc.collect()
+```
+
+## 4. Build Scores DataFrame
+
+```{python}
+network_names = adata.uns['X_ahba_names']
+proj = pd.DataFrame(
+    adata.obsm['X_ahba'],
+    index=adata.obs_names,
+    columns=network_names
+)
+
+# Keep C3+ and C3- only
+proj = proj[['C3+', 'C3-']].copy()
+proj['obs_names'] = proj.index
+
+scores_df = proj.melt(id_vars='obs_names', var_name='C', value_name='value')
+
+# --- Metadata ---
+# Resolve donor/individual column (plot_boxes needs 'Individual')
+_ind_col = next(
+    (c for c in ('individual', 'donor_id', 'Individual') if c in adata.obs.columns),
+    None)
+if _ind_col is None:
+    raise ValueError(
+        f"No donor/individual column found. "
+        f"Available obs columns: {list(adata.obs.columns)}")
+
+# Validate COLOR_VAR; fall back to first available column if missing
+if COLOR_VAR not in adata.obs.columns:
+    _fallback = next(
+        (c for c in ('dataset', 'source', 'chemistry', 'cell_class', _ind_col)
+         if c in adata.obs.columns),
+        _ind_col)
+    print(f"Warning: COLOR_VAR='{COLOR_VAR}' not found in obs — "
+          f"falling back to '{_fallback}'")
+    COLOR_VAR = _fallback
+
+_meta_cols = [_ind_col, 'age_years']
+for _c in (COLOR_VAR, 'source'):
+    if _c in adata.obs.columns and _c not in _meta_cols:
+        _meta_cols.append(_c)
+
+meta = adata.obs[_meta_cols].copy()
+meta['obs_names'] = meta.index
+meta = meta.rename(columns={_ind_col: 'Individual'})
+
+final_df = pd.merge(scores_df, meta, on='obs_names')
+
+# --- Computed columns ---
+final_df['Age_log2'] = np.log2(1.0 + final_df['age_years'].astype(float))
+
+def _age_label(age):
+    if pd.isna(age):        return np.nan
+    if age < 0:             return 'Prenatal'
+    if age < CHILD_START:   return 'Infancy'
+    if age < CHILD_END:     return 'Childhood'
+    if age < ADOL_START:    return np.nan   # gap — excluded from stage plots
+    if age < ADOL_END:      return 'Adolescence'
+    return 'Adulthood'
+
+_age_levels = ['Prenatal', 'Infancy', 'Childhood', 'Adolescence', 'Adulthood']
+final_df['age_range'] = (
+    final_df['age_years']
+    .apply(_age_label)
+    .pipe(pd.Categorical, categories=_age_levels, ordered=True)
+)
+
+print(f"final_df: {len(final_df):,} rows × {final_df.shape[1]} cols")
+_donors_by_stage = (
+    final_df[final_df['C'] == 'C3+']
+    .groupby('age_range', observed=False)['Individual']
+    .nunique()
+    .to_dict()
+)
+print(f"Donors per stage: {_donors_by_stage}")
+print(f"Networks: {sorted(final_df['C'].unique().tolist())}")
+```
+
+## 5. Plots
+
+```{python}
+#| message: false
+#| warning: false
+%%R -i final_df -i code_dir -i EXPERIMENT_NAME -i COLOR_VAR -w 280 -h 200 -u mm -r 300
+
+source(file.path(code_dir, 'plotting', 'age_plots.r'))
+
+age_levels <- c('Prenatal', 'Infancy', 'Childhood', 'Adolescence', 'Adulthood')
+
+# Trajectory: include all donors with a valid age (including prenatal)
+df_traj <- final_df %>%
+    mutate(
+        C         = factor(C,         levels = c('C3+', 'C3-')),
+        age_range = factor(age_range, levels = age_levels)
+    ) %>%
+    filter(!is.na(Age_log2), !is.na(age_years))
+
+p_age <- plot_age(df_traj, color_var = COLOR_VAR)
+
+# Boxplot: include all labelled stages (age_range not NA)
+df_box <- final_df %>%
+    mutate(
+        network   = factor(C,         levels = c('C3+', 'C3-')),
+        age_range = factor(age_range, levels = age_levels)
+    ) %>%
+    filter(!is.na(age_range))
+
+comparisons <- list(
+    c('Childhood',   'Adolescence'),
+    c('Adolescence', 'Adulthood')
+)
+
+p_boxes <- plot_boxes(df_box, color_var = COLOR_VAR, pt_size = 1.5) +
+    stat_compare_means(comparisons = comparisons, label = 'p.signif', color = 'blue')
+
+(p_age | p_boxes) +
+    plot_layout(guides = 'collect') +
+    plot_annotation(tag_levels = 'a', title = EXPERIMENT_NAME)
+```
