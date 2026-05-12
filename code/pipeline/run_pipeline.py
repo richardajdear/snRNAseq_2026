@@ -15,7 +15,8 @@ source='PSYCHAD'. Configure PSYCHAD using the `paths:` key in the source entry.
 Steps (in order)
 ----------------
     1. downsample   — per-dataset: read + filter + optional downsample → individual h5ads
-    2. combine      — concatenate individual h5ads → combined.h5ad
+    2. combine      — concatenate individual h5ads → combined.h5ad (HVG-filtered when
+                      combine.n_top_genes or scvi.n_top_genes is set in config)
     3. scvi         — batch correction (scVI) + label transfer (scANVI) via scVI/run_pipeline.py.
                       When scanvi_label_transfer.enabled=true, scANVI is trained with WANG's
                       fine-grained labels and model.predict() assigns cell_type_aligned to all
@@ -267,6 +268,29 @@ def step_combine(cfg: dict, output_dir: Path, input_paths: list,
         '--output', str(combined_path),
     ] + [str(p) for p in input_paths]
 
+    # Resolve HVG params: 'combine' key first, fall back to 'scvi' key (backward compat).
+    # Old configs specify n_top_genes/hvg_flavor/hvg_batch_key under 'scvi:'; new configs
+    # use a 'combine:' section.  Either way, selection happens here (CPU step) and scVI
+    # receives the already-filtered matrix without re-selecting.
+    combine_hvg = dict(cfg.get('combine', {}))
+    if 'n_top_genes' not in combine_hvg:
+        for k in ('n_top_genes', 'hvg_flavor', 'hvg_batch_key'):
+            if k in cfg.get('scvi', {}):
+                combine_hvg[k] = cfg['scvi'][k]
+    if combine_hvg.get('n_top_genes'):
+        cmd += ['--n_top_genes', str(combine_hvg['n_top_genes'])]
+        if combine_hvg.get('hvg_flavor'):
+            cmd += ['--hvg_flavor', str(combine_hvg['hvg_flavor'])]
+        if combine_hvg.get('hvg_batch_key'):
+            cmd += ['--hvg_batch_key', str(combine_hvg['hvg_batch_key'])]
+        counts_layer = cfg.get('scvi', {}).get('counts_layer', 'counts')
+        cmd += ['--counts_layer', counts_layer]
+        logger.info(
+            f"  HVG selection: n_top_genes={combine_hvg['n_top_genes']}, "
+            f"flavor={combine_hvg.get('hvg_flavor', 'pearson_residuals')}, "
+            f"batch_key={combine_hvg.get('hvg_batch_key')}"
+        )
+
     _run(cmd, logger)
 
     # Remove per-dataset intermediates once combined.h5ad is on disk
@@ -324,6 +348,10 @@ def step_scvi(cfg: dict, output_dir: Path, combined_path: Path,
         'counts_layer': 'counts',
     }
     scvi_cfg.update(cfg.get('scvi', {}))
+    # HVG selection is always done in the combine step; strip these keys so scVI
+    # receives n_top_genes=0 (skip) regardless of what the config specifies.
+    for _k in ('n_top_genes', 'hvg_flavor', 'hvg_batch_key'):
+        scvi_cfg.pop(_k, None)
 
     # scANVI label transfer: use fine-grained WANG labels (cell_type_for_scanvi)
     # instead of broad cell_class, and run model.predict() for label transfer
@@ -434,6 +462,8 @@ def step_scanvi(cfg: dict, output_dir: Path, combined_path: Path,
         'counts_layer': 'counts',
     }
     scvi_cfg.update(cfg.get('scvi', {}))
+    for _k in ('n_top_genes', 'hvg_flavor', 'hvg_batch_key'):
+        scvi_cfg.pop(_k, None)
     # Critical flags set after user config so they cannot be accidentally overridden
     scvi_cfg['steps'] = ['prep', 'train_scanvi', 'infer', 'save']
     scvi_cfg['run_scanvi'] = True

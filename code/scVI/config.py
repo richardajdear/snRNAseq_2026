@@ -24,7 +24,7 @@ class PipelineConfig:
     categorical_covariate_keys: Optional[List[str]] = None
 
     # -- Preprocessing --
-    n_top_genes: int = 10000
+    n_top_genes: int = 0  # 0 = skip HVG selection (expected: already done in combine step)
     hvg_flavor: str = "seurat_v3"
     hvg_batch_key: Optional[str] = None
 

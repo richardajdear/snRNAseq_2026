@@ -86,45 +86,48 @@ def prepare_for_scvi(
             "scVI expects raw (unnormalized) counts."
         )
 
-    # HVG selection
-    # Force re-selection if overwrite_scvi is true, or if "highly_variable" not yet marked
-    force_reselect = config.overwrite_scvi
-    if "highly_variable" not in adata.var.columns or force_reselect:
-        with Timer(
-            f"Selecting {config.n_top_genes} HVGs ({config.hvg_flavor})", logger
-        ):
-            if config.hvg_flavor == "pearson_residuals":
-                # sc.experimental.pp.highly_variable_genes handles pearson_residuals
-                kwargs = {"n_top_genes": config.n_top_genes, "layer": config.counts_layer}
-                if config.hvg_batch_key:
-                    logger.warning(
-                        "pearson_residuals does not support batch_key in this scanpy version "
-                        f"— ignoring hvg_batch_key='{config.hvg_batch_key}'"
-                    )
-                sc.experimental.pp.highly_variable_genes(adata, **kwargs)
-            else:
-                kwargs = {"n_top_genes": config.n_top_genes, "flavor": config.hvg_flavor}
-                if config.hvg_flavor == "seurat_v3":
-                    kwargs["layer"] = config.counts_layer
-                elif config.hvg_flavor == "seurat":
-                    logger.info("Log-normalizing .X for seurat HVG selection")
-                    sc.pp.normalize_total(adata, target_sum=1e4)
-                    sc.pp.log1p(adata)
-                if config.hvg_batch_key:
-                    kwargs["batch_key"] = config.hvg_batch_key
-                sc.pp.highly_variable_genes(adata, **kwargs)
-    elif "highly_variable" in adata.var.columns:
-        n_hvg_existing = int(adata.var["highly_variable"].sum())
-        if n_hvg_existing != config.n_top_genes:
-            logger.warning(
-                f"Existing HVG selection has {n_hvg_existing} genes, but "
-                f"config.n_top_genes={config.n_top_genes}. To re-select, use --overwrite_scvi true"
-            )
-    n_hvg = int(adata.var["highly_variable"].sum())
-    logger.info(f"HVGs: {n_hvg} genes selected")
-
-    # Subset to HVGs — copy so original adata is unchanged
-    adata_scvi = adata[:, adata.var["highly_variable"]].copy()
+    # HVG selection — skipped when n_top_genes=0 (selection already done in combine step)
+    if config.n_top_genes > 0:
+        force_reselect = config.overwrite_scvi
+        if "highly_variable" not in adata.var.columns or force_reselect:
+            with Timer(
+                f"Selecting {config.n_top_genes} HVGs ({config.hvg_flavor})", logger
+            ):
+                if config.hvg_flavor == "pearson_residuals":
+                    kwargs = {"n_top_genes": config.n_top_genes, "layer": config.counts_layer}
+                    if config.hvg_batch_key:
+                        logger.warning(
+                            "pearson_residuals does not support batch_key in this scanpy version "
+                            f"— ignoring hvg_batch_key='{config.hvg_batch_key}'"
+                        )
+                    sc.experimental.pp.highly_variable_genes(adata, **kwargs)
+                else:
+                    kwargs = {"n_top_genes": config.n_top_genes, "flavor": config.hvg_flavor}
+                    if config.hvg_flavor == "seurat_v3":
+                        kwargs["layer"] = config.counts_layer
+                    elif config.hvg_flavor == "seurat":
+                        logger.info("Log-normalizing .X for seurat HVG selection")
+                        sc.pp.normalize_total(adata, target_sum=1e4)
+                        sc.pp.log1p(adata)
+                    if config.hvg_batch_key:
+                        kwargs["batch_key"] = config.hvg_batch_key
+                    sc.pp.highly_variable_genes(adata, **kwargs)
+        else:
+            n_hvg_existing = int(adata.var["highly_variable"].sum())
+            if n_hvg_existing != config.n_top_genes:
+                logger.warning(
+                    f"Existing HVG selection has {n_hvg_existing} genes, but "
+                    f"config.n_top_genes={config.n_top_genes}. To re-select, use --overwrite_scvi true"
+                )
+        n_hvg = int(adata.var["highly_variable"].sum())
+        logger.info(f"HVGs: {n_hvg} genes selected")
+        adata_scvi = adata[:, adata.var["highly_variable"]].copy()
+    else:
+        logger.info(
+            "n_top_genes=0: skipping HVG selection — using all input genes "
+            "(expected: combined.h5ad already HVG-filtered by combine step)."
+        )
+        adata_scvi = adata.copy()
     logger.info(f"scVI AnnData: {adata_scvi.shape}")
     log_memory("After prep", logger)
 

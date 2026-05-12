@@ -1,10 +1,10 @@
 #!/bin/bash
 #SBATCH --output=/home/rajd2/rds/hpc-work/snRNAseq_2026/logs/%j_step1_prep.out
 #SBATCH --error=/home/rajd2/rds/hpc-work/snRNAseq_2026/logs/%j_step1_prep.err
-#SBATCH --time=00:30:00
+#SBATCH --time=01:00:00
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --mem=32G
+#SBATCH --mem=64G
 #SBATCH --partition=icelake
 #SBATCH --account=vertes-sl2-cpu
 
@@ -18,7 +18,7 @@ CONFIG="${CONFIG:-code/pipeline/configs/source_hpc_config.yaml}"
 mkdir -p "${WORK_DIR}/logs"
 
 echo "========================================"
-echo "STEP 1: Downsample + Combine"
+echo "STEP 1: Downsample + Combine + HVG Selection"
 echo "Job ID:    ${SLURM_JOB_ID}"
 echo "Node:      $(hostname)"
 echo "Config:    ${CONFIG}"

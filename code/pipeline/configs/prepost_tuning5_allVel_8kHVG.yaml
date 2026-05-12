@@ -1,16 +1,18 @@
-# snRNAseq Pipeline Config — HPC, Pearson residuals HVG, prepost + source-chemistry batch correction
+# snRNAseq Pipeline Config — HPC, Pearson residuals HVG (8k), prepost + source-chemistry batch correction
+#
+# HVG selection is performed at the end of the combine step (CPU), not in scVI.
+# 8000 HVGs are selected on the full combined dataset using pearson_residuals.
+# combined.h5ad is written with only HVG dimensions; scVI receives this filtered
+# matrix in full and does not perform its own gene selection.
 #
 # Uses a combined per-cell batch column created in downsample.py:
 #   source-chemistry = source + '-' + chemistry
 #
-# VELMESHEV is filtered to V3 chemistry only (chemistry_filter: [V3]).
-# No n_cells cap on VELMESHEV — all V3 cells are used.
-#
 # Submit via:
 #   cd /home/rajd2/rds/hpc-work/snRNAseq_2026
-#   bash code/pipeline/slurm/submit_pipeline.sh code/pipeline/configs/prepost_V3only_tuning5.yaml
+#   bash code/pipeline/slurm/submit_pipeline.sh code/pipeline/configs/prepost_tuning5_allVel_8kHVG.yaml
 
-output_dir: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/VelWangPsychAD_200k_prepost_V3only_tuning5
+output_dir: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/VelWangPsychAD_200k_tuning5_allVel_8kHVG
 
 sources:
   - name: WANG
@@ -25,7 +27,6 @@ sources:
     dataset_type: Velmeshev
     cell_type_field: "Cell_Type"
     pfc_only: true
-    chemistry_filter: [V3]
 
   - name: PSYCHAD
     paths:
@@ -40,10 +41,12 @@ age_downsample: true
 postnatal_only: false
 seed: 42
 
-scvi:
-  n_top_genes: 15000
+combine:
+  n_top_genes: 8000
   hvg_flavor: pearson_residuals
-  hvg_batch_key: source-chemistry
+  hvg_batch_key: source-chemistry  # ignored by pearson_residuals; retained for documentation
+
+scvi:
   batch_key: source-chemistry
   n_latent: 30
   n_hidden: 512
@@ -80,6 +83,7 @@ pseudobulk:
 
 steps:
   - downsample
+  - combine
   - scvi
   - diagnostics
   - pseudobulk

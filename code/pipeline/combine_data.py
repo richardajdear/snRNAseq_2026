@@ -143,6 +143,68 @@ def _restore_gene_metadata(ref_path, output_path):
     print("  Gene metadata restored.")
 
 
+def select_hvgs(output_path, n_top_genes: int, hvg_flavor: str = "pearson_residuals",
+                hvg_batch_key: str = None, counts_layer: str = "counts"):
+    """Load combined.h5ad, select HVGs, and overwrite with the gene-filtered version.
+
+    HVG selection is performed on the full combined dataset (post-concatenation) with
+    an optional batch_key to prevent batch-effect genes from dominating the selection.
+    For pearson_residuals, batch_key is not supported by this scanpy version and is ignored.
+    """
+    print(f"\n[HVG] Loading {output_path} for HVG selection...")
+    log_mem("Before HVG load")
+    adata = sc.read_h5ad(output_path)
+    n_genes_before = adata.n_vars
+    print(f"[HVG] Loaded: {adata.n_obs} cells × {n_genes_before} genes")
+    log_mem("After HVG load")
+
+    print(f"[HVG] Selecting {n_top_genes} HVGs (flavor={hvg_flavor!r}, "
+          f"batch_key={hvg_batch_key!r})")
+
+    if hvg_flavor == "pearson_residuals":
+        if hvg_batch_key:
+            print("[HVG] Warning: pearson_residuals does not support batch_key "
+                  f"in this scanpy version — ignoring batch_key={hvg_batch_key!r}")
+        kwargs = {"n_top_genes": n_top_genes}
+        if counts_layer in adata.layers:
+            kwargs["layer"] = counts_layer
+        sc.experimental.pp.highly_variable_genes(adata, **kwargs)
+    else:
+        kwargs = {"n_top_genes": n_top_genes, "flavor": hvg_flavor}
+        if hvg_flavor == "seurat_v3":
+            if counts_layer in adata.layers:
+                kwargs["layer"] = counts_layer
+        elif hvg_flavor == "seurat":
+            print("[HVG] Log-normalizing .X for seurat HVG selection")
+            sc.pp.normalize_total(adata, target_sum=1e4)
+            sc.pp.log1p(adata)
+        if hvg_batch_key:
+            kwargs["batch_key"] = hvg_batch_key
+        sc.pp.highly_variable_genes(adata, **kwargs)
+
+    n_hvg = int(adata.var["highly_variable"].sum())
+    print(f"[HVG] {n_hvg} HVGs selected from {n_genes_before} genes "
+          f"({n_genes_before - n_hvg} removed)")
+
+    adata_hvg = adata[:, adata.var["highly_variable"]].copy()
+
+    # Restore raw counts to .X if seurat flavor modified it in-place
+    if hvg_flavor == "seurat" and counts_layer in adata_hvg.layers:
+        adata_hvg.X = adata_hvg.layers[counts_layer].copy()
+
+    del adata
+    gc.collect()
+    log_mem("After HVG subset (before write)")
+
+    print(f"[HVG] Writing HVG-filtered file ({adata_hvg.n_obs} cells × "
+          f"{adata_hvg.n_vars} genes) → {output_path}")
+    adata_hvg.write_h5ad(output_path)
+    del adata_hvg
+    gc.collect()
+    log_mem("After HVG write")
+    print(f"[HVG] Done. combined.h5ad reduced from {n_genes_before} → {n_hvg} genes.")
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Combine pre-processed h5ad files into one concatenated file.",
@@ -155,6 +217,15 @@ def main():
                         help="Path for the combined output h5ad.")
     parser.add_argument("--diagnose_only", action='store_true',
                         help="Run diagnostics only, do not save.")
+    parser.add_argument("--n_top_genes", type=int, default=0,
+                        help="Number of HVGs to select after combining (0 = skip).")
+    parser.add_argument("--hvg_flavor", type=str, default="pearson_residuals",
+                        help="HVG selection method: pearson_residuals, seurat_v3, seurat.")
+    parser.add_argument("--hvg_batch_key", type=str, default=None,
+                        help="obs column to use as batch key for HVG selection "
+                             "(supported by seurat_v3/seurat; ignored for pearson_residuals).")
+    parser.add_argument("--counts_layer", type=str, default="counts",
+                        help="Layer containing raw counts (default: counts).")
     args = parser.parse_args()
 
     # Validate inputs
@@ -173,6 +244,16 @@ def main():
         return
 
     combine_on_disk(args.inputs, args.output)
+
+    if args.n_top_genes > 0:
+        select_hvgs(
+            output_path=args.output,
+            n_top_genes=args.n_top_genes,
+            hvg_flavor=args.hvg_flavor,
+            hvg_batch_key=args.hvg_batch_key,
+            counts_layer=args.counts_layer,
+        )
+
     print("Done.")
 
 

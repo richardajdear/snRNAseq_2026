@@ -2,7 +2,7 @@
 # submit_pipeline.sh — Submit the snRNAseq pipeline as chained SLURM jobs.
 #
 # Steps (in order):
-#   1 (CPU)  Downsample + combine  →  per_dataset/*.h5ad, combined.h5ad
+#   1 (CPU)  Downsample + combine + HVG selection  →  per_dataset/*.h5ad, combined.h5ad (HVG-filtered)
 #   2 (GPU)  scVI + scANVI         →  scvi_output/integrated.h5ad + plots
 #   3 (CPU)  Diagnostics           →  scanvi_diagnostics/ (label-transfer QC)
 #   4 (CPU)  Pseudobulk            →  pseudobulk_output/*.h5ad
