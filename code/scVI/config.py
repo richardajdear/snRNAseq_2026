@@ -41,6 +41,7 @@ class PipelineConfig:
     train_size: float = 0.9
     early_stopping: bool = True
     early_stopping_patience: int = 30
+    early_stopping_min_delta: float = 1.0  # minimum ELBO improvement per epoch to reset patience; 0 (default) causes early stopping to never trigger
     batch_size: int = 128
     num_workers: int = 4
     random_seed: int = 42

@@ -20,7 +20,7 @@ PSEUDOBULK_GROUP="${PSEUDOBULK_GROUP:-by_cell_class}"
 
 RENDER_SCRIPT="${WORK_DIR}/notebooks/render_notebook.sh"
 
-# Derive experiment name and pseudobulk file.
+# Derive experiment name and pseudobulk file(s).
 # Direct-mode: if PSEUDOBULK_FILE is provided, use it as-is and skip CONFIG
 # parsing. EXPERIMENT_NAME defaults to the grandparent dir of PSEUDOBULK_FILE
 # (i.e. the retransform subdir, e.g. retransform_velmeshev_v3).
@@ -54,38 +54,71 @@ OUTPUT_FILE="${TEMPLATE_STEM}.md"
 
 mkdir -p "${RESULTS_DIR}"
 
-# Verify pseudobulk output exists before starting
-if [[ ! -f "${PSEUDOBULK_FILE}" ]]; then
-    echo "ERROR: pseudobulk file not found: ${PSEUDOBULK_FILE}" >&2
-    echo "  Ensure pseudobulk step completed and PSEUDOBULK_GROUP='${PSEUDOBULK_GROUP}' is correct." >&2
-    exit 1
-fi
+# Generate params YAML for the notebook.
+# When notebook.pseudobulk_inputs is a list in the config, write PSEUDOBULK_INPUTS;
+# otherwise fall back to the single PSEUDOBULK_FILE path (backward compat).
+if [[ "${_direct_mode}" == "false" ]]; then
+    python3 - "${WORK_DIR}/${CONFIG}" "${OUTPUT_DIR}" "${EXPERIMENT_NAME}" "${PARAMS_FILE}" << 'PYEOF'
+import sys, yaml
+config_path, output_dir, experiment_name, params_file = sys.argv[1:]
 
-# Generate params YAML for the notebook
-cat > "${PARAMS_FILE}" << EOF
+cfg  = yaml.safe_load(open(config_path))
+nb   = cfg.get('notebook', {})
+
+params = {'EXPERIMENT_NAME': experiment_name}
+
+pb_inputs = nb.get('pseudobulk_inputs')
+if pb_inputs:
+    MAX_INPUTS = 4
+    if len(pb_inputs) > MAX_INPUTS:
+        print(f"WARNING: pseudobulk_inputs has {len(pb_inputs)} entries; "
+              f"only the first {MAX_INPUTS} will be used.", file=sys.stderr)
+        pb_inputs = pb_inputs[:MAX_INPUTS]
+    resolved = []
+    for entry in pb_inputs:
+        import os
+        file_val = entry.get('file', '')
+        if file_val and os.path.isabs(file_val):
+            fpath = file_val
+        else:
+            group = entry.get('group') or entry.get('name', 'by_cell_class')
+            fpath = f"{output_dir}/pseudobulk_output/{group}.h5ad"
+        resolved.append({
+            'name':             entry.get('name', os.path.splitext(os.path.basename(fpath))[0]),
+            'file':             fpath,
+            'cell_class_col':   entry.get('cell_class_col',  'cell_class') or '',
+            'cell_class_value': entry.get('cell_class_value', 'Excitatory') or '',
+        })
+    params['PSEUDOBULK_INPUTS'] = resolved
+else:
+    # Single-input: PSEUDOBULK_FILE already set by shell; write it directly.
+    # Read it from shell via the pre-computed value embedded below.
+    params['PSEUDOBULK_FILE'] = '__PSEUDOBULK_FILE_PLACEHOLDER__'
+    cell_class_col = nb.get('cell_class_col', '__NOTSET__')
+    if cell_class_col != '__NOTSET__':
+        params['CELL_CLASS_COL']   = nb.get('cell_class_col',  '') or ''
+        params['CELL_CLASS_VALUE'] = nb.get('cell_class_value', '') or ''
+
+with open(params_file, 'w') as fh:
+    yaml.dump(params, fh, default_flow_style=False)
+print('multi' if 'PSEUDOBULK_INPUTS' in params else 'single')
+PYEOF
+    # Replace placeholder with the actual shell-resolved PSEUDOBULK_FILE path.
+    sed -i "s|__PSEUDOBULK_FILE_PLACEHOLDER__|${PSEUDOBULK_FILE}|" "${PARAMS_FILE}"
+else
+    # Direct mode: always single-file.
+    cat > "${PARAMS_FILE}" << EOF
 EXPERIMENT_NAME: ${EXPERIMENT_NAME}
 PSEUDOBULK_FILE: ${PSEUDOBULK_FILE}
 EOF
+fi
 
-# Append optional cell-class filter params from notebook config section.
-# When cell_class_col is set to '' in the config, the notebook skips filtering
-# (needed for single-class datasets that are already pre-filtered).
-# Skipped in direct mode (no CONFIG to read from).
-if [[ "${_direct_mode}" == "false" ]]; then
-    _cell_class_col=$(python3 -c "
-import yaml
-cfg = yaml.safe_load(open('${WORK_DIR}/${CONFIG}'))
-nb = cfg.get('notebook', {})
-print(nb.get('cell_class_col', '__NOTSET__'))
-" 2>/dev/null || echo "__NOTSET__")
-    if [[ "${_cell_class_col}" != "__NOTSET__" ]]; then
-        _cell_class_val=$(python3 -c "
-import yaml
-cfg = yaml.safe_load(open('${WORK_DIR}/${CONFIG}'))
-print(cfg.get('notebook', {}).get('cell_class_value', ''))
-" 2>/dev/null || echo "")
-        echo "CELL_CLASS_COL: '${_cell_class_col}'" >> "${PARAMS_FILE}"
-        echo "CELL_CLASS_VALUE: '${_cell_class_val}'" >> "${PARAMS_FILE}"
+# Verify at least the primary pseudobulk file exists (single-input path).
+if grep -q "^PSEUDOBULK_FILE:" "${PARAMS_FILE}" 2>/dev/null; then
+    if [[ ! -f "${PSEUDOBULK_FILE}" ]]; then
+        echo "ERROR: pseudobulk file not found: ${PSEUDOBULK_FILE}" >&2
+        echo "  Ensure pseudobulk step completed and PSEUDOBULK_GROUP='${PSEUDOBULK_GROUP}' is correct." >&2
+        exit 1
     fi
 fi
 echo "Params written: ${PARAMS_FILE}"

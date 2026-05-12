@@ -106,6 +106,7 @@ def train_scvi(
     extra_kwargs = {}
     if config.early_stopping:
         extra_kwargs["early_stopping_patience"] = config.early_stopping_patience
+        extra_kwargs["early_stopping_min_delta"] = config.early_stopping_min_delta
 
     # Pre-training memory check — smart thresholds based on dataset size
     log_memory("Before scVI training", logger)
@@ -157,7 +158,11 @@ def train_scvi(
     logger.info(f"scVI model saved to {model_path}")
 
     history_path = model_path.parent / "training_history_scvi.csv"
-    pd.DataFrame({k: list(v) for k, v in model.history.items()}).to_csv(str(history_path), index_label="epoch")
+    # model.history contains mixed-length columns (step-level vs epoch-level metrics);
+    # pd.concat handles this by NaN-padding shorter columns rather than raising ValueError.
+    pd.concat(
+        [pd.Series(list(v), name=k) for k, v in model.history.items()], axis=1
+    ).to_csv(str(history_path), index_label="epoch")
     logger.info(f"Training history saved to {history_path}")
 
     log_memory("After scVI training", logger)
@@ -207,6 +212,7 @@ def train_scanvi(
     extra_kwargs = {}
     if config.early_stopping:
         extra_kwargs["early_stopping_patience"] = config.early_stopping_patience
+        extra_kwargs["early_stopping_min_delta"] = config.early_stopping_min_delta
 
     # Load existing model if available (check gene count mismatch first)
     if model_path.exists() and not config.overwrite_scanvi:

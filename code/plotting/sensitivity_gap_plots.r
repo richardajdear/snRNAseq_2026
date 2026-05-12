@@ -631,6 +631,30 @@ plot_4d_pvalue <- function(sens_4d, filter_cond = NULL) {
     )
 }
 
+plot_4d_pvalue_signed <- function(sens_4d, filter_cond = NULL) {
+  dat <- sens_4d %>%
+    mutate(signed_log10p = dplyr::if_else(
+      !is.na(cohens_d), sign(cohens_d) * log10p, NA_real_))
+  .make_4d_tile_base(
+    dat, 'signed_log10p',
+    scale_fill_gradient2(
+      low      = '#2166AC',
+      mid      = 'white',
+      high     = '#B2182B',
+      midpoint = 0,
+      name     = expression(sign(d) %*% -log[10](p))),
+    filter_cond = filter_cond
+  ) +
+    geom_text(aes(label    = p_label,
+                  fontface = ifelse(signif, 'bold', 'plain')),
+              size = 1.6, color = 'black') +
+    labs(
+      title    = sprintf('C3+ p-value [HVG: %s]  blue=negative d, red=positive d',
+                         filter_cond %||% 'all'),
+      subtitle = 'Bold = p<0.05. x=gap_length, y=child_start; cols=gap_start; rows=adol_end'
+    )
+}
+
 plot_4d_power <- function(sens_4d, filter_cond = NULL) {
   .make_4d_tile_base(
     sens_4d, 'min_detectable_d',

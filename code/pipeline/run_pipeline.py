@@ -566,29 +566,53 @@ def step_notebook(cfg: dict, config_path: str, output_dir: Path,
     results_dir.mkdir(parents=True, exist_ok=True)
     output_file = f"{config_stem}.html"
 
-    # Derive pseudobulk file from this pipeline run's output
-    pseudobulk_group = nb_cfg.get('pseudobulk_group')
-    if not pseudobulk_group:
-        groups = cfg.get('pseudobulk', {}).get('groups', [])
-        pseudobulk_group = groups[0]['name'] if groups else 'by_cell_class'
-    pseudobulk_file = output_dir / 'pseudobulk_output' / f'{pseudobulk_group}.h5ad'
-
-    # Auto-generate params file with experiment identity and data path
+    # Auto-generate params file with experiment identity and data path(s).
     params_path = results_dir / f'{config_stem}_params.yaml'
-    params = {
-        'EXPERIMENT_NAME': config_stem,
-        'PSEUDOBULK_FILE': str(pseudobulk_file),
-    }
-    # Pass cell-class filter params only when explicitly set in the notebook config,
-    # so single-class (already-filtered) datasets can disable the notebook's default
-    # 'Excitatory' filter by setting cell_class_col: '' in the notebook section.
-    if 'cell_class_col' in nb_cfg:
-        params['CELL_CLASS_COL']   = nb_cfg.get('cell_class_col')   or ''
-        params['CELL_CLASS_VALUE'] = nb_cfg.get('cell_class_value') or ''
+    params: dict = {'EXPERIMENT_NAME': config_stem}
+
+    pb_inputs_cfg = nb_cfg.get('pseudobulk_inputs')
+    if pb_inputs_cfg:
+        # Multi-input path: resolve each entry's group → absolute file path.
+        MAX_INPUTS = 4
+        if len(pb_inputs_cfg) > MAX_INPUTS:
+            logger.warning(
+                f"  pseudobulk_inputs has {len(pb_inputs_cfg)} entries; "
+                f"only the first {MAX_INPUTS} will be used by grn_dev_multi.")
+            pb_inputs_cfg = pb_inputs_cfg[:MAX_INPUTS]
+        resolved = []
+        for entry in pb_inputs_cfg:
+            if 'file' in entry and Path(entry['file']).is_absolute():
+                fpath = Path(entry['file'])
+            else:
+                group = entry.get('group') or entry.get('name', 'by_cell_class')
+                fpath = output_dir / 'pseudobulk_output' / f'{group}.h5ad'
+            resolved.append({
+                'name':            entry.get('name', fpath.stem),
+                'file':            str(fpath),
+                'cell_class_col':  entry.get('cell_class_col',  'cell_class') or '',
+                'cell_class_value': entry.get('cell_class_value', 'Excitatory') or '',
+            })
+            logger.info(f"  Pseudobulk [{entry.get('name', fpath.stem)}]: {fpath}")
+        params['PSEUDOBULK_INPUTS'] = resolved
+    else:
+        # Single-input path (backward compat with grn_dev_v2 and standalone configs).
+        pseudobulk_group = nb_cfg.get('pseudobulk_group')
+        if not pseudobulk_group:
+            groups = cfg.get('pseudobulk', {}).get('groups', [])
+            pseudobulk_group = groups[0]['name'] if groups else 'by_cell_class'
+        pseudobulk_file = output_dir / 'pseudobulk_output' / f'{pseudobulk_group}.h5ad'
+        params['PSEUDOBULK_FILE'] = str(pseudobulk_file)
+        # Pass cell-class filter params only when explicitly set in the notebook config,
+        # so single-class (already-filtered) datasets can disable the notebook's default
+        # 'Excitatory' filter by setting cell_class_col: '' in the notebook section.
+        if 'cell_class_col' in nb_cfg:
+            params['CELL_CLASS_COL']   = nb_cfg.get('cell_class_col')   or ''
+            params['CELL_CLASS_VALUE'] = nb_cfg.get('cell_class_value') or ''
+        logger.info(f"  Pseudobulk:  {pseudobulk_file}")
+
     with open(params_path, 'w') as fh:
         yaml.dump(params, fh, default_flow_style=False)
     logger.info(f"  Params file: {params_path} (auto-generated)")
-    logger.info(f"  Pseudobulk:  {pseudobulk_file}")
 
     logger.info(f"  Template:    {template_path}")
     logger.info(f"  Output:      {results_dir / output_file}")
