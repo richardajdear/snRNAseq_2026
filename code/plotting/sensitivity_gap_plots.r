@@ -335,7 +335,8 @@ make_boxes_gap_df <- function(df, child_start, child_end, adol_start, adol_end) 
     mutate(age_range = factor(age_range, ordered = TRUE,
                               levels = c("Prenatal", "Infancy", "Childhood",
                                          "Gap", "Adolescence", "Early Adult", "Late Adult"))) %>%
-    group_by(condition, network, Individual, age_range, source, age_years) %>%
+    group_by(condition, network, Individual, age_range, source, age_years,
+             across(any_of('source_chemistry'))) %>%
     summarize(value = mean(value), .groups = 'drop')
 }
 

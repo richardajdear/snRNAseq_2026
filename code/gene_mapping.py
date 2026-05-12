@@ -50,21 +50,25 @@ def map_grn_symbols_to_ensembl(grn, adata):
 
     # 1) Build mapping from adata.var (symbol -> ensembl ID)
     #    For duplicates, keep the first occurrence.
+    symbol_col = None
     for col in ('gene_symbol', 'feature_name'):
         if col in adata.var.columns:
             symbol_col = col
             break
+
+    if symbol_col is not None:
+        var = adata.var[[symbol_col]].copy()
+        var['ensembl_id'] = var.index
+        var_dedup = var.drop_duplicates(subset=symbol_col, keep='first')
+        local_map = dict(zip(var_dedup[symbol_col], var_dedup['ensembl_id']))
+        mapped = {s: local_map[s] for s in symbols if s in local_map}
+        unmapped = [s for s in symbols if s not in mapped]
+        print(f"Mapped {len(mapped)}/{len(symbols)} symbols via adata.var")
     else:
-        raise ValueError("adata.var must have a 'gene_symbol' or 'feature_name' column")
-
-    var = adata.var[[symbol_col]].copy()
-    var['ensembl_id'] = var.index
-    var_dedup = var.drop_duplicates(subset=symbol_col, keep='first')
-    local_map = dict(zip(var_dedup[symbol_col], var_dedup['ensembl_id']))
-
-    mapped = {s: local_map[s] for s in symbols if s in local_map}
-    unmapped = [s for s in symbols if s not in mapped]
-    print(f"Mapped {len(mapped)}/{len(symbols)} symbols via adata.var")
+        # var_names are already Ensembl IDs; resolve all symbols via mygene
+        print("No gene_symbol/feature_name column found — resolving all symbols via mygene")
+        mapped = {}
+        unmapped = list(symbols)
 
     # 2) Fallback: query mygene for unmapped symbols
     if unmapped:

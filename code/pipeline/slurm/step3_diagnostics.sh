@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --output=/home/rajd2/rds/hpc-work/snRNAseq_2026/logs/%j_step3_diagnostics.out
 #SBATCH --error=/home/rajd2/rds/hpc-work/snRNAseq_2026/logs/%j_step3_diagnostics.err
-#SBATCH --time=01:00:00
+#SBATCH --time=03:00:00
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --partition=icelake

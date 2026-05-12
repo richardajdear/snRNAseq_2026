@@ -52,26 +52,15 @@ pseudobulk:
       aggregation: mean
   min_cells: 10
   groups:
-    - name: all_cells_by_donor
-      group_cols: [individual]
-
     - name: by_cell_class
-      group_cols: [individual, cell_class]
-
-    - name: excitatory_by_celltype
-      group_cols: [individual, cell_type_aligned]
-      filter:
-        cell_class: Excitatory
+      group_cols: [individual, cell_class_original]
 
 notebook:
   template: notebooks/templates/grn_dev_v2.qmd
-  cell_class_col: ''    # data is already excitatory-only; skip the default 'Excitatory' filter
-  cell_class_value: ''
+  pseudobulk_group: by_cell_class
+  cell_class_col: cell_class_original
+  cell_class_value: Excitatory
 
 steps:
-  # - downsample
-  # - scvi
   - diagnostics
-  - pseudobulk
-  - notebook
 overwrite: false

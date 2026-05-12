@@ -163,19 +163,35 @@ def _is_scvi_step_complete(cfg: dict, scvi_output_dir: Path) -> bool:
 
     Completeness is defined as:
       - integrated.h5ad exists, AND
-      - scanvi_model/ exists, when ``scanvi_label_transfer.enabled: true``
+      - scanvi_model/ exists, when ``scanvi_label_transfer.enabled: true``, AND
+      - all pseudobulk-required normalized layers are present in integrated.h5ad
 
     Using the scanvi_model/ directory as a proxy for scANVI completion allows
     partial runs (scVI done, scANVI missing) to be resumed by re-submitting
     --steps scvi without --overwrite. In that case the existing scVI model is
     loaded (not retrained) and scANVI training picks up from where it left off.
     """
-    if not (scvi_output_dir / 'integrated.h5ad').exists():
+    integrated = scvi_output_dir / 'integrated.h5ad'
+    if not integrated.exists():
         return False
     slt = cfg.get('scanvi_label_transfer', {})
     if slt.get('enabled', False):
         if not (scvi_output_dir / 'scanvi_model').exists():
             return False
+    # Verify inference layers are present — opened in backed mode so only HDF5
+    # metadata is read (fast, no data loaded into RAM).
+    pb_layers = cfg.get('pseudobulk', {}).get('layers', [])
+    required = {lc['name'] for lc in pb_layers if lc['name'] != 'counts'}
+    if required:
+        try:
+            import anndata as _ad
+            _a = _ad.read_h5ad(str(integrated), backed='r')
+            available = set(_a.layers.keys())
+            _a.file.close()
+            if not required.issubset(available):
+                return False
+        except Exception:
+            pass  # can't verify; fall through and let step_scvi re-run
     return True
 
 
@@ -224,6 +240,8 @@ def step_downsample(cfg: dict, output_dir: Path, overwrite: bool,
             cmd += ['--min_age', str(cfg['min_age'])]
         if cfg.get('cell_class_filter'):
             cmd += ['--cell_class_filter'] + [str(c) for c in cfg['cell_class_filter']]
+        if src.get('chemistry_filter'):
+            cmd += ['--chemistry_filter'] + [str(c) for c in src['chemistry_filter']]
         if cfg.get('seed'):
             cmd += ['--seed', str(cfg['seed'])]
 

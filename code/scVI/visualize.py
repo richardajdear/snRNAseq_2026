@@ -758,9 +758,9 @@ def plot_excitatory_grids(
     """Recompute UMAPs/PCAs on excitatory neurons and write 4 plot files.
 
     UMAPs and PCAs are computed fresh on the excitatory subset so the embedding
-    reflects only excitatory cell variation. Plots show a single row coloured by
-    cell type (cell_type_aligned if present from scANVI label transfer, else
-    cell_type_raw). Written to <run>/plots/excitatory/.
+    reflects only excitatory cell variation. Plots show 3 rows coloured by
+    batch, age, and cell type (cell_type_aligned if present from scANVI label
+    transfer, else cell_type_raw). Written to <run>/plots/excitatory/.
     """
     if "cell_class" not in adata.obs.columns:
         logger.warning("cell_class column not found — skipping excitatory plots")
@@ -782,7 +782,12 @@ def plot_excitatory_grids(
         compute_umaps(excitatory, config, logger)
 
     plots_dir = config._resolved_output_dir.parent / "plots" / "excitatory"
-    row_specs = [(ct_col, ct_label)]
+    batch_col = getattr(config, "batch_key", "source")
+    row_specs = [
+        (batch_col,   f"Batch ({batch_col})"),
+        ("age_years", "Age (log years)"),
+        (ct_col,      ct_label),
+    ]
 
     latent_cols = [
         ("X_umap_raw",    "Uncorrected (PCA)"),

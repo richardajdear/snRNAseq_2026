@@ -1,10 +1,12 @@
 #!/bin/bash
 #SBATCH --job-name=run_script
-#SBATCH --output=/home/rajd2/rds/hpc-work/snRNAseq_2026/logs/run_script_%j.out
-#SBATCH --error=/home/rajd2/rds/hpc-work/snRNAseq_2026/logs/run_script_%j.err
-#SBATCH --time=00:10:00
-#SBATCH --mem=10G
-#SBATCH --partition=icelake
+#SBATCH --output=/home/rajd2/rds/hpc-work/snRNAseq_2026/logs/%j_run_script.out
+#SBATCH --error=/home/rajd2/rds/hpc-work/snRNAseq_2026/logs/%j_run_script.err
+#SBATCH --time=00:20:00
+#SBATCH --mem=100G
+#SBATCH --partition=cclake
+#SBATCH --account=vertes-sl2-cpu
+
 
 # Usage: sbatch scripts/run_script.sh <path/to/script.py>
 #   e.g. sbatch scripts/run_script.sh scripts/debug_scanvi_pipeline.py
@@ -37,9 +39,10 @@ echo "Start:   $(date)"
 echo "========================================"
 _JOB_START=$(date +%s)
 
-singularity exec \
+stdbuf -oL -eL singularity exec \
     --pwd "$REPO_ROOT" \
     --env "R_LIBS_USER=/home/rajd2/R/library" \
+    --env "PYTHONUNBUFFERED=1" \
     "$SIF" \
     micromamba run -n "$CONDA_ENV" \
     "$PYTHON_BIN" -u "$SCRIPT"

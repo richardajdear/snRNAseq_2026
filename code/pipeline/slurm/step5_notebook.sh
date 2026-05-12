@@ -31,14 +31,26 @@ else
     _direct_mode=false
     CONFIG_STEM=$(basename "${CONFIG}" .yaml)
     OUTPUT_DIR=$(awk '/^output_dir:/{print $2; exit}' "${WORK_DIR}/${CONFIG}")
+    # Allow notebook section of pipeline config to override pseudobulk group and experiment name
+    _nb_overrides=$(python3 -c "
+import yaml
+cfg = yaml.safe_load(open('${WORK_DIR}/${CONFIG}'))
+nb = cfg.get('notebook', {})
+print(nb.get('pseudobulk_group', '') or '')
+print(nb.get('experiment_name', '') or '')
+" 2>/dev/null || printf '\n')
+    _pb_group=$(echo "${_nb_overrides}" | sed -n '1p')
+    _exp_name=$(echo "${_nb_overrides}" | sed -n '2p')
+    [[ -n "${_pb_group}" ]] && PSEUDOBULK_GROUP="${_pb_group}"
     PSEUDOBULK_FILE="${OUTPUT_DIR}/pseudobulk_output/${PSEUDOBULK_GROUP}.h5ad"
-    EXPERIMENT_NAME="${EXPERIMENT_NAME:-${CONFIG_STEM}}"
+    EXPERIMENT_NAME="${EXPERIMENT_NAME:-${_exp_name:-${CONFIG_STEM}}}"
 fi
 
 TEMPLATE_PATH="${WORK_DIR}/${NOTEBOOK_TEMPLATE}"
+TEMPLATE_STEM=$(basename "${NOTEBOOK_TEMPLATE}" .qmd)
 RESULTS_DIR="${WORK_DIR}/notebooks/results/${EXPERIMENT_NAME}"
-PARAMS_FILE="${RESULTS_DIR}/${EXPERIMENT_NAME}_params.yaml"
-OUTPUT_FILE="${EXPERIMENT_NAME}.md"
+PARAMS_FILE="${RESULTS_DIR}/${TEMPLATE_STEM}_params.yaml"
+OUTPUT_FILE="${TEMPLATE_STEM}.md"
 
 mkdir -p "${RESULTS_DIR}"
 

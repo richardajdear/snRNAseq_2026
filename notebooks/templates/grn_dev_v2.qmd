@@ -274,8 +274,8 @@ if 'source-chemistry' in adata.obs.columns:
     adata.obs['source_chemistry'] = adata.obs['source-chemistry']
 elif 'chemistry' in adata.obs.columns:
     adata.obs['source_chemistry'] = (
-        adata.obs['source'].fillna('unknown').astype(str) + '-' +
-        adata.obs['chemistry'].fillna('unknown').astype(str))
+        adata.obs['source'].astype(object).fillna('unknown').astype(str) + '-' +
+        adata.obs['chemistry'].astype(object).fillna('unknown').astype(str))
 else:
     adata.obs['source_chemistry'] = adata.obs['source']
 
@@ -655,4 +655,34 @@ p_box42_scanvi <- make_box_plot(
 
 (p_traj42_cpm | p_box42_cpm) / (p_traj42_scanvi | p_box42_scanvi) +
     plot_layout(guides = 'collect')
+```
+
+### 4.3 V2 vs V3 C3+ sanity check (CPM, age 5–25)
+
+```{python}
+# Confirm V2 vs V3 direction numerically for CPM C3+ in age 5-25.
+# Note: if CELL_CLASS_COL is empty, all cell classes in the pseudobulk are included.
+_sc = final_df[(final_df['condition'] == 'cpm_all') & (final_df['C'] == 'C3+')].copy()
+_sc['age_years'] = _sc['age_years'].astype(float)
+_sc['chem'] = _sc['source_chemistry'].astype(str).str.extract(r'(V[23])', expand=False)
+_sc25 = _sc[(_sc['age_years'] >= 5) & (_sc['age_years'] <= 25)]
+
+print("=== V2 vs V3 CPM C3+ in age 5–25 (pseudobulk donors) ===")
+print(f"  Cell class filter in this notebook: CELL_CLASS_COL='{CELL_CLASS_COL}' "
+      f"CELL_CLASS_VALUE='{CELL_CLASS_VALUE}'")
+if 'cell_class' in _sc25.columns:
+    print(f"  Cell classes present: {sorted(_sc25['cell_class'].astype(str).unique())}")
+
+for chem, grp in _sc25.groupby('chem'):
+    print(f"\n  {chem}: n_donors={len(grp)}")
+    print(f"    C3+ CPM — mean={grp['value'].mean():.1f}  median={grp['value'].median():.1f}")
+    print(f"    age     — mean={grp['age_years'].mean():.1f}  "
+          f"range [{grp['age_years'].min():.1f}, {grp['age_years'].max():.1f}]")
+
+_grp = _sc25.groupby('chem')['value'].mean()
+if 'V2' in _grp and 'V3' in _grp:
+    _ratio = _grp['V2'] / _grp['V3']
+    print(f"\n  V2/V3 mean ratio = {_ratio:.4f}  "
+          f"({'V2 > V3' if _ratio > 1 else 'V2 < V3'})")
+del _sc, _sc25, _grp
 ```

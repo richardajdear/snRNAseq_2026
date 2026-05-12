@@ -1,0 +1,87 @@
+# snRNAseq Pipeline Config — HPC, Pearson residuals HVG, prepost + source-chemistry batch correction
+#
+# Uses a combined per-cell batch column created in downsample.py:
+#   source-chemistry = source + '-' + chemistry
+#
+# VELMESHEV is filtered to V3 chemistry only (chemistry_filter: [V3]).
+# No n_cells cap on VELMESHEV — all V3 cells are used.
+#
+# Submit via:
+#   cd /home/rajd2/rds/hpc-work/snRNAseq_2026
+#   bash code/pipeline/slurm/submit_pipeline.sh code/pipeline/configs/prepost_V3only_tuning5.yaml
+
+output_dir: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/VelWangPsychAD_100k_prepost_V3only_tuning5
+
+sources:
+  - name: WANG
+    path: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/wang/wang.h5ad
+    dataset_type: Wang
+    cell_type_field: "Type_updated"
+    pfc_only: true
+    n_cells: 100000
+
+  - name: VELMESHEV
+    path: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/velmeshev/velmeshev.h5ad
+    dataset_type: Velmeshev
+    cell_type_field: "Cell_Type"
+    pfc_only: true
+    chemistry_filter: [V3]
+
+  - name: PSYCHAD
+    paths:
+      aging: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_PsychAD/RNAseq/Aging_Cohort.h5ad
+      hbcc:  /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_PsychAD/RNAseq/HBCC_Cohort.h5ad
+    dataset_type: PsychAD
+    cell_type_field: "subclass"
+    pfc_only: true
+    n_cells: 100000
+
+age_downsample: true
+postnatal_only: false
+seed: 42
+
+scvi:
+  n_top_genes: 15000
+  hvg_flavor: pearson_residuals
+  hvg_batch_key: source-chemistry
+  batch_key: source-chemistry
+  n_latent: 30
+  n_hidden: 64
+  n_layers: 4
+  gene_likelihood: zinb
+  max_epochs_scvi: 400
+  batch_size: 256
+  early_stopping: true
+  early_stopping_patience: 20
+  num_workers: 16
+  transform_batch: WANG-multiome
+  continuous_covariate_keys: []
+  categorical_covariate_keys: [sex]
+
+scanvi_label_transfer:
+  enabled: true
+  label_column: cell_type_for_scanvi
+  max_epochs_scanvi: 100
+  scanvi_lr: 0.0001  # 10x lower than default to prevent NaN explosion when fine-tuning from scVI weights
+  confidence_threshold: 0.5
+
+pseudobulk:
+  layers:
+    - name: counts
+      aggregation: sum
+    - name: scvi_normalized
+      aggregation: mean
+    - name: scanvi_normalized
+      aggregation: mean
+  min_cells: 100
+  groups:
+    - name: by_cell_class
+      group_cols: [individual, cell_class]
+
+steps:
+  - downsample
+  - scvi
+  - diagnostics
+  - pseudobulk
+  - notebook
+overwrite: false

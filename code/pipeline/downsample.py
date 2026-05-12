@@ -88,6 +88,8 @@ def main():
                         help="Keep only cells from donors with age_years >= this value.")
     parser.add_argument("--cell_class_filter", nargs='+', default=None,
                         help="Keep only cells whose cell_class is in this list (e.g. Excitatory Glia).")
+    parser.add_argument("--chemistry_filter", nargs='+', default=None,
+                        help="Keep only cells whose chemistry is in this list (e.g. V3).")
     parser.add_argument("--n_cells", type=int, default=None,
                         help="Target number of cells (random downsample). "
                              "Omit or set to null in config to use all cells.")
@@ -196,6 +198,15 @@ def main():
         n_before = mask.sum()
         mask = mask & meta_df['cell_class'].isin(args.cell_class_filter)
         print(f"Cell class filter {args.cell_class_filter}: {n_before} -> {mask.sum()} cells")
+
+    # --- Chemistry filter ---
+    if args.chemistry_filter:
+        if 'chemistry' not in meta_df.columns:
+            print("Error: --chemistry_filter requested but 'chemistry' column missing.")
+            sys.exit(1)
+        n_before = mask.sum()
+        mask = mask & meta_df['chemistry'].isin(args.chemistry_filter)
+        print(f"Chemistry filter {args.chemistry_filter}: {n_before} -> {mask.sum()} cells")
 
     # --- Age-based donor downsampling ---
     if args.age_downsample:

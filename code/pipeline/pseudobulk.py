@@ -95,6 +95,14 @@ def _apply_filter(obs: pd.DataFrame, filter_dict: dict) -> np.ndarray:
     return mask
 
 
+def _load_cell_filter_file(path: str, logger: logging.Logger) -> set:
+    """Return set of cell IDs from a CSV with a row-index column and one data column."""
+    df = pd.read_csv(path, index_col=0)
+    ids = set(df.iloc[:, 0].astype(str).tolist())
+    logger.info(f"    Loaded {len(ids):,} cell IDs from {path}")
+    return ids
+
+
 def _validate_group_cfg(group_cfg: dict, obs: pd.DataFrame) -> list[str]:
     """Return list of problems with a group config; empty list means OK."""
     problems = []
@@ -104,6 +112,9 @@ def _validate_group_cfg(group_cfg: dict, obs: pd.DataFrame) -> list[str]:
     for col in group_cfg.get("filter", {}).keys():
         if col not in obs.columns:
             problems.append(f"filter col '{col}' not in obs")
+    cff = group_cfg.get("cell_filter_file")
+    if cff and not Path(cff).exists():
+        problems.append(f"cell_filter_file not found: {cff}")
     return problems
 
 
@@ -206,11 +217,15 @@ def pseudobulk_one(
         filter     : optional {col: val | [vals]} to pre-filter cells
     }
     """
-    name       = group_cfg["name"]
-    group_cols = group_cfg["group_cols"]
-    filter_dict = group_cfg.get("filter", {})
+    name            = group_cfg["name"]
+    group_cols      = group_cfg["group_cols"]
+    filter_dict     = group_cfg.get("filter", {})
+    cell_filter_file = group_cfg.get("cell_filter_file")
 
-    logger.info(f"  [{name}]  group_cols={group_cols}  filter={filter_dict or '(none)'}")
+    logger.info(
+        f"  [{name}]  group_cols={group_cols}  filter={filter_dict or '(none)'}"
+        + (f"  cell_filter_file={cell_filter_file}" if cell_filter_file else "")
+    )
 
     obs = adata_backed.obs
 
@@ -232,6 +247,18 @@ def pseudobulk_one(
     if len(cell_indices) == 0:
         logger.warning(f"    No cells after filter — skipping {name}")
         return None
+
+    # --- Cell filter file (arbitrary cell-ID allowlist) ---
+    if cell_filter_file:
+        allowed_ids = _load_cell_filter_file(cell_filter_file, logger)
+        obs_names_arr = np.asarray(adata_backed.obs_names)
+        file_mask = np.isin(obs_names_arr[cell_indices], list(allowed_ids))
+        n_before = len(cell_indices)
+        cell_indices = cell_indices[file_mask]
+        logger.info(f"    cell_filter_file: {len(cell_indices):,} / {n_before:,} cells kept")
+        if len(cell_indices) == 0:
+            logger.warning(f"    No cells after cell_filter_file — skipping {name}")
+            return None
 
     # --- Compute group codes ---
     obs_filt = obs.iloc[cell_indices]
@@ -319,6 +346,7 @@ def pseudobulk_one(
                 "input_path": str(input_path),
                 "group_cols": group_cols,
                 "filter": filter_dict,
+                "cell_filter_file": cell_filter_file or None,
                 "layers": {
                     lc["name"]: lc.get("aggregation", "sum")
                     for lc in layers_to_do
@@ -371,6 +399,19 @@ def run(
     )
     logger.info(f"  Available layers: {list(adata_backed.layers.keys())}")
     logger.info(f"  obs columns: {sorted(adata_backed.obs.columns.tolist())}")
+
+    # Pre-flight: fail loudly if any required layer is absent so the error
+    # surfaces here rather than silently producing layerless pseudobulk files.
+    _available = set(adata_backed.layers.keys())
+    _missing = [lc["name"] for lc in layers_cfg if lc["name"] not in _available]
+    if _missing:
+        logger.error(
+            f"Required layers missing from {input_path}: {_missing}. "
+            f"Available: {sorted(_available)}. "
+            "Re-run the scVI inference step (step2_scvi_resume_infer.sh) "
+            "to add these layers before pseudobulk."
+        )
+        sys.exit(1)
 
     for group_cfg in groups:
         name     = group_cfg["name"]

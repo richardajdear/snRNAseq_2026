@@ -38,7 +38,7 @@
 
 set -euo pipefail
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+REPO_ROOT="${RENDER_REPO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 CONFIGS_DIR="${REPO_ROOT}/notebooks/configs"
 TEMPLATES_DIR="${REPO_ROOT}/notebooks/templates"
 RESULTS_DIR="${REPO_ROOT}/notebooks/results"
@@ -84,6 +84,7 @@ fi
 if [[ -z "${SLURM_JOB_ID:-}" && -z "$LOCAL" ]]; then
     if command -v sbatch >/dev/null 2>&1; then
         mkdir -p "$LOGS_DIR"
+        export RENDER_REPO_ROOT="${REPO_ROOT}"
         exec sbatch \
             --job-name="render_${CONFIG_NAME}" \
             --output="${LOGS_DIR}/%j_render_${CONFIG_NAME}.out" \
@@ -91,7 +92,8 @@ if [[ -z "${SLURM_JOB_ID:-}" && -z "$LOCAL" ]]; then
             --time=00:10:00 \
             --mem=32G \
             --partition=icelake \
-            "$0" "$@"
+            --account=vertes-sl2-cpu \
+            "$(realpath "${BASH_SOURCE[0]}")" "$@"
     fi
     # No sbatch available (local workstation): fall through and run directly.
 fi

@@ -1,20 +1,39 @@
 # snRNAseq Pipeline Config — HPC, Pearson residuals HVG, prepost + source-chemistry batch correction
 #
+# Uses a combined per-cell batch column created in downsample.py:
+#   source-chemistry = source + '-' + chemistry
 #
 # Submit via:
 #   cd /home/rajd2/rds/hpc-work/snRNAseq_2026
-#   bash code/pipeline/slurm/submit_pipeline.sh code/pipeline/prepost_onlyVel.yaml
+#   bash code/pipeline/slurm/submit_pipeline.sh code/pipeline/source-chemistry_hpc_config.yaml
 
-output_dir: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/Vel_prepost_noage_tuning5
+output_dir: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/VelWangPsychAD_200k_prepost_noage_tuning5_allVel
 
 sources:
+  - name: WANG
+    path: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/wang/wang.h5ad
+    dataset_type: Wang
+    cell_type_field: "Type_updated"
+    pfc_only: true
+    n_cells: 200000
+
   - name: VELMESHEV
     path: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/velmeshev/velmeshev.h5ad
     dataset_type: Velmeshev
     cell_type_field: "Cell_Type"
     pfc_only: true
 
+  - name: PSYCHAD
+    paths:
+      aging: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_PsychAD/RNAseq/Aging_Cohort.h5ad
+      hbcc:  /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_PsychAD/RNAseq/HBCC_Cohort.h5ad
+    dataset_type: PsychAD
+    cell_type_field: "subclass"
+    pfc_only: true
+    n_cells: 200000
+
 age_downsample: true
+postnatal_only: false
 seed: 42
 
 scvi:
@@ -31,13 +50,13 @@ scvi:
   early_stopping: true
   early_stopping_patience: 20
   num_workers: 16
-  transform_batch: VELMESHEV-V3
+  transform_batch: WANG-multiome
   continuous_covariate_keys: []
   categorical_covariate_keys: [sex]
 
 scanvi_label_transfer:
   enabled: true
-  label_column: cell_type_raw
+  label_column: cell_type_for_scanvi
   max_epochs_scanvi: 100
   scanvi_lr: 0.0001  # 10x lower than default to prevent NaN explosion when fine-tuning from scVI weights
   confidence_threshold: 0.5
@@ -50,22 +69,15 @@ pseudobulk:
       aggregation: mean
     - name: scanvi_normalized
       aggregation: mean
-  min_cells: 10
+  min_cells: 100
   groups:
     - name: by_cell_class
-      group_cols: [individual, cell_class_original]
-    - name: by_cell_class_L23
-      group_cols: [individual, cell_class_original]
-      cell_filter_file: /home/rajd2/rds/hpc-work/snRNAseq_2026/reference/cells_L23.csv
-
-notebook:
-  template: notebooks/templates/grn_dev_v2.qmd
-  pseudobulk_group: by_cell_class_L23
-  experiment_name: Vel_prepost_noage_tuning5_L23
-  cell_class_col: cell_class_original
-  cell_class_value: Excitatory
+      group_cols: [individual, cell_class]
 
 steps:
+  - downsample
+  - scvi
+  - diagnostics
   - pseudobulk
   - notebook
 overwrite: false
