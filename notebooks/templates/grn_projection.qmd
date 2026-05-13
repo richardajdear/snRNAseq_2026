@@ -144,8 +144,11 @@ library(scales)
 ## 2. Data Loading & Normalisation
 
 ```{python}
+from pipeline.read_data import read_velmeshev_backed, materialize_subset
+
 print(f"Loading: {DATA_FILE}")
-adata = sc.read_h5ad(DATA_FILE)
+_adata_backed, _meta_df = read_velmeshev_backed(h5ad_path=DATA_FILE)
+adata = materialize_subset(_adata_backed, _meta_df, apply_raw_counts=False)
 print(f"Loaded: {adata.shape[0]:,} cells × {adata.shape[1]:,} genes")
 
 # --- Optional cell-type filter ---
@@ -314,7 +317,7 @@ comparisons <- list(
     c('Adolescence', 'Adulthood')
 )
 
-p_boxes <- plot_boxes(df_box, color_var = COLOR_VAR, pt_size = 1.5) +
+p_boxes <- plot_boxes(df_box, color_var = COLOR_VAR) +
     stat_compare_means(comparisons = comparisons, label = 'p.signif', color = 'blue')
 
 (p_age | p_boxes) +

@@ -4,9 +4,9 @@
 # Steps (in order):
 #   1 (CPU)  Downsample + combine + HVG selection  →  per_dataset/*.h5ad, combined.h5ad (HVG-filtered)
 #   2 (GPU)  scVI + scANVI         →  scvi_output/integrated.h5ad + plots
-#   3 (CPU)  Diagnostics           →  scanvi_diagnostics/ (label-transfer QC)
-#   4 (CPU)  Pseudobulk            →  pseudobulk_output/*.h5ad
-#   5 (CPU)  Notebook              →  notebooks/results/<config>/
+#   3 (CPU)  Pseudobulk            →  pseudobulk_output/*.h5ad
+#   4 (CPU)  Notebook              →  notebooks/results/<config>/
+#   5 (CPU)  Diagnostics           →  scanvi_diagnostics/ (label-transfer QC; runs last, time-intensive)
 #
 # Which steps are submitted is controlled by the 'steps:' key in the config
 # YAML. Only the listed steps are submitted; the dependency chain is built
@@ -52,7 +52,7 @@ STEPS=$(python3 -c "
 import yaml
 with open('${WORK_DIR}/${CONFIG}') as f:
     cfg = yaml.safe_load(f)
-steps = cfg.get('steps', ['downsample', 'combine', 'scvi', 'diagnostics', 'pseudobulk'])
+steps = cfg.get('steps', ['downsample', 'combine', 'scvi', 'pseudobulk', 'diagnostics'])
 print(' '.join(steps))
 ")
 echo "Steps: ${STEPS}"
@@ -93,24 +93,24 @@ if has_step scvi; then
     _submit "Step 2 (scVI+scANVI)       " "step2_scvi.sh"
 fi
 
-# Step 3: Diagnostics (CPU)
-if has_step diagnostics; then
-    _submit "Step 3 (diagnostics)       " "step3_diagnostics.sh"
-fi
-
-# Step 4: Pseudobulk (CPU)
+# Step 3: Pseudobulk (CPU)
 if has_step pseudobulk; then
-    _submit "Step 4 (pseudobulk)        " "step4_pseudobulk.sh"
+    _submit "Step 3 (pseudobulk)        " "step3_pseudobulk.sh"
 fi
 
-# Step 5: Notebook render (CPU)
+# Step 4: Notebook render (CPU)
 if has_step notebook; then
-    _submit "Step 5 (notebook)          " "step5_notebook.sh"
+    _submit "Step 4 (notebook)          " "step4_notebook.sh"
+fi
+
+# Step 5: Diagnostics (CPU — runs last; time-intensive, nothing downstream depends on it)
+if has_step diagnostics; then
+    _submit "Step 5 (diagnostics)       " "step5_diagnostics.sh"
 fi
 
 if [[ -z "${CHAIN}" ]]; then
     echo "WARNING: no recognised steps found in config (got: ${STEPS})" >&2
-    echo "Known steps: downsample, combine, scvi, diagnostics, pseudobulk, notebook" >&2
+    echo "Known steps: downsample, combine, scvi, pseudobulk, notebook, diagnostics" >&2
     exit 1
 fi
 

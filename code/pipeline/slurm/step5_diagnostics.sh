@@ -1,6 +1,6 @@
 #!/bin/bash
-#SBATCH --output=/home/rajd2/rds/hpc-work/snRNAseq_2026/logs/%j_step3_diagnostics.out
-#SBATCH --error=/home/rajd2/rds/hpc-work/snRNAseq_2026/logs/%j_step3_diagnostics.err
+#SBATCH --output=/home/rajd2/rds/hpc-work/snRNAseq_2026/logs/%j_step5_diagnostics.out
+#SBATCH --error=/home/rajd2/rds/hpc-work/snRNAseq_2026/logs/%j_step5_diagnostics.err
 #SBATCH --time=03:00:00
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
@@ -22,7 +22,7 @@
 #
 # Usage:
 #   sbatch --export=ALL,CONFIG=code/pipeline/configs/postnatal_source-chemistry_hpc_config_tuning2.yaml \
-#          code/pipeline/slurm/step3_diagnostics.sh
+#          code/pipeline/slurm/step5_diagnostics.sh
 
 set -euo pipefail
 
@@ -34,7 +34,7 @@ CONFIG="${CONFIG:-code/pipeline/configs/source_hpc_config.yaml}"
 mkdir -p "${WORK_DIR}/logs"
 
 echo "========================================"
-echo "STEP 3: scANVI diagnostics"
+echo "STEP 5: scANVI diagnostics"
 echo "Job ID:    ${SLURM_JOB_ID}"
 echo "Node:      $(hostname)"
 echo "Config:    ${CONFIG}"
@@ -64,4 +64,4 @@ echo "Resource usage:"
 echo "  Time:   $(( _ELAPSED/3600 ))h $(( (_ELAPSED%3600)/60 ))m $(( _ELAPSED%60 ))s  /  ${_TIME_LIMIT} allocated"
 echo "  Memory: ${_MAX_RSS} peak RSS  /  ${_ALLOC_MEM_GB}G allocated"
 echo "========================================"
-echo "Step 3 diagnostics complete: $(date)"
+echo "Step 5 diagnostics complete: $(date)"

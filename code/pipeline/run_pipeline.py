@@ -21,11 +21,11 @@ Steps (in order)
                       When scanvi_label_transfer.enabled=true, scANVI is trained with WANG's
                       fine-grained labels and model.predict() assigns cell_type_aligned to all
                       cells. Also computes UMAPs, PCA plots, and saves integrated.h5ad.
-    4. diagnostics  — scANVI label-transfer diagnostics (reads integrated.h5ad, writes plots
-                      and tables to scanvi_diagnostics/). CPU-only; run separately after scvi.
-                      Fails loudly if the diagnostics script exits non-zero.
-    5. pseudobulk   — aggregate integrated.h5ad per donor × cell type → pseudobulk_output/
-    6. notebook     — render the analysis notebook from template
+    4. pseudobulk   — aggregate integrated.h5ad per donor × cell type → pseudobulk_output/
+    5. notebook     — render the analysis notebook from template
+    6. diagnostics  — scANVI label-transfer diagnostics (reads integrated.h5ad, writes plots
+                      and tables to scanvi_diagnostics/). CPU-only; runs last because it is
+                      time-intensive (UMAPs etc.) and nothing downstream depends on it.
 
     scanvi (utility) — scANVI-only rerun on an existing scVI model (no scVI retraining).
                        Use --steps scanvi to run this explicitly.

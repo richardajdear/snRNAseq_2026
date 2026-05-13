@@ -107,7 +107,7 @@ N_VALUES = _cfg.get('N_VALUES', [4000])
 
 # --- 4D sensitivity axes ---
 CHILD_STARTS = _cfg.get('CHILD_STARTS', [1, 2, 3, 4, 5])
-GAP_STARTS   = _cfg.get('GAP_STARTS',   [10, 11, 12, 13, 14])
+GAP_STARTS   = _cfg.get('GAP_STARTS',   [8, 9, 10, 11, 12, 13, 14])
 GAP_LENGTHS  = _cfg.get('GAP_LENGTHS',  [0, 1, 2, 3, 4])
 ADOL_ENDS    = _cfg.get('ADOL_ENDS',    [18, 20, 22, 24, 26])
 
@@ -137,6 +137,7 @@ import pandas as pd
 import numpy as np
 import scipy.sparse as _sp
 from collections import OrderedDict
+from IPython.display import Markdown, display
 
 warnings.filterwarnings('ignore')
 
@@ -365,61 +366,72 @@ for (vname in version_names) {
 
 ### 3.3 P-value (blue = negative Cohen's d, red = positive)
 
-#### Input 1
+```{python}
+display(Markdown(f"\n#### Input 1: {version_names[0]}\n"))
+```
 
 ```{python}
 %%R -w 220 -h 160 -u mm -r 300
 
 vname <- version_names[1]
-plot_4d_pvalue_signed(sens_list[[vname]], filter_cond = best_list[[vname]]$condition) +
-    labs(caption = sprintf('Input: %s', vname))
+print(
+    plot_4d_pvalue_signed(sens_list[[vname]], filter_cond = best_list[[vname]]$condition) +
+    labs(title = sprintf('%s — C3+ p-value [HVG: %s]  blue=neg d, red=pos d',
+                         vname, best_list[[vname]]$condition))
+)
 ```
 
-#### Input 2
+```{python}
+if len(version_names) >= 2:
+    display(Markdown(f"\n#### Input 2: {version_names[1]}\n"))
+```
 
 ```{python}
 %%R -w 220 -h 160 -u mm -r 300
 
 if (length(version_names) >= 2) {
     vname <- version_names[2]
-    plot_4d_pvalue_signed(sens_list[[vname]], filter_cond = best_list[[vname]]$condition) +
-        labs(caption = sprintf('Input: %s', vname))
-} else {
-    ggplot() +
-        annotate('text', x = 0.5, y = 0.5, label = 'No 2nd input', size = 5, color = 'grey50') +
-        theme_void()
+    print(
+        plot_4d_pvalue_signed(sens_list[[vname]], filter_cond = best_list[[vname]]$condition) +
+        labs(title = sprintf('%s — C3+ p-value [HVG: %s]  blue=neg d, red=pos d',
+                             vname, best_list[[vname]]$condition))
+    )
 }
 ```
 
-#### Input 3
+```{python}
+if len(version_names) >= 3:
+    display(Markdown(f"\n#### Input 3: {version_names[2]}\n"))
+```
 
 ```{python}
 %%R -w 220 -h 160 -u mm -r 300
 
 if (length(version_names) >= 3) {
     vname <- version_names[3]
-    plot_4d_pvalue_signed(sens_list[[vname]], filter_cond = best_list[[vname]]$condition) +
-        labs(caption = sprintf('Input: %s', vname))
-} else {
-    ggplot() +
-        annotate('text', x = 0.5, y = 0.5, label = 'No 3rd input', size = 5, color = 'grey50') +
-        theme_void()
+    print(
+        plot_4d_pvalue_signed(sens_list[[vname]], filter_cond = best_list[[vname]]$condition) +
+        labs(title = sprintf('%s — C3+ p-value [HVG: %s]  blue=neg d, red=pos d',
+                             vname, best_list[[vname]]$condition))
+    )
 }
 ```
 
-#### Input 4
+```{python}
+if len(version_names) >= 4:
+    display(Markdown(f"\n#### Input 4: {version_names[3]}\n"))
+```
 
 ```{python}
 %%R -w 220 -h 160 -u mm -r 300
 
 if (length(version_names) >= 4) {
     vname <- version_names[4]
-    plot_4d_pvalue_signed(sens_list[[vname]], filter_cond = best_list[[vname]]$condition) +
-        labs(caption = sprintf('Input: %s', vname))
-} else {
-    ggplot() +
-        annotate('text', x = 0.5, y = 0.5, label = 'No 4th input', size = 5, color = 'grey50') +
-        theme_void()
+    print(
+        plot_4d_pvalue_signed(sens_list[[vname]], filter_cond = best_list[[vname]]$condition) +
+        labs(title = sprintf('%s — C3+ p-value [HVG: %s]  blue=neg d, red=pos d',
+                             vname, best_list[[vname]]$condition))
+    )
 }
 ```
 
@@ -510,14 +522,14 @@ make_version_panel <- function(vname, df_dec_v, best) {
 
     p_traj_cpm <- make_traj_plot(pb_cpm, FIX_CS, FIX_CE, FIX_AS, FIX_AE,
         'C3+ score (z-scored)',
-        sprintf('[%s] CPM — C3+ age trajectories', vname),
+        sprintf('%s — CPM trajectories', vname),
         sprintf('Childhood [%d, %d), Adolescence [%d, %d)', FIX_CS, FIX_CE, FIX_AS, FIX_AE))
     p_box_cpm <- make_box_plot(boxes_cpm, 'C3+ score (z-scored)',
         sprintf('CPM: Childhood [%d, %d) vs Adolescence [%d, %d)', FIX_CS, FIX_CE, FIX_AS, FIX_AE))
 
     p_traj_scanvi <- make_traj_plot(pb_scanvi, best_cs, best_ce, best_as, best_ae,
         'C3+ score (z-scored)',
-        sprintf('[%s] scANVI — C3+ age trajectories', vname),
+        sprintf('%s — scANVI trajectories', vname),
         sprintf('Childhood [%d, %d), gap [%d, %d), Adolescence [%d, %d)',
                 best_cs, best_ce, best_ce, best_as, best_as, best_ae))
     p_box_scanvi <- make_box_plot(boxes_scanvi, 'C3+ score (z-scored)',
@@ -547,69 +559,68 @@ decorate_hvg_facets <- function(data_tbl) {
 
 ### 4.1 Pseudobulk Trajectories + Stage Boxes
 
-#### Input 1
+```{python}
+display(Markdown(f"\n#### Input 1: {version_names[0]}\n"))
+```
 
 ```{python}
-#| message: false
-#| warning: false
-%%R -w 560 -h 280 -u mm -r 300
+%%R -w 280 -h 280 -u mm -r 300
 
 vname  <- version_names[1]
 df_dec <- df_list[[vname]] %>% decorate_hvg_facets()
-make_version_panel(vname, df_dec, best_list[[vname]])
+suppressMessages(suppressWarnings(
+    print(make_version_panel(vname, df_dec, best_list[[vname]]))
+))
 ```
 
-#### Input 2
+```{python}
+if len(version_names) >= 2:
+    display(Markdown(f"\n#### Input 2: {version_names[1]}\n"))
+```
 
 ```{python}
-#| message: false
-#| warning: false
-%%R -w 560 -h 280 -u mm -r 300
+%%R -w 280 -h 280 -u mm -r 300
 
 if (length(version_names) >= 2) {
     vname  <- version_names[2]
     df_dec <- df_list[[vname]] %>% decorate_hvg_facets()
-    make_version_panel(vname, df_dec, best_list[[vname]])
-} else {
-    ggplot() +
-        annotate('text', x = 0.5, y = 0.5, label = 'No 2nd input', size = 5, color = 'grey50') +
-        theme_void()
+    suppressMessages(suppressWarnings(
+        print(make_version_panel(vname, df_dec, best_list[[vname]]))
+    ))
 }
 ```
 
-#### Input 3
+```{python}
+if len(version_names) >= 3:
+    display(Markdown(f"\n#### Input 3: {version_names[2]}\n"))
+```
 
 ```{python}
-#| message: false
-#| warning: false
-%%R -w 560 -h 280 -u mm -r 300
+%%R -w 280 -h 280 -u mm -r 300
 
 if (length(version_names) >= 3) {
     vname  <- version_names[3]
     df_dec <- df_list[[vname]] %>% decorate_hvg_facets()
-    make_version_panel(vname, df_dec, best_list[[vname]])
-} else {
-    ggplot() +
-        annotate('text', x = 0.5, y = 0.5, label = 'No 3rd input', size = 5, color = 'grey50') +
-        theme_void()
+    suppressMessages(suppressWarnings(
+        print(make_version_panel(vname, df_dec, best_list[[vname]]))
+    ))
 }
 ```
 
-#### Input 4
+```{python}
+if len(version_names) >= 4:
+    display(Markdown(f"\n#### Input 4: {version_names[3]}\n"))
+```
 
 ```{python}
-#| message: false
-#| warning: false
-%%R -w 560 -h 280 -u mm -r 300
+%%R -w 280 -h 280 -u mm -r 300
 
 if (length(version_names) >= 4) {
     vname  <- version_names[4]
     df_dec <- df_list[[vname]] %>% decorate_hvg_facets()
-    make_version_panel(vname, df_dec, best_list[[vname]])
-} else {
-    ggplot() +
-        annotate('text', x = 0.5, y = 0.5, label = 'No 4th input', size = 5, color = 'grey50') +
-        theme_void()
+    suppressMessages(suppressWarnings(
+        print(make_version_panel(vname, df_dec, best_list[[vname]]))
+    ))
 }
 ```
 
@@ -695,14 +706,14 @@ make_uw_panel <- function(vname, df42) {
 
     p_traj_cpm <- make_traj_plot(prep_pb42('cpm'), FIX_CS, FIX_CE, FIX_AS, FIX_AE,
         'Sum expression (z-scored)',
-        sprintf('[%s] CPM — top-1000 C3+ gene sum', vname),
+        sprintf('%s — CPM top-1000 C3+ gene sum', vname),
         sprintf('Childhood [%d, %d), Adolescence [%d, %d)', FIX_CS, FIX_CE, FIX_AS, FIX_AE))
     p_box_cpm <- make_box_plot(prep_boxes42('cpm', FIX_CS, FIX_CE, FIX_AS, FIX_AE),
         'Sum expression (z-scored)',
         sprintf('CPM: Childhood [%d, %d) vs Adolescence [%d, %d)', FIX_CS, FIX_CE, FIX_AS, FIX_AE))
     p_traj_scanvi <- make_traj_plot(prep_pb42('scanvi'), b$child_start, b$gap_start, b$adol_start, b$adol_end,
         'Sum expression (z-scored)',
-        sprintf('[%s] scANVI — top-1000 C3+ gene sum', vname),
+        sprintf('%s — scANVI top-1000 C3+ gene sum', vname),
         sprintf('Childhood [%d, %d), gap [%d, %d), Adolescence [%d, %d)',
                 b$child_start, b$gap_start, b$gap_start, b$adol_start, b$adol_start, b$adol_end))
     p_box_scanvi <- make_box_plot(prep_boxes42('scanvi', b$child_start, b$gap_start, b$adol_start, b$adol_end),
@@ -714,61 +725,60 @@ make_uw_panel <- function(vname, df42) {
 }
 ```
 
-#### Input 1
-
 ```{python}
-#| message: false
-#| warning: false
-%%R -w 560 -h 280 -u mm -r 300
-
-make_uw_panel(version_names[1], uw_list[[version_names[1]]])
+display(Markdown(f"\n#### Input 1: {version_names[0]}\n"))
 ```
 
-#### Input 2
+```{python}
+%%R -w 280 -h 280 -u mm -r 300
+
+suppressMessages(suppressWarnings(
+    print(make_uw_panel(version_names[1], uw_list[[version_names[1]]]))
+))
+```
 
 ```{python}
-#| message: false
-#| warning: false
-%%R -w 560 -h 280 -u mm -r 300
+if len(version_names) >= 2:
+    display(Markdown(f"\n#### Input 2: {version_names[1]}\n"))
+```
+
+```{python}
+%%R -w 280 -h 280 -u mm -r 300
 
 if (length(version_names) >= 2) {
-    make_uw_panel(version_names[2], uw_list[[version_names[2]]])
-} else {
-    ggplot() +
-        annotate('text', x = 0.5, y = 0.5, label = 'No 2nd input', size = 5, color = 'grey50') +
-        theme_void()
+    suppressMessages(suppressWarnings(
+        print(make_uw_panel(version_names[2], uw_list[[version_names[2]]]))
+    ))
 }
 ```
 
-#### Input 3
+```{python}
+if len(version_names) >= 3:
+    display(Markdown(f"\n#### Input 3: {version_names[2]}\n"))
+```
 
 ```{python}
-#| message: false
-#| warning: false
-%%R -w 560 -h 280 -u mm -r 300
+%%R -w 280 -h 280 -u mm -r 300
 
 if (length(version_names) >= 3) {
-    make_uw_panel(version_names[3], uw_list[[version_names[3]]])
-} else {
-    ggplot() +
-        annotate('text', x = 0.5, y = 0.5, label = 'No 3rd input', size = 5, color = 'grey50') +
-        theme_void()
+    suppressMessages(suppressWarnings(
+        print(make_uw_panel(version_names[3], uw_list[[version_names[3]]]))
+    ))
 }
 ```
 
-#### Input 4
+```{python}
+if len(version_names) >= 4:
+    display(Markdown(f"\n#### Input 4: {version_names[3]}\n"))
+```
 
 ```{python}
-#| message: false
-#| warning: false
-%%R -w 560 -h 280 -u mm -r 300
+%%R -w 280 -h 280 -u mm -r 300
 
 if (length(version_names) >= 4) {
-    make_uw_panel(version_names[4], uw_list[[version_names[4]]])
-} else {
-    ggplot() +
-        annotate('text', x = 0.5, y = 0.5, label = 'No 4th input', size = 5, color = 'grey50') +
-        theme_void()
+    suppressMessages(suppressWarnings(
+        print(make_uw_panel(version_names[4], uw_list[[version_names[4]]]))
+    ))
 }
 ```
 
@@ -802,4 +812,455 @@ for _vname, _res in all_results.items():
         print(f"\n  V2/V3 mean ratio = {_ratio:.4f}  "
               f"({'V2 > V3' if _ratio > 1 else 'V2 < V3'})")
     del _sc, _sc25
+```
+
+## 5. Composition & per-cell-class diagnostics
+
+Diagnostic outputs to investigate **why** Excitatory-only vs all-cells pseudobulks
+give different developmental signals. Runs only when at least one `PSEUDOBULK_INPUT`
+has `cell_class_col` set (i.e. is a by-cell-class file).
+
+### 5.1 Donor-level cell-class composition
+
+```{python}
+_diag_bcc = [i for i in PSEUDOBULK_INPUTS if i.get('cell_class_col')]
+_diag_all = next((i for i in PSEUDOBULK_INPUTS if not i.get('cell_class_col')), None)
+_run_section5 = bool(_diag_bcc)
+
+_MAJOR_CLASSES = ['Excitatory', 'Inhibitory', 'Astrocytes', 'Microglia', 'OPC', 'Oligos']
+
+if not _run_section5:
+    print("Skipping Section 5: no by-cell-class input configured.")
+    _bcc = None
+    _classes_present = []
+    _frac = pd.DataFrame()
+    _donor_meta = pd.DataFrame()
+else:
+    _bcc_input = _diag_bcc[0]
+    _bcc_path  = _bcc_input['file']
+    _cc_col    = _bcc_input['cell_class_col']
+    print(f"by_cell_class reference: {_bcc_input['name']}")
+    print(f"  Path: {_bcc_path}")
+    print(f"  Class column: {_cc_col}")
+
+    _bcc = sc.read_h5ad(_bcc_path)
+    print(f"  Loaded shape: {_bcc.shape}")
+    _classes_present = sorted(_bcc.obs[_cc_col].astype(str).unique().tolist())
+    print(f"  Classes present: {_classes_present}")
+
+    # Donor × class cell-count matrix and fraction matrix
+    _comp = (_bcc.obs[['individual', _cc_col, 'n_cells']]
+             .pivot_table(index='individual', columns=_cc_col,
+                          values='n_cells', aggfunc='sum', fill_value=0))
+    _frac = _comp.div(_comp.sum(axis=1), axis=0)
+
+    # One row of metadata per donor
+    _donor_obs = (_bcc.obs.drop_duplicates('individual')
+                  .set_index('individual'))
+    _donor_meta = pd.DataFrame(index=_comp.index)
+    _donor_meta['age_years'] = _donor_obs['age_years'].reindex(_comp.index)
+    for _col in ['chemistry', 'source', 'sex']:
+        if _col in _donor_obs.columns:
+            _donor_meta[_col] = _donor_obs[_col].reindex(_comp.index)
+
+    n_donors_total = len(_comp)
+    print(f"\nN donors with any cell-class pseudobulk: {n_donors_total}")
+    _summary = pd.DataFrame({
+        'mean_frac':              _frac.mean().round(3),
+        'sd_frac':                _frac.std().round(3),
+        'median_cells_per_donor': _comp.median().astype(int),
+        'n_donors_with_class':    (_comp > 0).sum(),
+    }).sort_values('mean_frac', ascending=False)
+    print(f"\nMean cell-class composition across donors:")
+    print(_summary.to_string())
+
+    if 'chemistry' in _donor_meta.columns and _donor_meta['chemistry'].nunique() > 1:
+        print(f"\nMean fraction × chemistry:")
+        for chem, idx in _donor_meta.groupby('chemistry').groups.items():
+            _row = _frac.loc[idx].mean().round(3)
+            print(f"  {chem} (n={len(idx)}): "
+                  + ", ".join(f"{c}={_row[c]:.2f}" for c in _frac.columns))
+```
+
+### 5.2 Cell-class fraction vs age
+
+```{python}
+if _run_section5:
+    from scipy.stats import spearmanr
+    _classes_to_test = [c for c in _MAJOR_CLASSES if c in _frac.columns]
+    print(f"Spearman correlation of cell-class fraction vs age "
+          f"(n={len(_donor_meta)} donors):")
+    _ages = _donor_meta['age_years'].astype(float).values
+    for c in _classes_to_test:
+        _f = _frac[c].values
+        _rho, _p = spearmanr(_ages, _f, nan_policy='omit')
+        print(f"  {c:12s}  rho={_rho:+.3f}  p={_p:.3g}")
+
+    if 'chemistry' in _donor_meta.columns and _donor_meta['chemistry'].nunique() > 1:
+        print(f"\nSpearman by chemistry:")
+        for c in _classes_to_test:
+            for chem, idx in _donor_meta.groupby('chemistry').groups.items():
+                _f_chem = _frac.loc[idx, c].values
+                _a_chem = _donor_meta.loc[idx, 'age_years'].astype(float).values
+                if len(_f_chem) >= 5:
+                    _rho, _p = spearmanr(_a_chem, _f_chem, nan_policy='omit')
+                    print(f"  {c:12s} [{chem}, n={len(_f_chem)}]  rho={_rho:+.3f}  p={_p:.3g}")
+
+    # Build long-format dataframe for R plotting
+    _frac_long_rows = []
+    for c in _classes_to_test:
+        _row = pd.DataFrame({
+            'individual': _frac.index,
+            'cell_class': c,
+            'frac': _frac[c].values,
+            'age_years': _donor_meta['age_years'].astype(float).values,
+        })
+        if 'chemistry' in _donor_meta.columns:
+            _row['chemistry'] = _donor_meta['chemistry'].astype(str).values
+        else:
+            _row['chemistry'] = 'all'
+        _frac_long_rows.append(_row)
+    frac_long_df = pd.concat(_frac_long_rows, ignore_index=True)
+    print(f"\nfrac_long_df: {frac_long_df.shape}")
+else:
+    frac_long_df = pd.DataFrame()
+```
+
+```{python}
+%%R -w 220 -h 130 -u mm -r 300 -i frac_long_df
+
+if (nrow(frac_long_df) > 0) {
+    p <- ggplot(frac_long_df, aes(x = age_years, y = frac)) +
+        facet_wrap(~ cell_class, scales = 'free_y', nrow = 2) +
+        geom_point(aes(color = chemistry), alpha = 0.6, size = 1.2) +
+        geom_smooth(aes(group = 1), method = 'lm', se = FALSE,
+                    color = 'black', linewidth = 0.5) +
+        scale_x_continuous(name = 'Donor age (years)', limits = c(-1, 90)) +
+        scale_y_continuous(name = 'Fraction of donor cells') +
+        theme_classic() +
+        theme(text = element_text(size = 8), strip.text = element_text(size = 8),
+              strip.background = element_blank()) +
+        ggtitle('Per-donor cell-class fraction vs age',
+                subtitle = 'Color = chemistry (only meaningful for Velmeshev)')
+    suppressMessages(suppressWarnings(print(p)))
+} else {
+    cat('No fraction data — Section 5 skipped.\n')
+}
+```
+
+### 5.3 Per-cell-class C3+ developmental trend
+
+For each major cell class, run the same CPM + scANVI projection and the same
+4D sensitivity grid used in Section 3. Output: one row per class showing best
+scANVI p-value, Cohen's d, and how many age-window combos pass p<0.05.
+
+```{python}
+cell_class_df = pd.DataFrame()
+if _run_section5:
+    _per_class_rows = []
+    for _cls in _MAJOR_CLASSES:
+        if _cls not in _classes_present:
+            print(f"  Skipping {_cls}: not present in dataset")
+            continue
+        _a = _bcc[_bcc.obs[_cc_col].astype(str) == _cls].copy()
+        if _a.n_obs < 5:
+            print(f"  Skipping {_cls}: only {_a.n_obs} donors")
+            continue
+
+        # CPM
+        _a.X = _a.layers['counts'].copy()
+        sc.pp.normalize_total(_a, target_sum=1e6, inplace=True)
+        _cpm_X = (_a.X.toarray() if _sp.issparse(_a.X) else _a.X).copy()
+        _a.X = _cpm_X.copy()
+        if 'highly_variable' in _a.var.columns:
+            del _a.var['highly_variable']
+        _scores_cpm = _project_and_collect(_a, ahba_GRN, 'cpm_all')
+
+        # scANVI
+        _scanvi_raw = _a.layers['scanvi_normalized']
+        _scanvi_X = (_scanvi_raw.toarray() if _sp.issparse(_scanvi_raw)
+                     else np.array(_scanvi_raw, dtype=np.float32)).copy()
+        _a.X = _scanvi_X.copy()
+        if 'highly_variable' in _a.var.columns:
+            del _a.var['highly_variable']
+        _scores_scanvi = _project_and_collect(_a, ahba_GRN, 'scanvi_all')
+
+        # Metadata
+        if 'source-chemistry' in _a.obs.columns:
+            _sc = _a.obs['source-chemistry'].astype(str)
+        elif 'chemistry' in _a.obs.columns:
+            _sc = (_a.obs['source'].astype(str) + '-' +
+                   _a.obs['chemistry'].astype(str))
+        else:
+            _sc = _a.obs['source'].astype(str)
+        _meta = _a.obs[['individual', 'age_years', 'source']].copy()
+        _meta['source_chemistry'] = _sc.values
+        _meta['obs_names'] = _meta.index
+
+        _fdf = (pd.concat([_scores_cpm, _scores_scanvi], ignore_index=True)
+                  .merge(_meta, on='obs_names'))
+        _fdf['cell_class'] = _cls
+        _per_class_rows.append(_fdf)
+        print(f"  {_cls}: n_donors={_a.n_obs}")
+        del _a, _cpm_X, _scanvi_X
+        gc.collect()
+
+    if _per_class_rows:
+        cell_class_df = pd.concat(_per_class_rows, ignore_index=True)
+        print(f"\nCombined per-class df: {cell_class_df.shape}, "
+              f"classes: {sorted(cell_class_df['cell_class'].unique().tolist())}")
+```
+
+```{python}
+%%R -i cell_class_df -i CHILD_STARTS -i GAP_STARTS -i GAP_LENGTHS -i ADOL_ENDS
+
+per_class_summary <- NULL
+per_class_dec_df  <- NULL
+per_class_best    <- list()
+
+if (nrow(cell_class_df) > 0) {
+    sel <- c('cpm_all', 'scanvi_all')
+    classes_in <- unique(as.character(cell_class_df$cell_class))
+    summary_rows <- list()
+    per_class_dec_list <- list()
+    for (cls in classes_in) {
+        df_v <- cell_class_df %>% filter(cell_class == cls)
+        df_prepped <- prepare_r_data_single(df_v, condition_order = sel)
+        sens <- compute_sensitivity_4d(df_prepped, sel,
+            child_starts = CHILD_STARTS, gap_starts = GAP_STARTS,
+            gap_lengths  = GAP_LENGTHS, adol_ends  = ADOL_ENDS)
+        best <- select_best_4d(sens, baseline = 'scanvi_all')
+        per_class_best[[cls]] <- best
+        n_d <- df_v %>% distinct(individual) %>% nrow()
+        n_sig <- sum(sens$signif, na.rm = TRUE)
+        n_total <- nrow(sens)
+        summary_rows[[cls]] <- data.frame(
+            cell_class = cls, n_donors = n_d,
+            best_p = best$p_value, cohens_d = best$cohens_d,
+            n_sig_combos = n_sig, n_total_combos = n_total,
+            child_start = best$child_start, gap_start = best$gap_start,
+            adol_start  = best$adol_start,  adol_end  = best$adol_end)
+        per_class_dec_list[[cls]] <- df_prepped %>% mutate(cell_class = cls)
+    }
+    per_class_summary <- bind_rows(summary_rows) %>%
+        mutate(p_label = case_when(
+            best_p < 0.001 ~ '***',
+            best_p < 0.01  ~ '**',
+            best_p < 0.05  ~ '*',
+            TRUE           ~ 'ns'))
+    per_class_dec_df <- bind_rows(per_class_dec_list)
+    cat('\nPer-cell-class C3+ best scANVI sensitivity:\n')
+    print(per_class_summary, row.names = FALSE)
+} else {
+    cat('Section 5.3: no cell-class data — skipped.\n')
+}
+```
+
+```{python}
+%%R -w 280 -h 200 -u mm -r 300
+
+if (!is.null(per_class_dec_df) && nrow(per_class_dec_df) > 0) {
+    # Pseudobulk z-scored scANVI value per donor
+    pb <- per_class_dec_df %>%
+        filter(C == 'C3+', condition == 'scanvi_all') %>%
+        group_by(cell_class, individual, age_years, source_chemistry) %>%
+        summarize(value = mean(value), .groups = 'drop') %>%
+        group_by(cell_class) %>%
+        mutate(value = (value - mean(value)) / sd(value)) %>%
+        ungroup()
+
+    p_traj <- ggplot(pb, aes(x = age_years, y = value)) +
+        facet_wrap(~ cell_class, scales = 'free_y', nrow = 2) +
+        geom_point(aes(color = source_chemistry), size = 1.2, alpha = 0.7) +
+        geom_smooth(aes(group = 1), method = 'loess', span = 0.9,
+                    se = FALSE, color = 'black', linewidth = 0.4) +
+        scale_x_continuous(name = 'Donor age (years)', limits = c(-1, 30),
+                           breaks = seq(0, 30, 5)) +
+        scale_y_continuous(name = 'C3+ scANVI (z-scored per class)') +
+        theme_classic() +
+        theme(text = element_text(size = 8), strip.text = element_text(size = 8),
+              strip.background = element_blank()) +
+        ggtitle('Per-cell-class C3+ developmental trajectory (scANVI)')
+    suppressMessages(suppressWarnings(print(p_traj)))
+}
+```
+
+```{python}
+%%R -w 280 -h 180 -u mm -r 300
+
+if (!is.null(per_class_dec_df) && nrow(per_class_dec_df) > 0 &&
+    !is.null(per_class_summary)) {
+    classes_in <- unique(as.character(per_class_dec_df$cell_class))
+    boxes_list <- list()
+    for (cls in classes_in) {
+        b <- per_class_best[[cls]]
+        df_v <- per_class_dec_df %>% filter(cell_class == cls)
+        boxes <- make_boxes_gap_df(df_v %>% filter(condition == 'scanvi_all'),
+                                   b$child_start, b$gap_start,
+                                   b$adol_start, b$adol_end) %>%
+            filter(network == 'C3+') %>%
+            mutate(cell_class = cls,
+                   value = (value - mean(value)) / sd(value))
+        boxes_list[[cls]] <- boxes
+    }
+    boxes_all <- bind_rows(boxes_list)
+
+    p_box <- ggplot(boxes_all, aes(x = age_range, y = value)) +
+        facet_wrap(~ cell_class, scales = 'free', nrow = 2) +
+        geom_boxplot(outlier.shape = NA, alpha = 0.4) +
+        geom_jitter(aes(color = source_chemistry), width = 0.15,
+                    size = 1.2, alpha = 0.6) +
+        stat_compare_means(comparisons = list(c('Childhood','Adolescence')),
+                           label = 'p.signif', size = 3) +
+        scale_y_continuous(name = 'C3+ scANVI (z-scored per class)') +
+        coord_cartesian(clip = 'off') +
+        theme_classic() +
+        theme(text = element_text(size = 8), strip.text = element_text(size = 8),
+              strip.background = element_blank(),
+              axis.text.x = element_text(angle = 45, hjust = 1, size = 6),
+              axis.title.x = element_blank()) +
+        ggtitle('Per-class childhood vs adolescence (best scANVI age windows)')
+    suppressMessages(suppressWarnings(print(p_box)))
+}
+```
+
+### 5.4 Donor inclusion / cell-count comparison
+
+```{python}
+if _run_section5 and _diag_all is not None:
+    print(f"Excitatory-filter input: {_diag_bcc[0]['name']} (file={_diag_bcc[0]['file']})")
+    print(f"All-cells input:         {_diag_all['name']} (file={_diag_all['file']})")
+
+    _all_h = sc.read_h5ad(_diag_all['file'], backed='r')
+    _all_donors = set(_all_h.obs['individual'].astype(str).unique())
+    _all_age = (_all_h.obs.drop_duplicates('individual')
+                .set_index('individual')['age_years']
+                .astype(float).to_dict())
+    _all_chem = None
+    if 'chemistry' in _all_h.obs.columns:
+        _all_chem = (_all_h.obs.drop_duplicates('individual')
+                     .set_index('individual')['chemistry'].astype(str).to_dict())
+    _all_h.file.close()
+
+    _exc_filter = _diag_bcc[0]['cell_class_value']
+    _exc_mask = _bcc.obs[_cc_col].astype(str) == _exc_filter
+    _exc_donors = set(_bcc.obs.loc[_exc_mask, 'individual'].astype(str).unique())
+
+    _only_exc = _exc_donors - _all_donors
+    _only_all = _all_donors - _exc_donors
+    _both     = _exc_donors & _all_donors
+
+    print(f"\nDonor sets:")
+    print(f"  Excitatory ({_exc_filter}): n={len(_exc_donors)}")
+    print(f"  All-cells              : n={len(_all_donors)}")
+    print(f"  In both                : n={len(_both)}")
+    print(f"  Only in Excitatory     : n={len(_only_exc)}")
+    print(f"  Only in all-cells      : n={len(_only_all)}")
+
+    def _age_summary(s, donor_set):
+        ages = [_all_age.get(d, np.nan) for d in donor_set]
+        ages = [a for a in ages if np.isfinite(a)]
+        if not ages:
+            return "  (no ages)"
+        return (f"  ages — min={min(ages):.2f}  median={np.median(ages):.2f}  "
+                f"max={max(ages):.2f}")
+
+    if _only_all:
+        print(f"\nDonors only in all-cells (not in Excitatory):")
+        print(_age_summary('only_all', _only_all))
+        _rows = sorted([(d, _all_age.get(d, np.nan),
+                         (_all_chem or {}).get(d, '-'))
+                        for d in _only_all], key=lambda x: x[1])
+        for d, a, ch in _rows[:30]:
+            print(f"  {d}  age={a:.2f}  chem={ch}")
+        if len(_rows) > 30:
+            print(f"  … ({len(_rows) - 30} more)")
+    if _only_exc:
+        print(f"\nDonors only in Excitatory (not in all-cells):")
+        print(_age_summary('only_exc', _only_exc))
+elif _run_section5:
+    print("Skipping 5.4: no all-cells input configured.")
+```
+
+### 5.5 V2/V3 chemistry sensitivity (Velmeshev only)
+
+If the dataset mixes V2 and V3 chemistries, re-run the 4D sensitivity grid on
+the V3-only subset of `all_cells_by_donor` to test whether the apparent
+all-cells signal depends on the chemistry mix.
+
+```{python}
+v3_compare_df = pd.DataFrame()
+if (_run_section5 and _diag_all is not None and 'chemistry'
+        in _bcc.obs.columns and _bcc.obs['chemistry'].nunique() > 1):
+    _has_chem = True
+    print(f"Chemistry values in by_cell_class: "
+          f"{sorted(_bcc.obs['chemistry'].astype(str).unique().tolist())}")
+
+    # Find the full all-cells final_df from earlier projection
+    _all_name = _diag_all['name']
+    _all_fdf  = all_results[_all_name]['final_df']
+    _all_fdf  = _all_fdf.copy()
+    _all_fdf['chem'] = (_all_fdf['source_chemistry'].astype(str)
+                       .str.extract(r'(V[23])', expand=False))
+
+    # Full + V3-only versions, tagged for R sensitivity grid
+    _full = _all_fdf.assign(subset='all_chemistries')
+    _v3   = _all_fdf[_all_fdf['chem'] == 'V3'].assign(subset='V3_only')
+
+    # Also subset the Excitatory final_df
+    _exc_name = _diag_bcc[0]['name']
+    _exc_fdf = all_results[_exc_name]['final_df'].copy()
+    _exc_fdf['chem'] = (_exc_fdf['source_chemistry'].astype(str)
+                       .str.extract(r'(V[23])', expand=False))
+    _exc_full = _exc_fdf.assign(subset='all_chemistries')
+    _exc_v3   = _exc_fdf[_exc_fdf['chem'] == 'V3'].assign(subset='V3_only')
+
+    v3_compare_df = pd.concat([
+        _full.assign(pb_kind='all_cells'),
+        _v3.assign(pb_kind='all_cells'),
+        _exc_full.assign(pb_kind='excitatory'),
+        _exc_v3.assign(pb_kind='excitatory'),
+    ], ignore_index=True)
+    print(f"\nv3_compare_df: {v3_compare_df.shape}")
+    print(f"  subset counts: {v3_compare_df.groupby(['pb_kind','subset'])['individual'].nunique().to_dict()}")
+else:
+    _has_chem = False
+    print("Skipping 5.5: chemistry column absent or only one chemistry present.")
+```
+
+```{python}
+%%R -i v3_compare_df -i CHILD_STARTS -i GAP_STARTS -i GAP_LENGTHS -i ADOL_ENDS
+
+if (nrow(v3_compare_df) > 0) {
+    sel <- c('cpm_all', 'scanvi_all')
+    keys <- unique(v3_compare_df %>% select(pb_kind, subset))
+    rows <- list()
+    for (i in seq_len(nrow(keys))) {
+        pk <- keys$pb_kind[i]
+        ss <- keys$subset[i]
+        df_v <- v3_compare_df %>% filter(pb_kind == pk, subset == ss)
+        if (nrow(df_v) == 0) next
+        df_p <- prepare_r_data_single(df_v, condition_order = sel)
+        sens <- compute_sensitivity_4d(df_p, sel,
+            child_starts = CHILD_STARTS, gap_starts = GAP_STARTS,
+            gap_lengths  = GAP_LENGTHS, adol_ends  = ADOL_ENDS)
+        b <- select_best_4d(sens, baseline = 'scanvi_all')
+        n_d <- df_v %>% distinct(individual) %>% nrow()
+        n_sig <- sum(sens$signif, na.rm = TRUE)
+        rows[[i]] <- data.frame(
+            pb_kind = pk, subset = ss, n_donors = n_d,
+            best_p = b$p_value, cohens_d = b$cohens_d,
+            n_sig_combos = n_sig, n_total_combos = nrow(sens),
+            child_start = b$child_start, gap_start = b$gap_start,
+            adol_start  = b$adol_start,  adol_end  = b$adol_end)
+    }
+    v3_summary <- bind_rows(rows) %>%
+        mutate(p_label = case_when(
+            best_p < 0.001 ~ '***', best_p < 0.01 ~ '**',
+            best_p < 0.05  ~ '*',   TRUE          ~ 'ns'))
+    cat('\nV3-only vs all-chemistries best scANVI sensitivity:\n')
+    print(v3_summary, row.names = FALSE)
+} else {
+    cat('Section 5.5 skipped (no chemistry variation).\n')
+}
 ```

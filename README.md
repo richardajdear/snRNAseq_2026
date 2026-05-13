@@ -18,6 +18,32 @@ When working in this codebase:
 - **Logs older than ~1 week** can be deleted. `fix_cell_class_*`, old projection runs, etc. are safe to remove once confirmed complete.
 - This README is the authoritative guide to repo structure. Consult it before creating new files or directories.
 
+### Pipeline Architecture (quick reference)
+
+The main pipeline is a 5-step SLURM chain. Steps are submitted by `code/pipeline/slurm/submit_pipeline.sh` using a YAML config. Each step runs as an independent SLURM job; the chain is built dynamically via `afterok` dependencies.
+
+**Step order and key data flows:**
+
+| Step | Script | Input → Output | Resources |
+|------|--------|---------------|-----------|
+| 1 | `step1_downsample_combine.sh` | raw h5ads → `per_dataset/*.h5ad`, `combined.h5ad` | CPU, 1h, 64GB |
+| 2 | `step2_scvi.sh` | `combined.h5ad` → `scvi_output/integrated.h5ad` + plots | **GPU**, 12h, 200GB |
+| 3 | `step3_pseudobulk.sh` | `integrated.h5ad` → `pseudobulk_output/*.h5ad` | CPU, 1h, 128GB |
+| 4 | `step4_notebook.sh` | `pseudobulk_output/` → `notebooks/results/<exp>/` | CPU, 10m, 10GB |
+| 5 | `step5_diagnostics.sh` | `integrated.h5ad` → `scanvi_diagnostics/` | CPU, 3h, 228GB |
+
+**Why diagnostics runs last (step 5):** it is time-intensive (recomputes UMAPs) but nothing downstream depends on it. Pseudobulk and notebook can complete independently.
+
+**Config YAML controls which steps run** via the `steps:` key (e.g. `steps: [scvi, pseudobulk, notebook, diagnostics]`). If absent, defaults to all steps. Step *names* (`downsample`, `combine`, `scvi`, `pseudobulk`, `notebook`, `diagnostics`) are stable — the numbering in script filenames reflects execution order.
+
+**Output directory** is set per-config via `output_dir:` (an absolute path on RDS). All step outputs land there: `scvi_output/`, `pseudobulk_output/`, `scanvi_diagnostics/`, `per_dataset/`, `combined.h5ad`.
+
+**Utility scripts** (submit manually, not part of the normal chain):
+- `util_scanvi_rerun.sh` — force-retrain scANVI after updating label mappings
+- `util_retransform.sh` — re-run inference with a different `transform_batch`, then pseudobulk
+- `util_replot.sh` — regenerate `scvi_output/plots/` without retraining
+- `step2_scvi_resume_infer.sh` — resume inference when both models exist but `integrated.h5ad` is missing
+
 ---
 
 ## Repository Structure
@@ -25,7 +51,7 @@ When working in this codebase:
 ```
 snRNAseq_2026/
 ├── code/                        # All analysis code
-│   ├── pipeline/                # Main data pipeline (downsample → combine → scVI → scANVI → pseudobulk)
+│   ├── pipeline/                # Main data pipeline (downsample → combine → scVI → pseudobulk → diagnostics)
 │   │   ├── run_pipeline.py      # Orchestrator — START HERE for pipeline runs
 │   │   ├── downsample.py        # Step 1: per-dataset filtering & downsampling
 │   │   ├── combine_data.py      # Step 2: concatenate datasets
@@ -101,18 +127,18 @@ bash code/pipeline/slurm/submit_pipeline.sh code/pipeline/configs/excitatory_1y+
 sbatch --export=ALL,CONFIG=code/pipeline/configs/excitatory_1y+_tuning4.yaml \
        code/pipeline/slurm/step1_downsample_combine.sh
 sbatch --export=ALL,CONFIG=... code/pipeline/slurm/step2_scvi.sh
-sbatch --export=ALL,CONFIG=... code/pipeline/slurm/step3_diagnostics.sh
-sbatch --export=ALL,CONFIG=... code/pipeline/slurm/step4_pseudobulk.sh
-sbatch --export=ALL,CONFIG=... code/pipeline/slurm/step5_notebook.sh
+sbatch --export=ALL,CONFIG=... code/pipeline/slurm/step3_pseudobulk.sh
+sbatch --export=ALL,CONFIG=... code/pipeline/slurm/step4_notebook.sh
+sbatch --export=ALL,CONFIG=... code/pipeline/slurm/step5_diagnostics.sh
 ```
 
 **Steps:**
 1. `downsample.py` — Filter and subsample each source to `n_cells`; writes `per_dataset/*.h5ad`
 2. `combine_data.py` — Concatenate to `combined.h5ad` (inner join on genes)
 3. `scVI/run_pipeline.py` — Train scVI, run scANVI label transfer, compute UMAPs + PCA plots, save `integrated.h5ad`
-4. `scanvi_diagnostics.py` — Validate label transfer quality; writes `scanvi_diagnostics/`
-5. `pseudobulk.py` — Aggregate `integrated.h5ad` to donor-level pseudobulk
-6. Notebook render *(if `notebook:` section present in config)*
+4. `pseudobulk.py` — Aggregate `integrated.h5ad` to donor-level pseudobulk
+5. Notebook render *(if `notebook:` section present in config)*
+6. `scanvi_diagnostics.py` — Validate label transfer quality; writes `scanvi_diagnostics/` *(runs last — time-intensive UMAPs; nothing downstream depends on it)*
 
 **Key outputs** (under the `output_dir` in the config):
 - `scvi_output/integrated.h5ad` — scVI/scANVI corrected, with `cell_type_aligned` labels

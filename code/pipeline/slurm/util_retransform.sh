@@ -136,7 +136,7 @@ PSEUDOBULK_FILE="${_NB_PSEUDOBULK_FILE}",\
 EXPERIMENT_NAME="${_NB_EXPERIMENT}",\
 NOTEBOOK_TEMPLATE="${NOTEBOOK_TEMPLATE}",\
 PSEUDOBULK_GROUP="${PSEUDOBULK_GROUP}" \
-        "${WORK_DIR}/code/pipeline/slurm/step5_notebook.sh")
+        "${WORK_DIR}/code/pipeline/slurm/step4_notebook.sh")
     echo "Notebook job submitted: ${_NB_JOB_ID} (depends on ${SLURM_JOB_ID}, pseudobulk: ${_NB_PSEUDOBULK_FILE})"
 fi
 

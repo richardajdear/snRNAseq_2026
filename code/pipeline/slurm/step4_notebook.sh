@@ -1,6 +1,6 @@
 #!/bin/bash
-#SBATCH --output=/home/rajd2/rds/hpc-work/snRNAseq_2026/logs/%j_step5_notebook.out
-#SBATCH --error=/home/rajd2/rds/hpc-work/snRNAseq_2026/logs/%j_step5_notebook.err
+#SBATCH --output=/home/rajd2/rds/hpc-work/snRNAseq_2026/logs/%j_step4_notebook.out
+#SBATCH --error=/home/rajd2/rds/hpc-work/snRNAseq_2026/logs/%j_step4_notebook.err
 #SBATCH --time=00:10:00
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
@@ -12,7 +12,9 @@ set -euo pipefail
 
 WORK_DIR="${WORK_DIR:-/home/rajd2/rds/hpc-work/snRNAseq_2026}"
 CONFIG="${CONFIG:-code/pipeline/configs/source_hpc_config.yaml}"
-# Override these at submission time if needed:
+# Track whether NOTEBOOK_TEMPLATE was explicitly set by the caller (env var takes
+# priority over the config value; config takes priority over the default below).
+_NOTEBOOK_TEMPLATE_ENVSET="${NOTEBOOK_TEMPLATE+set}"
 NOTEBOOK_TEMPLATE="${NOTEBOOK_TEMPLATE:-notebooks/templates/grn_dev_v2.qmd}"
 PSEUDOBULK_GROUP="${PSEUDOBULK_GROUP:-by_cell_class}"
 # PSEUDOBULK_FILE and EXPERIMENT_NAME can be set directly to bypass CONFIG
@@ -31,17 +33,23 @@ else
     _direct_mode=false
     CONFIG_STEM=$(basename "${CONFIG}" .yaml)
     OUTPUT_DIR=$(awk '/^output_dir:/{print $2; exit}' "${WORK_DIR}/${CONFIG}")
-    # Allow notebook section of pipeline config to override pseudobulk group and experiment name
+    # Allow notebook section of pipeline config to override template, pseudobulk group,
+    # and experiment name. template: takes priority over the default but not an explicit
+    # env-var override (tracked via _NOTEBOOK_TEMPLATE_ENVSET above).
     _nb_overrides=$(python3 -c "
 import yaml
 cfg = yaml.safe_load(open('${WORK_DIR}/${CONFIG}'))
 nb = cfg.get('notebook', {})
 print(nb.get('pseudobulk_group', '') or '')
 print(nb.get('experiment_name', '') or '')
-" 2>/dev/null || printf '\n')
+print(nb.get('template', '') or '')
+" 2>/dev/null || printf '\n\n')
     _pb_group=$(echo "${_nb_overrides}" | sed -n '1p')
     _exp_name=$(echo "${_nb_overrides}" | sed -n '2p')
+    _nb_template=$(echo "${_nb_overrides}" | sed -n '3p')
     [[ -n "${_pb_group}" ]] && PSEUDOBULK_GROUP="${_pb_group}"
+    [[ -n "${_nb_template}" && "${_NOTEBOOK_TEMPLATE_ENVSET}" != "set" ]] && \
+        NOTEBOOK_TEMPLATE="${_nb_template}"
     PSEUDOBULK_FILE="${OUTPUT_DIR}/pseudobulk_output/${PSEUDOBULK_GROUP}.h5ad"
     EXPERIMENT_NAME="${EXPERIMENT_NAME:-${_exp_name:-${CONFIG_STEM}}}"
 fi
@@ -124,7 +132,7 @@ fi
 echo "Params written: ${PARAMS_FILE}"
 
 echo "========================================"
-echo "STEP 5: Notebook render"
+echo "STEP 4: Notebook render"
 echo "Job ID:       ${SLURM_JOB_ID}"
 echo "Node:         $(hostname)"
 echo "Experiment:   ${EXPERIMENT_NAME}"
@@ -156,4 +164,4 @@ echo "Resource usage:"
 echo "  Time:   $(( _ELAPSED/3600 ))h $(( (_ELAPSED%3600)/60 ))m $(( _ELAPSED%60 ))s  /  ${_TIME_LIMIT} allocated"
 echo "  Memory: ${_rss_gb}G peak RSS  /  ${_ALLOC_MEM_GB}G allocated (${_rss_pct}%)"
 echo "========================================"
-echo "Step 5 complete: $(date)"
+echo "Step 4 complete: $(date)"

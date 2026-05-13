@@ -52,6 +52,8 @@ pseudobulk:
       aggregation: mean
   min_cells: 10
   groups:
+    - name: all_cells_by_donor
+      group_cols: [individual]
     - name: by_cell_class
       group_cols: [individual, cell_class_original]
     - name: by_cell_class_L23
@@ -59,13 +61,22 @@ pseudobulk:
       cell_filter_file: /home/rajd2/rds/hpc-work/snRNAseq_2026/reference/cells_L23.csv
 
 notebook:
-  template: notebooks/templates/grn_dev_v2.qmd
-  pseudobulk_group: by_cell_class_L23
-  experiment_name: Vel_prepost_noage_tuning5_L23
-  cell_class_col: cell_class_original
-  cell_class_value: Excitatory
+  template: notebooks/templates/grn_dev_multi.qmd
+  pseudobulk_inputs:
+    - name: by_cell_class_L23
+      group: by_cell_class_L23
+      cell_class_col: cell_class_original
+      cell_class_value: Excitatory
+    - name: by_cell_class_Excitatory
+      group: by_cell_class
+      cell_class_col: cell_class_original
+      cell_class_value: Excitatory
+    - name: all_cells_by_donor
+      group: all_cells_by_donor
+      cell_class_col: ''
+      cell_class_value: ''
 
 steps:
-  - pseudobulk
+  # - pseudobulk
   - notebook
 overwrite: false

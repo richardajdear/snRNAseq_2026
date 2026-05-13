@@ -19,7 +19,7 @@ CONFIG="${CONFIG:-code/pipeline/configs/source_hpc_config.yaml}"
 mkdir -p "${WORK_DIR}/logs"
 
 echo "========================================"
-echo "STEP 2: scVI + scANVI training and inference (diagnostics run separately as step 3)"
+echo "STEP 2: scVI + scANVI training and inference (diagnostics run separately as step 5)"
 echo "Job ID:    ${SLURM_JOB_ID}"
 echo "Node:      $(hostname)"
 echo "GPUs:      ${CUDA_VISIBLE_DEVICES:-none}"
@@ -30,7 +30,7 @@ _JOB_START=$(date +%s)
 
 # pipeline.run_pipeline step=scvi generates a temporary scvi_config.yaml and
 # calls scVI.run_pipeline internally (including scANVI when enabled). Diagnostics
-# are NOT run here — they run as a separate CPU step 3 (step3_diagnostics.sh).
+# are NOT run here — they run as a separate CPU step 5 (step5_diagnostics.sh).
 echo "Launching singularity exec (SIF: ${SIF})..."
 singularity exec --nv \
     --pwd "${WORK_DIR}" \

@@ -1,6 +1,6 @@
 #!/bin/bash
-#SBATCH --output=/home/rajd2/rds/hpc-work/snRNAseq_2026/logs/%j_step4_pseudobulk.out
-#SBATCH --error=/home/rajd2/rds/hpc-work/snRNAseq_2026/logs/%j_step4_pseudobulk.err
+#SBATCH --output=/home/rajd2/rds/hpc-work/snRNAseq_2026/logs/%j_step3_pseudobulk.out
+#SBATCH --error=/home/rajd2/rds/hpc-work/snRNAseq_2026/logs/%j_step3_pseudobulk.err
 #SBATCH --time=01:00:00
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
@@ -18,7 +18,7 @@ CONFIG="${CONFIG:-code/pipeline/configs/source_hpc_config.yaml}"
 mkdir -p "${WORK_DIR}/logs"
 
 echo "========================================"
-echo "STEP 4: Pseudobulk aggregation"
+echo "STEP 3: Pseudobulk aggregation"
 echo "Job ID:    ${SLURM_JOB_ID}"
 echo "Node:      $(hostname)"
 echo "Config:    ${CONFIG}"
@@ -53,4 +53,4 @@ echo "Resource usage:"
 echo "  Time:   $(( _ELAPSED/3600 ))h $(( (_ELAPSED%3600)/60 ))m $(( _ELAPSED%60 ))s  /  ${_TIME_LIMIT} allocated"
 echo "  Memory: ${_rss_gb}G peak RSS  /  ${_ALLOC_MEM_GB}G allocated (${_rss_pct}%)"
 echo "========================================"
-echo "Step 4 complete: $(date)"
+echo "Step 3 complete: $(date)"

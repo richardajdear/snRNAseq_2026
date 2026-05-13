@@ -71,13 +71,27 @@ pseudobulk:
       aggregation: mean
   min_cells: 100
   groups:
+    - name: all_cells_by_donor
+      group_cols: [individual]
     - name: by_cell_class
       group_cols: [individual, cell_class]
 
+notebook:
+  template: notebooks/templates/grn_dev_multi.qmd
+  pseudobulk_inputs:
+    - name: by_cell_class_Excitatory
+      group: by_cell_class
+      cell_class_col: cell_class
+      cell_class_value: Excitatory
+    - name: all_cells_by_donor
+      group: all_cells_by_donor
+      cell_class_col: ''
+      cell_class_value: ''
+
 steps:
-  - downsample
-  - scvi
-  - diagnostics
+  # - downsample
+  # - scvi
   - pseudobulk
   - notebook
+  # - diagnostics
 overwrite: false

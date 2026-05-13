@@ -1,0 +1,747 @@
+---
+title: "AHBA C3 Developmental Trends — Cross-Dataset Comparison"
+format: md
+jupyter: python3
+execute:
+  echo: false
+---
+
+## 1. Setup
+
+### 1.1 Environment
+
+```{python}
+import os
+import sys
+import warnings
+from IPython import get_ipython
+_ip = get_ipython()
+if _ip:
+    _ip.run_line_magic('load_ext', 'autoreload')
+    _ip.run_line_magic('autoreload', '2')
+```
+
+```{python}
+def _find_repo_root(marker='.git'):
+    current = os.path.abspath(os.getcwd())
+    while True:
+        if os.path.exists(os.path.join(current, marker)):
+            return current
+        parent = os.path.dirname(current)
+        if parent == current:
+            raise RuntimeError(f"Could not find '{marker}' above {os.getcwd()}")
+        current = parent
+
+_repo_root = _find_repo_root()
+if os.path.join(_repo_root, 'code') not in sys.path:
+    sys.path.insert(0, os.path.join(_repo_root, 'code'))
+
+from environment import get_environment
+_env = get_environment()
+rds_dir  = _env['rds_dir']
+code_dir = _env['code_dir']
+ref_dir  = _env['ref_dir']
+
+print(f"Environment : {_env['name']}")
+print(f"  rds_dir  : {rds_dir}")
+print(f"  code_dir : {code_dir}")
+print(f"  ref_dir  : {ref_dir}")
+```
+
+### 1.2 Parameters
+
+Loads multiple datasets from a YAML config and produces a direct cross-dataset
+comparison of cell-class composition and per-cell-class C3+ developmental
+trends. The 4D sensitivity grid is shared across datasets.
+
+```{python}
+import yaml as _yaml
+
+_cfg = {}
+_param_file = os.environ.get('NOTEBOOK_PARAMS', '')
+if _param_file:
+    print(f"Loading params from: {_param_file}")
+    with open(_param_file) as _f:
+        _cfg = _yaml.safe_load(_f) or {}
+else:
+    print("No NOTEBOOK_PARAMS set — using defaults (interactive mode)")
+
+EXPERIMENT_NAME = _cfg.get('EXPERIMENT_NAME', 'compare_datasets_interactive')
+
+DATASETS = _cfg.get('DATASETS', [])
+if not DATASETS:
+    raise ValueError("Config must define DATASETS: a list of {name, by_cell_class, all_cells, cell_class_col} entries.")
+
+CELL_CLASSES = _cfg.get('CELL_CLASSES',
+    ['Excitatory', 'Inhibitory', 'Astrocytes', 'Microglia', 'OPC', 'Oligos'])
+CHILD_STARTS = _cfg.get('CHILD_STARTS', [1, 2, 3, 4, 5])
+GAP_STARTS   = _cfg.get('GAP_STARTS',   [8, 9, 10, 11, 12, 13, 14])
+GAP_LENGTHS  = _cfg.get('GAP_LENGTHS',  [0, 1, 2, 3, 4])
+ADOL_ENDS    = _cfg.get('ADOL_ENDS',    [18, 20, 22, 24, 26])
+
+dataset_names = [d['name'] for d in DATASETS]
+
+print(f"\nEXPERIMENT_NAME : {EXPERIMENT_NAME}")
+print(f"N datasets       : {len(DATASETS)}")
+for d in DATASETS:
+    print(f"  [{d['name']}]")
+    print(f"    by_cell_class : {d['by_cell_class']}")
+    print(f"    all_cells     : {d['all_cells']}")
+    print(f"    cell_class_col: {d['cell_class_col']}")
+print(f"CELL_CLASSES     : {CELL_CLASSES}")
+print(f"CHILD_STARTS     : {CHILD_STARTS}")
+print(f"GAP_STARTS       : {GAP_STARTS}")
+print(f"GAP_LENGTHS      : {GAP_LENGTHS}")
+print(f"ADOL_ENDS        : {ADOL_ENDS}")
+```
+
+### 1.3 Libraries
+
+```{python}
+#| include: false
+import gc
+import scanpy as sc
+import pandas as pd
+import numpy as np
+import scipy.sparse as _sp
+from collections import OrderedDict
+from IPython.display import Markdown, display
+
+warnings.filterwarnings('ignore')
+
+if _env['name'] == 'local':
+    os.environ['R_HOME'] = '/Users/richard/mambaforge/envs/scanpy/lib/R'
+
+%load_ext rpy2.ipython
+```
+
+```{python}
+#| include: false
+%%R
+
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(patchwork)
+library(ggpubr)
+library(pwr)
+```
+
+```{python}
+%%R -i code_dir
+
+source(file.path(code_dir, 'plotting', 'hvg_plots.r'))
+source(file.path(code_dir, 'plotting', 'sensitivity_gap_plots.r'))
+```
+
+## 2. Load datasets & project GRN
+
+For each dataset, set up the GRN against that dataset's gene-set, then project
+across each major cell class (by_cell_class filtered) plus all-cells.
+
+```{python}
+from hvg_investigation import setup_grn
+from regulons import project_GRN
+
+def _project_collect(adata, ahba_GRN, condition_name):
+    project_GRN(adata, ahba_GRN, 'X_ahba',
+                use_residuals=False, use_highly_variable=False,
+                log_transform=False)
+    return (pd.DataFrame(adata.obsm['X_ahba'], index=adata.obs_names,
+                         columns=adata.uns['X_ahba_names'])[['C3+', 'C3-']]
+              .assign(obs_names=lambda d: d.index, condition=condition_name)
+              .melt(id_vars=['obs_names', 'condition'], var_name='C',
+                    value_name='value'))
+
+
+def _normalize_and_project(adata, ahba_GRN, mode):
+    """Apply CPM or scANVI normalization, then project GRN.
+
+    mode = 'cpm_all' or 'scanvi_all'.
+    """
+    if mode == 'cpm_all':
+        adata.X = adata.layers['counts'].copy()
+        sc.pp.normalize_total(adata, target_sum=1e6, inplace=True)
+        adata.X = (adata.X.toarray() if _sp.issparse(adata.X) else adata.X).copy()
+    else:
+        _raw = adata.layers['scanvi_normalized']
+        adata.X = (_raw.toarray() if _sp.issparse(_raw)
+                   else np.array(_raw, dtype=np.float32)).copy()
+    if 'highly_variable' in adata.var.columns:
+        del adata.var['highly_variable']
+    return _project_collect(adata, ahba_GRN, mode)
+
+
+def _add_meta(adata):
+    """Build the donor metadata frame (one row per pseudobulk sample)."""
+    if 'source-chemistry' in adata.obs.columns:
+        sc_ = adata.obs['source-chemistry'].astype(str)
+    elif 'chemistry' in adata.obs.columns:
+        sc_ = (adata.obs['source'].astype(str) + '-' +
+               adata.obs['chemistry'].astype(str))
+    else:
+        sc_ = adata.obs['source'].astype(str)
+    cols = ['individual', 'age_years', 'source']
+    meta = adata.obs[cols].copy()
+    meta['source_chemistry'] = sc_.values
+    meta['obs_names'] = meta.index
+    if 'chemistry' in adata.obs.columns:
+        meta['chemistry'] = adata.obs['chemistry'].astype(str).values
+    if 'n_cells' in adata.obs.columns:
+        meta['n_cells'] = adata.obs['n_cells'].astype(int).values
+    return meta
+
+
+def _project_subset(adata_sub, ahba_GRN):
+    """Project CPM + scANVI and merge metadata. adata_sub must have layers."""
+    s_cpm    = _normalize_and_project(adata_sub, ahba_GRN, 'cpm_all')
+    s_scanvi = _normalize_and_project(adata_sub, ahba_GRN, 'scanvi_all')
+    meta = _add_meta(adata_sub)
+    fdf = (pd.concat([s_cpm, s_scanvi], ignore_index=True)
+             .merge(meta, on='obs_names'))
+    return fdf
+
+
+# Per-dataset projection
+all_per_class_rows = []
+all_composition_rows = []
+dataset_grn_info = {}
+
+for d in DATASETS:
+    name = d['name']
+    cc_col = d['cell_class_col']
+    print(f"\n{'='*60}\nDataset: {name}")
+
+    # GRN setup against this dataset
+    _ref = sc.read_h5ad(d['by_cell_class'], backed='r')
+    ahba_GRN, total_grn = setup_grn(ref_dir, _ref)
+    dataset_grn_info[name] = total_grn
+    _ref.file.close()
+    del _ref
+    gc.collect()
+
+    # Load by_cell_class (in-memory; small file)
+    bcc = sc.read_h5ad(d['by_cell_class'])
+    print(f"  by_cell_class shape: {bcc.shape}")
+    print(f"  Cell classes: {dict(bcc.obs[cc_col].astype(str).value_counts())}")
+
+    # Composition rows
+    comp = (bcc.obs[['individual', cc_col, 'n_cells']]
+            .rename(columns={cc_col: 'cell_class'})
+            .assign(dataset=name))
+    donor_obs = bcc.obs.drop_duplicates('individual').set_index('individual')
+    comp['age_years'] = comp['individual'].map(
+        donor_obs['age_years'].to_dict()).astype(float)
+    if 'chemistry' in bcc.obs.columns:
+        comp['chemistry'] = comp['individual'].map(
+            donor_obs['chemistry'].astype(str).to_dict())
+    else:
+        comp['chemistry'] = 'all'
+    all_composition_rows.append(comp)
+
+    # Per-cell-class projection
+    for cls in CELL_CLASSES:
+        mask = bcc.obs[cc_col].astype(str) == cls
+        n = int(mask.sum())
+        if n < 5:
+            print(f"    Skipping {cls}: n={n}")
+            continue
+        sub = bcc[mask].copy()
+        fdf = _project_subset(sub, ahba_GRN)
+        fdf['dataset'] = name
+        fdf['pb_kind'] = cls
+        all_per_class_rows.append(fdf)
+        print(f"    {cls}: n_donors={n}")
+        del sub
+        gc.collect()
+
+    # All-cells projection
+    print(f"  Loading all_cells: {d['all_cells']}")
+    allc = sc.read_h5ad(d['all_cells'])
+    print(f"    shape: {allc.shape}")
+    fdf_all = _project_subset(allc, ahba_GRN)
+    fdf_all['dataset'] = name
+    fdf_all['pb_kind'] = 'all_cells'
+    all_per_class_rows.append(fdf_all)
+    print(f"    all_cells: n_donors={allc.n_obs}")
+    del allc, bcc
+    gc.collect()
+
+combined_df = pd.concat(all_per_class_rows, ignore_index=True)
+composition_df = pd.concat(all_composition_rows, ignore_index=True)
+
+print(f"\nCombined projection df: {combined_df.shape}")
+print(f"  pb_kind values: {sorted(combined_df['pb_kind'].unique().tolist())}")
+print(f"  datasets: {sorted(combined_df['dataset'].unique().tolist())}")
+print(f"Combined composition df: {composition_df.shape}")
+```
+
+## 3. Cell-class composition side-by-side
+
+```{python}
+# Build per-donor composition fractions for plotting and statistics
+_donor_totals = (composition_df.groupby(['dataset', 'individual'])['n_cells']
+                  .sum().rename('total').reset_index())
+frac_df = composition_df.merge(_donor_totals, on=['dataset', 'individual'])
+frac_df['frac'] = frac_df['n_cells'] / frac_df['total']
+frac_df = frac_df[frac_df['cell_class'].isin(CELL_CLASSES)].copy()
+print(f"frac_df: {frac_df.shape}")
+
+# Mean fraction per dataset × class
+_mean_frac = (frac_df.groupby(['dataset', 'cell_class'])['frac']
+              .mean().round(3).unstack(fill_value=0.0))
+print(f"\nMean cell-class fraction by dataset:")
+print(_mean_frac.to_string())
+
+# Spearman regression of fraction-vs-age per (dataset, class)
+from scipy.stats import spearmanr
+print(f"\nSpearman correlation of cell-class fraction vs age:")
+for (ds, cls), grp in frac_df.groupby(['dataset', 'cell_class']):
+    if len(grp) < 5:
+        continue
+    rho, p = spearmanr(grp['age_years'].values, grp['frac'].values,
+                       nan_policy='omit')
+    print(f"  [{ds:10s}]  {cls:12s}  n={len(grp)}  rho={rho:+.3f}  p={p:.3g}")
+```
+
+```{python}
+%%R -w 220 -h 110 -u mm -r 300 -i frac_df
+
+# Mean fraction bar plot (dataset × class)
+p_bar <- frac_df %>%
+    group_by(dataset, cell_class) %>%
+    summarize(mean_frac = mean(frac), .groups = 'drop') %>%
+    ggplot(aes(x = cell_class, y = mean_frac, fill = dataset)) +
+    geom_col(position = position_dodge(width = 0.85), width = 0.75) +
+    scale_y_continuous(name = 'Mean donor fraction', limits = c(0, NA),
+                       expand = expansion(mult = c(0, 0.05))) +
+    theme_classic() +
+    theme(text = element_text(size = 8),
+          axis.text.x = element_text(angle = 30, hjust = 1, size = 8),
+          axis.title.x = element_blank()) +
+    ggtitle('Mean cell-class composition by dataset')
+suppressMessages(suppressWarnings(print(p_bar)))
+```
+
+```{python}
+%%R -w 240 -h 150 -u mm -r 300
+
+# Fraction vs age scatter (panels = cell class, color = dataset)
+p_scatter <- frac_df %>%
+    filter(age_years <= 30, age_years >= -1) %>%
+    ggplot(aes(x = age_years, y = frac, color = dataset)) +
+    facet_wrap(~ cell_class, scales = 'free_y', nrow = 2) +
+    geom_point(alpha = 0.5, size = 1) +
+    geom_smooth(method = 'lm', se = FALSE, linewidth = 0.5) +
+    scale_x_continuous(name = 'Donor age (years)', limits = c(-1, 30),
+                       breaks = seq(0, 30, 5)) +
+    scale_y_continuous(name = 'Per-donor cell-class fraction') +
+    theme_classic() +
+    theme(text = element_text(size = 8), strip.text = element_text(size = 8),
+          strip.background = element_blank()) +
+    ggtitle('Cell-class fraction vs age (each dot = donor)',
+            subtitle = 'Linear fit per dataset; ages capped at 30 for visual comparison')
+suppressMessages(suppressWarnings(print(p_scatter)))
+```
+
+**Interpretation — composition × age differs sharply between datasets.**
+Velmeshev shows much stronger composition-vs-age correlations than PsychAD,
+and several cell classes have **opposite-signed** slopes between the two
+datasets:
+
+- Velmeshev: Excitatory fraction **drops** with age (rho ≈ -0.63), while OPC
+  (+0.69), Microglia (+0.64), Astrocytes (+0.39), and Oligos (+0.38) all
+  **rise**. This is consistent with V2 chemistry (used predominantly for
+  younger donors) under-capturing non-neuronal cells, plus genuine postnatal
+  glial expansion.
+- PsychAD: Microglia (-0.45) and OPC (-0.49) **decline** with age — opposite
+  to Velmeshev. PsychAD's much broader age range (0–89y) means the trend is
+  dominated by later-life glial decline, not the early-life expansion phase.
+
+Because Velmeshev's composition shifts so strongly with age, its `all_cells`
+pseudobulk is essentially a moving-target weighted mixture of cell types. The
+apparent age trend on `all_cells` is partly within-cell expression change and
+partly composition change.
+
+## 4. Per-(dataset × pb_kind) 4D sensitivity grid
+
+```{python}
+%%R -i combined_df -i CHILD_STARTS -i GAP_STARTS -i GAP_LENGTHS -i ADOL_ENDS
+
+sel <- c('cpm_all', 'scanvi_all')
+keys <- combined_df %>% distinct(dataset, pb_kind)
+rows <- list()
+all_sens <- list()
+for (i in seq_len(nrow(keys))) {
+    ds <- keys$dataset[i]
+    pk <- keys$pb_kind[i]
+    df_v <- combined_df %>% filter(dataset == ds, pb_kind == pk)
+    if (nrow(df_v) == 0) next
+    df_p <- prepare_r_data_single(df_v, condition_order = sel)
+    sens <- compute_sensitivity_4d(df_p, sel,
+        child_starts = CHILD_STARTS, gap_starts = GAP_STARTS,
+        gap_lengths  = GAP_LENGTHS, adol_ends  = ADOL_ENDS)
+    b <- select_best_4d(sens, baseline = 'scanvi_all')
+    n_d <- df_v %>% distinct(individual) %>% nrow()
+    n_sig <- sum(sens$signif, na.rm = TRUE)
+    rows[[i]] <- data.frame(
+        dataset = ds, pb_kind = pk, n_donors = n_d,
+        best_p = b$p_value, cohens_d = b$cohens_d,
+        n_sig = n_sig, n_total = nrow(sens),
+        child_start = b$child_start, gap_start = b$gap_start,
+        adol_start  = b$adol_start,  adol_end  = b$adol_end)
+    all_sens[[paste(ds, pk, sep = '__')]] <- sens %>%
+        mutate(dataset = ds, pb_kind = pk)
+}
+compare_summary <- bind_rows(rows) %>%
+    mutate(
+        p_label = case_when(
+            best_p < 0.001 ~ '***', best_p < 0.01 ~ '**',
+            best_p < 0.05  ~ '*',   TRUE          ~ 'ns'),
+        signed_log10p = ifelse(!is.na(cohens_d),
+                               sign(cohens_d) * (-log10(best_p)),
+                               NA_real_))
+cat('\nPer-(dataset × pb_kind) best scANVI sensitivity:\n')
+print(compare_summary, row.names = FALSE)
+```
+
+**Interpretation — uniform-sign vs opposing-sign per-class signals are the
+dominant mechanism for the puzzle.**
+
+- **Velmeshev**: every one of the 6 cell classes carries a **positive**
+  Cohen's d at its best window (Exc +1.09, Inh +1.07, Ast +0.94, Mic +1.45,
+  OPC +0.76, Oligos +1.42). Averaging coherent same-sign signals **amplifies**
+  the effect → `all_cells` p = 3 × 10⁻⁴, d = +1.65, *more* significant than
+  any single class.
+- **PsychAD**: three glial classes carry **negative** Cohen's d (Astrocytes
+  −1.50, Microglia −1.46, OPC −1.83), opposing the neuronal classes' positive
+  d (Exc +0.92, Inh +0.92, Oligos +0.82). Averaging opposite-sign signals
+  **cancels** the effect → `all_cells` p = 0.12, d = +0.55, not significant.
+
+This direction-mismatch across cell classes — not just composition — is the
+main reason `all_cells` *boosts* the signal in Velmeshev but *erases* it in
+PsychAD. The composition × chemistry confound in Section 3 contributes
+additionally by inflating Velmeshev's apparent magnitude.
+
+### 4.1 Head-to-head heatmap
+
+```{python}
+%%R -w 160 -h 110 -u mm -r 300
+
+if (exists('compare_summary') && nrow(compare_summary) > 0) {
+    pb_levels <- c('all_cells', 'Excitatory', 'Inhibitory',
+                   'Astrocytes', 'Microglia', 'OPC', 'Oligos')
+    pb_present <- pb_levels[pb_levels %in% compare_summary$pb_kind]
+
+    p_heat <- compare_summary %>%
+        mutate(pb_kind = factor(pb_kind, levels = pb_present)) %>%
+        ggplot(aes(x = dataset, y = pb_kind, fill = signed_log10p)) +
+        geom_tile(color = 'white', linewidth = 0.4) +
+        geom_text(aes(label = sprintf('%s\np=%.3f\nd=%.2f',
+                                      p_label, best_p, cohens_d),
+                      fontface = ifelse(best_p < 0.05, 'bold', 'plain')),
+                  size = 2.4, lineheight = 0.85) +
+        scale_fill_gradient2(low = '#2166AC', mid = 'white', high = '#B2182B',
+                             midpoint = 0,
+                             name = expression(sign(d) %*% -log[10](p))) +
+        scale_y_discrete(limits = rev) +
+        theme_minimal(base_size = 9) +
+        theme(panel.grid = element_blank(),
+              axis.title = element_blank(),
+              legend.position = 'right') +
+        ggtitle('C3+ Childhood vs Adolescence by dataset × pseudobulk strategy',
+                subtitle = sprintf('Best scANVI, 4D grid (combos per cell: %d)',
+                                   compare_summary$n_total[1]))
+    suppressMessages(suppressWarnings(print(p_heat)))
+}
+```
+
+### 4.2 Trajectory grid (cell class × dataset × normalization)
+
+Rows = pseudobulk strategy (cell class or `all_cells`); columns = dataset ×
+normalization (CPM vs scANVI). Each panel is z-scored independently. Velmeshev
+points are steelblue, PsychAD points are indianred; loess fit is black.
+
+```{python}
+%%R -w 320 -h 320 -u mm -r 300
+
+if (nrow(combined_df) > 0) {
+    pb_levels   <- c('all_cells', 'Excitatory', 'Inhibitory',
+                     'Astrocytes', 'Microglia', 'OPC', 'Oligos')
+    pb_present  <- pb_levels[pb_levels %in% unique(combined_df$pb_kind)]
+    ds_levels   <- c('Velmeshev', 'PsychAD')
+    ds_present  <- ds_levels[ds_levels %in% unique(combined_df$dataset)]
+    cond_label  <- c('cpm_all' = 'CPM', 'scanvi_all' = 'scANVI')
+    panel_levels <- as.character(t(outer(ds_present, c('CPM', 'scANVI'),
+                                         paste, sep = ' — ')))
+
+    pb <- combined_df %>%
+        filter(C == 'C3+', condition %in% names(cond_label)) %>%
+        group_by(dataset, pb_kind, condition, individual, age_years) %>%
+        summarize(value = mean(value), .groups = 'drop') %>%
+        mutate(panel = factor(paste(dataset, cond_label[condition], sep = ' — '),
+                              levels = panel_levels)) %>%
+        group_by(panel, pb_kind) %>%
+        mutate(value = (value - mean(value)) / sd(value)) %>%
+        ungroup() %>%
+        mutate(pb_kind = factor(pb_kind, levels = pb_present),
+               dataset = factor(dataset, levels = ds_present))
+
+    p_grid <- ggplot(pb, aes(x = age_years, y = value, color = dataset)) +
+        facet_grid(pb_kind ~ panel, scales = 'free_y') +
+        geom_point(size = 0.7, alpha = 0.65) +
+        geom_smooth(aes(group = 1), method = 'loess', span = 0.9,
+                    se = FALSE, color = 'black', linewidth = 0.5) +
+        scale_color_manual(values = c('Velmeshev' = 'steelblue',
+                                      'PsychAD'   = 'indianred'),
+                           guide = guide_legend(override.aes = list(size = 2, alpha = 1))) +
+        scale_x_continuous(name = 'Donor age (years)', limits = c(-1, 30),
+                           breaks = seq(0, 30, 10)) +
+        scale_y_continuous(name = 'C3+ score (z-scored per panel)') +
+        theme_classic() +
+        theme(text = element_text(size = 7), strip.text = element_text(size = 7),
+              strip.background = element_blank(),
+              panel.spacing = unit(0.3, 'lines'),
+              legend.position = 'bottom') +
+        ggtitle('C3+ developmental trajectory: cell class × dataset × normalization',
+                subtitle = 'Z-scored per panel; age ≤ 30y. Black line = loess smooth.')
+    suppressMessages(suppressWarnings(print(p_grid)))
+}
+```
+
+### 4.3 Childhood vs Adolescence boxplots (cell class × dataset × normalization)
+
+Rows = pseudobulk strategy; columns = dataset × normalization. Age windows
+are the per-(dataset, pb_kind) **best-scANVI** boundaries from the 4D
+sensitivity grid (same window applied to both CPM and scANVI projections in
+each row, so the only thing varying along each row's columns is the
+normalization method). Box outlines black; jitter points coloured by dataset.
+
+```{python}
+%%R -w 320 -h 340 -u mm -r 300
+
+if (exists('compare_summary') && nrow(compare_summary) > 0) {
+    pb_levels    <- c('all_cells', 'Excitatory', 'Inhibitory',
+                      'Astrocytes', 'Microglia', 'OPC', 'Oligos')
+    pb_present   <- pb_levels[pb_levels %in% compare_summary$pb_kind]
+    ds_levels    <- c('Velmeshev', 'PsychAD')
+    ds_present   <- ds_levels[ds_levels %in% unique(combined_df$dataset)]
+    cond_label   <- c('cpm_all' = 'CPM', 'scanvi_all' = 'scANVI')
+    panel_levels <- as.character(t(outer(ds_present, c('CPM', 'scANVI'),
+                                         paste, sep = ' — ')))
+
+    boxes_all <- list()
+    for (i in seq_len(nrow(compare_summary))) {
+        ds <- compare_summary$dataset[i]
+        pk <- compare_summary$pb_kind[i]
+        cs <- compare_summary$child_start[i]
+        gs <- compare_summary$gap_start[i]
+        as_ <- compare_summary$adol_start[i]
+        ae <- compare_summary$adol_end[i]
+        for (cond in names(cond_label)) {
+            df_v <- combined_df %>%
+                filter(dataset == ds, pb_kind == pk, condition == cond)
+            if (nrow(df_v) == 0) next
+            boxes <- make_boxes_gap_df(df_v, cs, gs, as_, ae) %>%
+                filter(network == 'C3+') %>%
+                mutate(dataset = ds, pb_kind = pk, condition = cond,
+                       panel = paste(ds, cond_label[[cond]], sep = ' — '),
+                       value = (value - mean(value)) / sd(value))
+            boxes_all[[paste(ds, pk, cond, sep = '__')]] <- boxes
+        }
+    }
+    boxes_df <- bind_rows(boxes_all) %>%
+        mutate(pb_kind = factor(pb_kind, levels = pb_present),
+               dataset = factor(dataset, levels = ds_present),
+               panel   = factor(panel, levels = panel_levels))
+
+    p_box <- ggplot(boxes_df, aes(x = age_range, y = value)) +
+        facet_grid(pb_kind ~ panel, scales = 'free_y') +
+        geom_boxplot(outlier.shape = NA, color = 'black', fill = NA,
+                     linewidth = 0.4) +
+        geom_jitter(aes(color = dataset), width = 0.15, size = 0.6, alpha = 0.65) +
+        stat_compare_means(comparisons = list(c('Childhood', 'Adolescence')),
+                           label = 'p.signif', size = 2.3) +
+        scale_color_manual(values = c('Velmeshev' = 'steelblue',
+                                      'PsychAD'   = 'indianred'),
+                           guide = guide_legend(override.aes = list(size = 2, alpha = 1))) +
+        scale_y_continuous(name = 'C3+ score (z-scored per panel)') +
+        coord_cartesian(clip = 'off') +
+        theme_classic() +
+        theme(text = element_text(size = 7), strip.text = element_text(size = 7),
+              strip.background = element_blank(),
+              axis.text.x = element_text(angle = 45, hjust = 1, size = 6),
+              axis.title.x = element_blank(),
+              panel.spacing = unit(0.3, 'lines'),
+              legend.position = 'bottom') +
+        ggtitle('Childhood vs Adolescence: cell class × dataset × normalization',
+                subtitle = 'Age windows = best-scANVI per (dataset × pb_kind). Stars: Childhood vs Adolescence Wilcoxon.')
+    suppressMessages(suppressWarnings(print(p_box)))
+}
+```
+
+## 5. V3-only Velmeshev sensitivity test
+
+For Velmeshev only (which mixes V2 + V3 chemistries): re-run the 4D
+sensitivity grid restricted to V3-only donors, to test whether the apparent
+all-cells signal is inflated by the V2/V3 chemistry × age confound.
+
+```{python}
+# Restrict combined_df to V3-only donors for any dataset that has V2/V3 mix
+combined_v3only_rows = []
+for ds in dataset_names:
+    sub = combined_df[combined_df['dataset'] == ds].copy()
+    if 'chemistry' in sub.columns and sub['chemistry'].notna().any():
+        chems = sorted(sub['chemistry'].dropna().astype(str).unique().tolist())
+        if len(chems) <= 1:
+            print(f"  [{ds}] single chemistry ({chems}) — skipping V3-only test")
+            continue
+        v3_sub = sub[sub['chemistry'].astype(str) == 'V3'].copy()
+        v3_sub['dataset_subset'] = f"{ds}__V3only"
+        full = sub.assign(dataset_subset=f"{ds}__all")
+        combined_v3only_rows.append(full)
+        combined_v3only_rows.append(v3_sub)
+        print(f"  [{ds}] chemistries: {chems}")
+        print(f"    full   n donors: {sub['individual'].nunique()}")
+        print(f"    V3only n donors: {v3_sub['individual'].nunique()}")
+    else:
+        print(f"  [{ds}] no chemistry column — skipping V3-only test")
+
+v3_compare_df = (pd.concat(combined_v3only_rows, ignore_index=True)
+                 if combined_v3only_rows else pd.DataFrame())
+print(f"\nv3_compare_df: {v3_compare_df.shape}")
+```
+
+```{python}
+%%R -i v3_compare_df -i CHILD_STARTS -i GAP_STARTS -i GAP_LENGTHS -i ADOL_ENDS
+
+if (nrow(v3_compare_df) > 0) {
+    sel <- c('cpm_all', 'scanvi_all')
+    keys <- v3_compare_df %>% distinct(dataset_subset, pb_kind)
+    rows <- list()
+    for (i in seq_len(nrow(keys))) {
+        ss <- keys$dataset_subset[i]
+        pk <- keys$pb_kind[i]
+        df_v <- v3_compare_df %>% filter(dataset_subset == ss, pb_kind == pk)
+        if (nrow(df_v) == 0) next
+        df_p <- prepare_r_data_single(df_v, condition_order = sel)
+        sens <- compute_sensitivity_4d(df_p, sel,
+            child_starts = CHILD_STARTS, gap_starts = GAP_STARTS,
+            gap_lengths  = GAP_LENGTHS, adol_ends  = ADOL_ENDS)
+        b <- select_best_4d(sens, baseline = 'scanvi_all')
+        n_d <- df_v %>% distinct(individual) %>% nrow()
+        n_sig <- sum(sens$signif, na.rm = TRUE)
+        rows[[i]] <- data.frame(
+            dataset_subset = ss, pb_kind = pk, n_donors = n_d,
+            best_p = b$p_value, cohens_d = b$cohens_d,
+            n_sig = n_sig, n_total = nrow(sens),
+            child_start = b$child_start, gap_start = b$gap_start,
+            adol_start  = b$adol_start,  adol_end  = b$adol_end)
+    }
+    v3_summary <- bind_rows(rows) %>%
+        mutate(
+            p_label = case_when(
+                best_p < 0.001 ~ '***', best_p < 0.01 ~ '**',
+                best_p < 0.05  ~ '*',   TRUE          ~ 'ns'),
+            signed_log10p = ifelse(!is.na(cohens_d),
+                                   sign(cohens_d) * (-log10(best_p)),
+                                   NA_real_))
+    cat('\nV3-only vs all-chemistries best scANVI:\n')
+    print(v3_summary, row.names = FALSE)
+} else {
+    v3_summary <- NULL
+    cat('Section 5 skipped (no dataset with chemistry variation).\n')
+}
+```
+
+**Interpretation — chemistry contributes but is not the sole driver.**
+Restricting Velmeshev to V3-only donors (n = 39, vs 76 with V2+V3) drops the
+`all_cells` effect from p = 3 × 10⁻⁴, d = +1.65 down to p = 0.029, d = +1.43
+— still significant but visibly weaker, and the number of significant 4D-grid
+combos collapses from 531 to 27. So chemistry-correlated composition shifts
+clearly inflate Velmeshev's all-cells signal. However, the *direction* of the
+effect persists in V3-only, so the underlying per-class positive-d signal is
+the more important driver. The Excitatory apparent flip to negative d under
+V3-only is largely a small-n artifact (removing V2 strips out most of the
+infancy/young-childhood donors).
+
+### 5.1 Sensitivity heatmap (Velmeshev all vs V3-only vs PsychAD)
+
+Same encoding as the Section 4.1 head-to-head: fill = sign(d) × −log10(p),
+labels show p-value, Cohen's d and significance star. Adding PsychAD as a
+third column makes it visually obvious whether V3-only Velmeshev converges to
+PsychAD's pattern (which would implicate the chemistry confound).
+
+```{python}
+%%R -w 180 -h 130 -u mm -r 300
+
+if (!is.null(v3_summary) && nrow(v3_summary) > 0) {
+    pb_levels <- c('all_cells', 'Excitatory', 'Inhibitory',
+                   'Astrocytes', 'Microglia', 'OPC', 'Oligos')
+
+    vel_rows <- v3_summary %>%
+        transmute(column   = dataset_subset,
+                  pb_kind, best_p, cohens_d, signed_log10p, p_label)
+
+    if (exists('compare_summary') && nrow(compare_summary) > 0) {
+        ps_rows <- compare_summary %>%
+            filter(dataset == 'PsychAD') %>%
+            transmute(column = 'PsychAD',
+                      pb_kind, best_p, cohens_d, signed_log10p, p_label)
+        sens_heat_df <- bind_rows(vel_rows, ps_rows)
+    } else {
+        sens_heat_df <- vel_rows
+    }
+
+    col_levels  <- c('Velmeshev__all', 'Velmeshev__V3only', 'PsychAD')
+    col_present <- col_levels[col_levels %in% sens_heat_df$column]
+    pb_present  <- pb_levels[pb_levels %in% sens_heat_df$pb_kind]
+    sens_heat_df <- sens_heat_df %>%
+        mutate(column  = factor(column,  levels = col_present),
+               pb_kind = factor(pb_kind, levels = pb_present))
+
+    p_v3 <- ggplot(sens_heat_df,
+                   aes(x = column, y = pb_kind, fill = signed_log10p)) +
+        geom_tile(color = 'white', linewidth = 0.4) +
+        geom_text(aes(label = sprintf('%s\np=%.3f\nd=%.2f',
+                                       p_label, best_p, cohens_d),
+                      fontface = ifelse(best_p < 0.05, 'bold', 'plain')),
+                  size = 2.4, lineheight = 0.85) +
+        scale_fill_gradient2(low = '#2166AC', mid = 'white', high = '#B2182B',
+                             midpoint = 0,
+                             name = expression(sign(d) %*% -log[10](p))) +
+        scale_y_discrete(limits = rev) +
+        theme_minimal(base_size = 9) +
+        theme(panel.grid     = element_blank(),
+              axis.title     = element_blank(),
+              axis.text.x    = element_text(size = 8),
+              legend.position = 'right') +
+        ggtitle('C3+ chemistry sensitivity: Velmeshev all vs V3-only vs PsychAD',
+                subtitle = 'Best scANVI age windows (independent per cell). Bold = p<0.05.')
+    suppressMessages(suppressWarnings(print(p_v3)))
+}
+```
+
+## 6. Conclusions
+
+The dataset-dependent puzzle — `all_cells` *amplifies* the C3+ drop in
+Velmeshev but *erases* it in PsychAD — has two layered explanations, both
+visible in the analyses above:
+
+1. **Per-class effect direction differs across datasets** (Section 4, the
+   dominant mechanism). In Velmeshev every cell class shows a positive
+   childhood→adolescence Cohen's d, so averaging compounds the signal. In
+   PsychAD, three glial classes (Astrocytes, Microglia, OPC) carry strong
+   *negative* d that opposes the neuronal classes; averaging cancels.
+2. **Velmeshev's V2-vs-V3 chemistry × age confound additionally inflates the
+   apparent all-cells signal** (Section 5). When restricted to V3-only donors,
+   Velmeshev's all-cells effect drops from d = +1.65, p = 3 × 10⁻⁴ to d =
+   +1.43, p = 0.029 (and significant-combo count collapses from 531 → 27).
+   The effect direction persists, so chemistry is a multiplier, not the cause.
+
+**Practical recommendation**: the Excitatory-only pseudobulk gives a
+comparable, more conservative read-out across both datasets (Velmeshev d =
++1.09, PsychAD d = +0.92). The all-cells strategy is dataset-specific and
+should be interpreted with caution — its sensitivity to per-class direction
+mismatch and to chemistry composition shifts means it does not necessarily
+"add information" relative to Excitatory-only.
