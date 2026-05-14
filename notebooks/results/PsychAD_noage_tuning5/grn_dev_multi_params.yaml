@@ -1,0 +1,10 @@
+EXPERIMENT_NAME: PsychAD_noage_tuning5
+PSEUDOBULK_INPUTS:
+- cell_class_col: cell_class
+  cell_class_value: Excitatory
+  file: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/PsychAD_noage_tuning5/pseudobulk_output/by_cell_class.h5ad
+  name: by_cell_class_Excitatory
+- cell_class_col: ''
+  cell_class_value: ''
+  file: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/PsychAD_noage_tuning5/pseudobulk_output/all_cells_by_donor.h5ad
+  name: all_cells_by_donor

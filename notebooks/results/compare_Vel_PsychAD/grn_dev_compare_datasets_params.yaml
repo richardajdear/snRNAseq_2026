@@ -1,0 +1,17 @@
+# Template: grn_dev_compare_datasets
+EXPERIMENT_NAME: compare_Vel_PsychAD
+DATASETS:
+  - name: Velmeshev
+    by_cell_class:  /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/Vel_prepost_noage_tuning5/pseudobulk_output/by_cell_class.h5ad
+    all_cells:      /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/Vel_prepost_noage_tuning5/pseudobulk_output/all_cells_by_donor.h5ad
+    cell_class_col: cell_class_original
+  - name: PsychAD
+    by_cell_class:  /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/PsychAD_noage_tuning5/pseudobulk_output/by_cell_class.h5ad
+    all_cells:      /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/PsychAD_noage_tuning5/pseudobulk_output/all_cells_by_donor.h5ad
+    cell_class_col: cell_class
+CELL_CLASSES: [Excitatory, Inhibitory, Astrocytes, Microglia, OPC, Oligos]
+CHILD_STARTS: [1, 2, 3, 4, 5]
+GAP_STARTS:   [8, 9, 10, 11, 12, 13, 14]
+GAP_LENGTHS:  [0, 1, 2, 3, 4]
+ADOL_ENDS:    [18, 20, 22, 24, 26]
+N_VALUES:     [4000]
