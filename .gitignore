@@ -5,9 +5,13 @@ results/
 *.csv
 rds-cam-psych-transc-Pb9UGUlrwWc/
 
+# legacy
+*LEGACY
+*legacy
+
 # Quarto build artifacts
 *.quarto_ipynb*
-*_files/
+# *_files/
 
 # VS Code language server temp files
 .vdoc.*.py

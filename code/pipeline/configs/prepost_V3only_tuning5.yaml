@@ -79,9 +79,9 @@ pseudobulk:
       group_cols: [individual, cell_class]
 
 steps:
-  - downsample
-  - scvi
-  - diagnostics
+  # - downsample
+  # - scvi
   - pseudobulk
   - notebook
+  - diagnostics
 overwrite: false

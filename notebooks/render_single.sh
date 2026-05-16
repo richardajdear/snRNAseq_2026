@@ -89,7 +89,7 @@ if [[ -z "${SLURM_JOB_ID:-}" && -z "$LOCAL" ]]; then
             --job-name="render_${CONFIG_NAME}" \
             --output="${LOGS_DIR}/%j_render_${CONFIG_NAME}.out" \
             --error="${LOGS_DIR}/%j_render_${CONFIG_NAME}.err" \
-            --time=00:10:00 \
+            --time=00:30:00 \
             --mem=32G \
             --partition=icelake \
             --account=vertes-sl2-cpu \

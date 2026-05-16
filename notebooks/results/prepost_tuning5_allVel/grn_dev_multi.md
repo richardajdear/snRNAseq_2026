@@ -407,15 +407,15 @@ pass p\<0.05.
       Donor_1208  age=0.17  chem=V3
       Donor_594  age=0.25  chem=V3
       Donor_316  age=0.25  chem=V3
-      Donor_47  age=0.33  chem=V3
-      Donor_1171  age=0.33  chem=V3
-      Donor_1326  age=0.33  chem=V3
       Donor_648  age=0.33  chem=V3
-      Donor_503  age=0.50  chem=V3
+      Donor_1171  age=0.33  chem=V3
+      Donor_47  age=0.33  chem=V3
+      Donor_1326  age=0.33  chem=V3
       Donor_202  age=0.50  chem=V3
+      Donor_503  age=0.50  chem=V3
+      Donor_701  age=2.00  chem=V3
       Donor_734  age=2.00  chem=V3
       Donor_1319  age=2.00  chem=V3
-      Donor_701  age=2.00  chem=V3
       Donor_1400  age=3.00  chem=V3
       Donor_28  age=4.00  chem=V3
       Donor_1341  age=5.00  chem=V3
@@ -457,3 +457,47 @@ apparent all-cells signal depends on the chemistry mix.
                1750           1        14         17       20      ns
                1750           1        12         16       26      **
                1750           1        12         16       26       *
+
+## 6. Robustness (sign-aware sensitivity)
+
+The 4D sensitivity grid in Section 3 evaluated many (age-window ×
+condition) cells per `pb_version`; Section 3 reported only the best.
+This section asks the complementary question: **across all grid cells,
+how many give a positive Cohen’s d (childhood \> adolescence, supporting
+the hypothesis) vs negative?** A reliable biological signal should give
+consistently-positive d. Reported separately for CPM vs scANVI to tell
+us whether scANVI is introducing or removing the effect.
+
+### 6.1 Sign-aware grid-cell counts
+
+
+    Sign-aware robustness summary (per pb_version × condition):
+    # A tibble: 8 × 10
+      pb_version               condition   n_total n_pos n_neg n_pos_sig n_neg_sig
+      <chr>                    <chr>         <int> <int> <int>     <int>     <int>
+    1 all_cells_by_donor       cpm_4000        875   787    83         1         0
+    2 all_cells_by_donor       cpm_all         875   860    10        22         0
+    3 all_cells_by_donor       scanvi_4000     875   867     3       243         0
+    4 all_cells_by_donor       scanvi_all      875   868     2       233         0
+    5 by_cell_class_Excitatory cpm_4000        875   253   607         1         0
+    6 by_cell_class_Excitatory cpm_all         875   428   432         0         0
+    7 by_cell_class_Excitatory scanvi_4000     875    70   790         0        22
+    8 by_cell_class_Excitatory scanvi_all      875    48   812         0        48
+      median_d iqr_d pct_pos_of_sig
+         <dbl> <dbl>          <dbl>
+    1  0.264   0.217              1
+    2  0.255   0.182              1
+    3  0.420   0.347              1
+    4  0.421   0.331              1
+    5 -0.109   0.296              1
+    6 -0.00290 0.210             NA
+    7 -0.301   0.229              0
+    8 -0.361   0.221              0
+
+### 6.2 Robustness heatmap
+
+![](grn_dev_multi_files/figure-markdown_strict/cell-49-output-1.png)
+
+### 6.3 Cohen’s d distributions across the grid
+
+![](grn_dev_multi_files/figure-markdown_strict/cell-50-output-1.png)

@@ -1264,3 +1264,96 @@ if (nrow(v3_compare_df) > 0) {
     cat('Section 5.5 skipped (no chemistry variation).\n')
 }
 ```
+
+## 6. Robustness (sign-aware sensitivity)
+
+The 4D sensitivity grid in Section 3 evaluated many (age-window × condition)
+cells per `pb_version`; Section 3 reported only the best. This section asks
+the complementary question: **across all grid cells, how many give a
+positive Cohen's d (childhood > adolescence, supporting the hypothesis) vs
+negative?** A reliable biological signal should give consistently-positive
+d. Reported separately for CPM vs scANVI to tell us whether scANVI is
+introducing or removing the effect.
+
+### 6.1 Sign-aware grid-cell counts
+
+```{python}
+%%R
+
+if (exists('sens_list') && length(sens_list) > 0) {
+    robust_long <- bind_rows(sens_list, .id = 'pb_version') %>%
+        mutate(condition = as.character(condition)) %>%
+        group_by(pb_version, condition) %>%
+        summarize(
+            n_total   = n(),
+            n_pos     = sum(cohens_d > 0,             na.rm = TRUE),
+            n_neg     = sum(cohens_d < 0,             na.rm = TRUE),
+            n_pos_sig = sum(signif & cohens_d > 0,    na.rm = TRUE),
+            n_neg_sig = sum(signif & cohens_d < 0,    na.rm = TRUE),
+            median_d  = median(cohens_d, na.rm = TRUE),
+            iqr_d     = IQR(cohens_d,    na.rm = TRUE),
+            .groups   = 'drop') %>%
+        mutate(pct_pos_of_sig = ifelse((n_pos_sig + n_neg_sig) > 0,
+                                       n_pos_sig / (n_pos_sig + n_neg_sig),
+                                       NA_real_))
+    cat('\nSign-aware robustness summary (per pb_version × condition):\n')
+    print(robust_long, n = Inf, width = Inf)
+}
+```
+
+### 6.2 Robustness heatmap
+
+```{python}
+%%R -w 200 -h 130 -u mm -r 300
+
+if (exists('robust_long') && nrow(robust_long) > 0) {
+    robust_score <- robust_long %>%
+        mutate(score = ifelse(is.na(pct_pos_of_sig), 0,
+                              (2 * pct_pos_of_sig - 1) *
+                              log10(n_pos_sig + n_neg_sig + 1)))
+
+    p_robust <- robust_score %>%
+        ggplot(aes(x = condition, y = pb_version, fill = score)) +
+        geom_tile(color = 'white', linewidth = 0.4) +
+        geom_text(aes(label = sprintf('%d/%d\n%.0f%% pos',
+                                      n_pos_sig, n_pos_sig + n_neg_sig,
+                                      ifelse(is.na(pct_pos_of_sig), 50,
+                                             100 * pct_pos_of_sig))),
+                  size = 2.6, lineheight = 0.9) +
+        scale_fill_gradient2(low = '#2166AC', mid = 'white', high = '#B2182B',
+                             midpoint = 0,
+                             name = expression((2*pct[pos]-1) %*% log[10](n[sig]+1))) +
+        scale_y_discrete(limits = rev) +
+        theme_minimal(base_size = 10) +
+        theme(panel.grid      = element_blank(),
+              axis.title      = element_blank(),
+              axis.text.x     = element_text(size = 9, angle = 30, hjust = 1),
+              axis.text.y     = element_text(size = 9)) +
+        ggtitle('Robustness across the 4D grid',
+                subtitle = 'Cell labels: n_pos_sig / (n_pos_sig + n_neg_sig). Red = robust positive drop.')
+    suppressMessages(suppressWarnings(print(p_robust)))
+}
+```
+
+### 6.3 Cohen's d distributions across the grid
+
+```{python}
+%%R -w 200 -h 110 -u mm -r 300
+
+if (exists('sens_list') && length(sens_list) > 0) {
+    d_long <- bind_rows(sens_list, .id = 'pb_version') %>%
+        mutate(condition = as.character(condition))
+
+    p_d <- ggplot(d_long, aes(x = cohens_d, y = pb_version, fill = condition)) +
+        geom_violin(scale = 'width', linewidth = 0.2, alpha = 0.7,
+                    position = position_dodge(width = 0.7)) +
+        geom_vline(xintercept = 0, linetype = 'dashed', linewidth = 0.4) +
+        scale_y_discrete(limits = rev) +
+        scale_fill_brewer(palette = 'Pastel1', name = 'condition') +
+        labs(x = "Cohen's d across 4D-grid age windows", y = NULL) +
+        theme_minimal(base_size = 10) +
+        ggtitle('Distribution of Cohen\'s d across 4D-grid age windows',
+                subtitle = "Positive = childhood > adolescence.")
+    suppressMessages(suppressWarnings(print(p_d)))
+}
+```

@@ -195,8 +195,20 @@ def prepare_for_r(scores_df, adata, n_values):
 
 # ── High-level helpers for notebook data loading and pipeline execution ───────
 
-def setup_grn(ref_dir, adata):
+def setup_grn(ref_dir, adata, gene_filter_symbols=None):
     """Load the AHBA GRN and remap gene symbols to Ensembl IDs in adata.
+
+    Parameters
+    ----------
+    ref_dir : str
+        Directory containing the AHBA weights CSV.
+    adata : AnnData
+        Reference adata used to map GRN symbols → Ensembl IDs.
+    gene_filter_symbols : Iterable[str] | None
+        Optional set of gene **symbols** to restrict the GRN to. Applied BEFORE
+        the symbol→Ensembl mapping so it's robust across datasets with
+        different Ensembl annotations. Use for "well-detected in both V2 and
+        V3" experiments etc. Default None = no filter.
 
     Returns
     -------
@@ -209,6 +221,12 @@ def setup_grn(ref_dir, adata):
     from gene_mapping import map_grn_symbols_to_ensembl
     grn_file = os.path.join(ref_dir, 'ahba_dme_hcp_top8kgenes_weights.csv')
     ahba_GRN = get_ahba_GRN(path_to_ahba_weights=grn_file, use_weights=True)
+    if gene_filter_symbols is not None:
+        before = len(ahba_GRN)
+        keep_set = set(gene_filter_symbols)
+        ahba_GRN = ahba_GRN.loc[ahba_GRN['Gene'].isin(keep_set)].copy()
+        print(f'GRN symbol filter: {before} rows -> {len(ahba_GRN)} rows '
+              f'({ahba_GRN["Gene"].nunique()} unique symbols kept)')
     ahba_GRN = map_grn_symbols_to_ensembl(ahba_GRN, adata)
     grn_pivot = ahba_GRN.pivot_table(
         index='Network', columns='Gene', values='Importance', fill_value=0)
