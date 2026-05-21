@@ -1,0 +1,118 @@
+# Semi-supervised scANVI variant of prepost_tuning5_allVel.yaml.
+#
+# Sets cell_type_for_scanvi using the shared vocabulary
+# (reference/shared_fine_labels.csv) for ALL three datasets, instead of
+# Wang-only. See code/pipeline/shared_labels.py and
+# scripts/integration_qc/outputs/composition/interpretation.md for the
+# motivation.
+#
+# Reusing the trained scVI model from prepost_tuning5_allVel:
+#   scVI is fully unsupervised — the new labels do NOT change scVI training.
+#   You can reuse the existing scvi_model/ for speed:
+#
+#     mkdir -p <new_output_dir>/scvi_output/
+#     cp -r <old_output_dir>/scvi_output/scvi_model <new_output_dir>/scvi_output/
+#     bash code/pipeline/slurm/submit_pipeline.sh \
+#       code/pipeline/configs/prepost_tuning5_allVel_semisup.yaml
+#
+#   Where:
+#     <old_output_dir> = .../VelWangPsychAD_200k_prepost_noage_tuning5_allVel
+#     <new_output_dir> = .../VelWangPsychAD_200k_prepost_noage_tuning5_allVel_semisup
+#
+#   The pipeline will detect the existing scvi_model/, skip scVI re-training
+#   (overwrite_scvi defaults to false), and only retrain scANVI with the new
+#   labels (overwrite_scanvi: true forces this regardless of cached state).
+
+output_dir: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/VelWangPsychAD_200k_prepost_noage_tuning5_allVel_semisup
+
+sources:
+  - name: WANG
+    path: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/wang/wang.h5ad
+    dataset_type: Wang
+    cell_type_field: "Type_updated"
+    pfc_only: true
+    n_cells: 200000
+
+  - name: VELMESHEV
+    path: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/velmeshev/velmeshev.h5ad
+    dataset_type: Velmeshev
+    cell_type_field: "Cell_Type"
+    pfc_only: true
+
+  - name: PSYCHAD
+    paths:
+      aging: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_PsychAD/RNAseq/Aging_Cohort.h5ad
+      hbcc:  /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_PsychAD/RNAseq/HBCC_Cohort.h5ad
+    dataset_type: PsychAD
+    cell_type_field: "subclass"
+    pfc_only: true
+    n_cells: 200000
+
+age_downsample: true
+postnatal_only: false
+seed: 42
+
+scvi:
+  n_top_genes: 15000
+  hvg_flavor: pearson_residuals
+  hvg_batch_key: source-chemistry
+  batch_key: source-chemistry
+  n_latent: 30
+  n_hidden: 512
+  n_layers: 3
+  gene_likelihood: zinb
+  max_epochs_scvi: 400
+  batch_size: 512
+  early_stopping: true
+  early_stopping_patience: 20
+  num_workers: 16
+  transform_batch: WANG-multiome
+  continuous_covariate_keys: []
+  categorical_covariate_keys: [sex]
+  # Force scANVI retraining since the labels change; leave scVI cached.
+  overwrite_scanvi: true
+
+scanvi_label_transfer:
+  enabled: true
+  label_column: cell_type_for_scanvi
+  max_epochs_scanvi: 100
+  scanvi_lr: 0.0001
+  confidence_threshold: 0.5
+  # NEW — semi-supervised labels from all three datasets
+  use_shared_labels: true
+  shared_labels_csv: reference/shared_fine_labels.csv
+
+pseudobulk:
+  layers:
+    - name: counts
+      aggregation: sum
+    - name: scvi_normalized
+      aggregation: mean
+    - name: scanvi_normalized
+      aggregation: mean
+  min_cells: 100
+  groups:
+    - name: all_cells_by_donor
+      group_cols: [individual]
+    - name: by_cell_class
+      group_cols: [individual, cell_class]
+
+notebook:
+  template: notebooks/templates/grn_dev_multi.qmd
+  pseudobulk_inputs:
+    - name: by_cell_class_Excitatory
+      group: by_cell_class
+      cell_class_col: cell_class
+      cell_class_value: Excitatory
+    - name: all_cells_by_donor
+      group: all_cells_by_donor
+      cell_class_col: ''
+      cell_class_value: ''
+
+steps:
+  - downsample      # required — sets cell_type_for_scanvi from shared labels
+  - combine         # required — propagates new column into combined.h5ad
+  - scvi            # reuses existing scvi_model/ if present; retrains scANVI
+  - pseudobulk
+  - notebook
+overwrite: false

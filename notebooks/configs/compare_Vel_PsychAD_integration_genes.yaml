@@ -4,7 +4,12 @@
 # using source_filter to separate donor origins. Cell class labels are
 # cross-dataset harmonised (joint scANVI). Wang donors are excluded by the
 # source filters; all_cells is not available locally.
-EXPERIMENT_NAME: compare_Vel_PsychAD_integration
+# Same comparison as compare_Vel_PsychAD_integration.yaml, but with the GRN restricted to
+# genes well-detected in both 10x V2 and V3 chemistries (from the gene-detection
+# diagnostic at scripts/outputs/gene_detection_v2_vs_v3/). This is the
+# "gene-set intersection" experiment from Round 3 of the analysis plan.
+EXPERIMENT_NAME: compare_Vel_PsychAD_integration_genes
+GENE_FILTER_FILE: ${REPO_ROOT}/scripts/outputs/gene_detection_v2_vs_v3/well_detected_symbols.txt
 DATASETS:
   - name: Velmeshev
     by_cell_class: ${RDS_ROOT}/Cam_snRNAseq/integrated/VelWangPsychAD_200k_prepost_noage_tuning5_allVel/pseudobulk_output/by_cell_class.h5ad
@@ -18,7 +23,7 @@ DATASETS:
     source_filter:  PSYCHAD
 CELL_CLASSES: [Excitatory, Inhibitory, Astrocytes, Microglia, OPC, Oligos]
 CHILD_STARTS: [1, 2, 3, 4, 5]
-GAP_STARTS:   [8, 9, 10, 11, 12, 13, 14]
+GAP_STARTS:   [9, 10, 11, 12, 13, 14, 15]
 GAP_LENGTHS:  [0, 1, 2, 3, 4]
 ADOL_ENDS:    [18, 20, 22, 24, 26]
 N_VALUES:     [4000]

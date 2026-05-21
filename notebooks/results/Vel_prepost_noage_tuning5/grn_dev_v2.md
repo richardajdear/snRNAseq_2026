@@ -5,10 +5,13 @@
 
 ### 1.1 Environment
 
-    Environment : hpc
-      rds_dir  : /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc
-      code_dir : /home/rajd2/rds/hpc-work/snRNAseq_2026/code
-      ref_dir  : /home/rajd2/rds/hpc-work/snRNAseq_2026/reference
+    The autoreload extension is already loaded. To reload it, use:
+      %reload_ext autoreload
+
+    Environment : local
+      rds_dir  : /Users/richard/Git/snRNAseq_2026/rds-cam-psych-transc-Pb9UGUlrwWc
+      code_dir : /Users/richard/Git/snRNAseq_2026/code
+      ref_dir  : /Users/richard/Git/snRNAseq_2026/reference
 
 ### 1.2 Parameters
 
@@ -17,15 +20,16 @@ the `NOTEBOOK_PARAMS` environment variable (set automatically by
 `render_single.sh`). Defaults below are used when no config is provided
 (e.g. for interactive use).
 
-    Loading params from: /home/rajd2/rds/hpc-work/snRNAseq_2026/notebooks/results/Vel_prepost_noage_tuning5/grn_dev_v2_params.yaml
+    Loading params from: /Users/richard/Git/snRNAseq_2026/notebooks/results/Vel_prepost_noage_tuning5/grn_dev_v2_params.yaml
     EXPERIMENT_NAME  : Vel_prepost_noage_tuning5
-    PSEUDOBULK_FILE  : /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/Vel_prepost_noage_tuning5/pseudobulk_output/by_cell_class.h5ad
+    PSEUDOBULK_FILE  : /Users/richard/Git/snRNAseq_2026/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/Vel_prepost_noage_tuning5/pseudobulk_output/by_cell_class.h5ad
     Filter           : cell_class_original == 'Excitatory'
     N_VALUES         : [4000]
     CHILD_STARTS     : [1, 2, 3, 4, 5]
-    GAP_STARTS       : [10, 11, 12, 13, 14]
+    GAP_STARTS       : [8, 9, 10, 11, 12, 13, 14]
     GAP_LENGTHS      : [0, 1, 2, 3, 4]
     ADOL_ENDS        : [18, 20, 22, 24, 26]
+    SENSITIVITY_CPM  : True
 
 ### 1.3 Libraries
 
@@ -33,14 +37,14 @@ the `NOTEBOOK_PARAMS` environment variable (set automatically by
 
 ### 2.1 Load Pseudobulk Data
 
-    Loading: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/Vel_prepost_noage_tuning5/pseudobulk_output/by_cell_class.h5ad
+    Loading: /Users/richard/Git/snRNAseq_2026/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/Vel_prepost_noage_tuning5/pseudobulk_output/by_cell_class.h5ad
     Full shape: (428, 17663)
-    Cell classes: {'Excitatory': 76, 'Inhibitory': 75, 'OPC': 73, 'Microglia': 67, 'Astrocytes': 67, 'Glia': 36, 'Oligos': 34}
+    Cell classes: {'Excitatory': np.int64(76), 'Inhibitory': np.int64(75), 'OPC': np.int64(73), 'Astrocytes': np.int64(67), 'Microglia': np.int64(67), 'Glia': np.int64(36), 'Oligos': np.int64(34)}
 
     Subset shape : (76, 17663)
     Donors       : 76
     Age range    : -0.47 – 43.99 years
-    Sources      : {'VELMESHEV': 76}
+    Sources      : {'VELMESHEV': np.int64(76)}
 
 ### 2.2 GRN Setup
 
@@ -106,7 +110,7 @@ Two normalization methods × (all genes + top-N HVGs) = 10 conditions:
     Computing sparse-dense dot product...
     scanvi_4000 : 4000 HVGs, 2359 GRN genes
 
-    0
+    448
 
 ### 2.4 Build Scores DataFrame
 
@@ -169,47 +173,55 @@ Childhood = `[child_start, gap_start)`, Adolescence =
 
 ### 3.1 Compute Sensitivity Grid
 
-    Grid size: 625 combinations × 4 conditions
-    Significant (p<0.05): 274 / 2500
-    Valid cohens_d: 2380 / 2500  (NA rate: 4.8%)
+    scANVI grid: 875 combinations × 2 conditions
+      Significant (p<0.05): 11 / 1750
+      Valid cohens_d: 1690 / 1750  (NA rate: 3.4%)
 
-    Best HVG condition : scanvi_all
-    Best age range     : child [1, 14)  gap [14, 17)  adol [17, 20)
+    scANVI best HVG condition : scanvi_all
+    scANVI best age range     : child [1, 14)  gap [14, 17)  adol [17, 20)
       p = 0.0245  d = 1.09
+
+    CPM grid: 875 combinations × 2 conditions
+      Significant (p<0.05): 405 / 1750
+      Valid cohens_d: 1690 / 1750  (NA rate: 3.4%)
+
+    CPM best HVG condition    : cpm_all
+    CPM best age range        : child [1, 8)  gap [8, 8)  adol [8, 22)
+      p = 0.0019  d = 1.11
 
 ### 3.2 Cohen’s d
 
 ![](grn_dev_v2_files/figure-markdown_strict/cell-12-output-1.png)
 
+![](grn_dev_v2_files/figure-markdown_strict/cell-13-output-1.png)
+
 ### 3.3 P-value
-
-    R[write to console]: In addition: 
-    R[write to console]: Warning message:
-
-    R[write to console]: Removed 15 rows containing missing values or values outside the scale range
-    (`geom_text()`). 
-
-![](grn_dev_v2_files/figure-markdown_strict/cell-13-output-2.png)
-
-### 3.4 Minimum Detectable Effect Size
 
 ![](grn_dev_v2_files/figure-markdown_strict/cell-14-output-1.png)
 
+![](grn_dev_v2_files/figure-markdown_strict/cell-15-output-1.png)
+
+### 3.4 Minimum Detectable Effect Size
+
+![](grn_dev_v2_files/figure-markdown_strict/cell-16-output-1.png)
+
+![](grn_dev_v2_files/figure-markdown_strict/cell-17-output-1.png)
+
 ## 4. Developmental Trends (Best Age Range)
 
-All subsequent sections use the scANVI sensitivity-selected age
-boundaries for scANVI panels, and fixed boundaries (childhood 1–9,
-adolescence 9–25) for CPM panels.
+All subsequent sections use the sensitivity-selected age boundaries for
+each normalization method. When `SENSITIVITY_CPM` is disabled, CPM
+panels fall back to fixed boundaries (childhood 1–9, adolescence 9–25).
 
-    scANVI best range: Childhood = [1, 14)  Gap = [14, 17)  Adolescence = [17, 20)
-    CPM fixed range:  Childhood = [1, 9)  Adolescence = [9, 25)
+    scANVI best range : Childhood = [1, 14)  Gap = [14, 17)  Adolescence = [17, 20)
+    CPM best range    : Childhood = [1, 8)  Gap = [8, 8)  Adolescence = [8, 22)
 
 ### 4.1 Pseudobulk Trajectories + Stage Boxes
 
     `geom_smooth()` using method = 'loess' and formula = 'y ~ x'
     `geom_smooth()` using method = 'loess' and formula = 'y ~ x'
 
-![](grn_dev_v2_files/figure-markdown_strict/cell-17-output-2.png)
+![](grn_dev_v2_files/figure-markdown_strict/cell-20-output-2.png)
 
 ### 4.2 Unweighted Sum of Top-1000 C3+ Genes
 
@@ -219,7 +231,7 @@ adolescence 9–25) for CPM panels.
     `geom_smooth()` using method = 'loess' and formula = 'y ~ x'
     `geom_smooth()` using method = 'loess' and formula = 'y ~ x'
 
-![](grn_dev_v2_files/figure-markdown_strict/cell-19-output-2.png)
+![](grn_dev_v2_files/figure-markdown_strict/cell-22-output-2.png)
 
 ### 4.3 V2 vs V3 C3+ sanity check (CPM, age 5–25)
 

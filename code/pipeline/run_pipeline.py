@@ -246,6 +246,12 @@ def step_downsample(cfg: dict, output_dir: Path, overwrite: bool,
         if cfg.get('seed'):
             cmd += ['--seed', str(cfg['seed'])]
 
+        slt = cfg.get('scanvi_label_transfer', {})
+        if slt.get('use_shared_labels', False):
+            cmd += ['--use_shared_labels']
+            if slt.get('shared_labels_csv'):
+                cmd += ['--shared_labels_csv', str(slt['shared_labels_csv'])]
+
         _run(cmd, logger)
 
     return output_paths

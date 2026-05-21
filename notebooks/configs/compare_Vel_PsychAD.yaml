@@ -2,12 +2,12 @@
 EXPERIMENT_NAME: compare_Vel_PsychAD
 DATASETS:
   - name: Velmeshev
-    by_cell_class:  /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/Vel_prepost_noage_tuning5/pseudobulk_output/by_cell_class.h5ad
-    all_cells:      /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/Vel_prepost_noage_tuning5/pseudobulk_output/all_cells_by_donor.h5ad
+    by_cell_class:  ${RDS_ROOT}/Cam_snRNAseq/integrated/Vel_prepost_noage_tuning5/pseudobulk_output/by_cell_class.h5ad
+    all_cells:      ${RDS_ROOT}/Cam_snRNAseq/integrated/Vel_prepost_noage_tuning5/pseudobulk_output/all_cells_by_donor.h5ad
     cell_class_col: cell_class_original
   - name: PsychAD
-    by_cell_class:  /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/PsychAD_noage_tuning5/pseudobulk_output/by_cell_class.h5ad
-    all_cells:      /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/PsychAD_noage_tuning5/pseudobulk_output/all_cells_by_donor.h5ad
+    by_cell_class:  ${RDS_ROOT}/Cam_snRNAseq/integrated/PsychAD_noage_tuning5/pseudobulk_output/by_cell_class.h5ad
+    all_cells:      ${RDS_ROOT}/Cam_snRNAseq/integrated/PsychAD_noage_tuning5/pseudobulk_output/all_cells_by_donor.h5ad
     cell_class_col: cell_class
 CELL_CLASSES: [Excitatory, Inhibitory, Astrocytes, Microglia, OPC, Oligos]
 CHILD_STARTS: [1, 2, 3, 4, 5]

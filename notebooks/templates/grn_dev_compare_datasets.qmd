@@ -70,7 +70,9 @@ EXPERIMENT_NAME = _cfg.get('EXPERIMENT_NAME', 'compare_datasets_interactive')
 
 DATASETS = _cfg.get('DATASETS', [])
 if not DATASETS:
-    raise ValueError("Config must define DATASETS: a list of {name, by_cell_class, all_cells, cell_class_col} entries.")
+    raise ValueError("Config must define DATASETS: a list of {name, by_cell_class, all_cells, "
+                     "cell_class_col} entries. Optional: source_filter (obs['source'] value to "
+                     "keep), all_cells (path or null).")
 
 CELL_CLASSES = _cfg.get('CELL_CLASSES',
     ['Excitatory', 'Inhibitory', 'Astrocytes', 'Microglia', 'OPC', 'Oligos'])
@@ -88,13 +90,6 @@ GENE_FILTER_SYMBOLS = None
 if GENE_FILTER_FILE and os.path.exists(GENE_FILTER_FILE):
     with open(GENE_FILTER_FILE) as _fh:
         GENE_FILTER_SYMBOLS = sorted({line.strip() for line in _fh if line.strip()})
-
-# Optional joint-integration pseudobulks. When supplied, the template also
-# loads these (jointly-integrated across Wang+Vel+PsychAD via a single scANVI
-# model), filters them by source × chemistry, and adds parallel
-# `*-joint` subsets. Used to test whether joint scANVI changes results vs
-# the default per-dataset integration in DATASETS above.
-JOINT_PSEUDOBULK = _cfg.get('JOINT_PSEUDOBULK', None) or None
 
 # Optional: z-score per-donor C3+ score within each source × chemistry before
 # pooled-subset comparisons. Default False preserves the original behaviour
@@ -120,10 +115,6 @@ if GENE_FILTER_SYMBOLS is not None:
     print(f"  Loaded {len(GENE_FILTER_SYMBOLS):,} gene symbols for GRN restriction.")
 else:
     print(f"GENE_FILTER_FILE : (none — using full GRN)")
-if JOINT_PSEUDOBULK is not None:
-    print(f"JOINT_PSEUDOBULK : {JOINT_PSEUDOBULK}")
-else:
-    print(f"JOINT_PSEUDOBULK : (none — separately-integrated only)")
 print(f"ZSCORE_PER_SOURCE: {ZSCORE_PER_SOURCE}")
 ```
 
@@ -263,6 +254,11 @@ for d in DATASETS:
 
     # Load by_cell_class (in-memory; small file)
     bcc = sc.read_h5ad(d['by_cell_class'])
+    source_filter = d.get('source_filter')
+    if source_filter:
+        _sf_mask = bcc.obs['source'].astype(str).str.upper() == source_filter.upper()
+        bcc = bcc[_sf_mask].copy()
+        print(f"  [{name}] source_filter={source_filter!r} → {_sf_mask.sum()} / {len(_sf_mask)} samples retained")
 
     # Composition rows
     comp = (bcc.obs[['individual', cc_col, 'n_cells']]
@@ -294,19 +290,25 @@ for d in DATASETS:
         del sub
         gc.collect()
 
-    # All-cells projection (silent)
-    allc = sc.read_h5ad(d['all_cells'])
-    fdf_all = _project_subset(allc, ahba_GRN)
-    fdf_all['dataset'] = name
-    fdf_all['pb_kind'] = 'all_cells'
-    all_per_class_rows.append(fdf_all)
-    n_allc = allc.n_obs
+    # All-cells projection (optional — skip if path is null/absent)
+    n_allc = 'N/A'
+    if d.get('all_cells'):
+        allc = sc.read_h5ad(d['all_cells'])
+        if source_filter:
+            _af_mask = allc.obs['source'].astype(str).str.upper() == source_filter.upper()
+            allc = allc[_af_mask].copy()
+        fdf_all = _project_subset(allc, ahba_GRN)
+        fdf_all['dataset'] = name
+        fdf_all['pb_kind'] = 'all_cells'
+        all_per_class_rows.append(fdf_all)
+        n_allc = allc.n_obs
+        del allc
 
     # One-line summary per dataset
     print(f"[{name}] GRN genes={total_grn} | by_cell_class={bcc.shape}; "
           f"per-class n_donors={n_per_class}; all_cells n_donors={n_allc}")
 
-    del allc, bcc
+    del bcc
     gc.collect()
 
 combined_df = pd.concat(all_per_class_rows, ignore_index=True)
@@ -318,69 +320,6 @@ def _build_source_chem(df):
     return df['dataset'].astype(str) + '-' + chem
 combined_df['source_chem']    = _build_source_chem(combined_df)
 composition_df['source_chem'] = _build_source_chem(composition_df)
-
-# ── Optional: also load the jointly-integrated pseudobulks ───────────────────
-# When JOINT_PSEUDOBULK is set, load those h5ads and project the GRN against
-# the joint scANVI normalisation. Filter at notebook time by source × chemistry
-# to build parallel "*-joint" subsets in Section 4. Same donors as in the
-# separately-integrated subsets, but processed through a single joint scANVI
-# model — so any difference is purely due to the integration choice.
-combined_joint_df = pd.DataFrame()
-if JOINT_PSEUDOBULK is not None:
-    print(f"\nLoading jointly-integrated pseudobulks: {JOINT_PSEUDOBULK}")
-    _joint_per_class_rows = []
-    _bcc_path = JOINT_PSEUDOBULK['by_cell_class']
-    _all_path = JOINT_PSEUDOBULK['all_cells']
-
-    # GRN setup against the joint adata's gene set (silently).
-    _ref = sc.read_h5ad(_bcc_path, backed='r')
-    with _ctx.redirect_stdout(_io.StringIO()):
-        ahba_GRN_joint, total_grn_joint = setup_grn(
-            ref_dir, _ref, gene_filter_symbols=GENE_FILTER_SYMBOLS)
-    _ref.file.close()
-    del _ref
-    gc.collect()
-
-    bcc = sc.read_h5ad(_bcc_path)
-    cc_col_joint = 'cell_class' if 'cell_class' in bcc.obs.columns else next(
-        (c for c in ('cell_class_aligned', 'class') if c in bcc.obs.columns))
-    n_joint_per_class = {}
-    for cls in CELL_CLASSES:
-        mask = bcc.obs[cc_col_joint].astype(str) == cls
-        n = int(mask.sum())
-        if n < 5:
-            continue
-        sub = bcc[mask].copy()
-        fdf = _project_subset(sub, ahba_GRN_joint)
-        fdf['dataset'] = 'JOINT'
-        fdf['pb_kind'] = cls
-        _joint_per_class_rows.append(fdf)
-        n_joint_per_class[cls] = n
-        del sub
-        gc.collect()
-
-    allc = sc.read_h5ad(_all_path)
-    fdf_all_joint = _project_subset(allc, ahba_GRN_joint)
-    fdf_all_joint['dataset'] = 'JOINT'
-    fdf_all_joint['pb_kind'] = 'all_cells'
-    _joint_per_class_rows.append(fdf_all_joint)
-    print(f"[JOINT] GRN genes={total_grn_joint} | by_cell_class={bcc.shape}; "
-          f"per-class n_donors={n_joint_per_class}; all_cells n_donors={allc.n_obs}")
-    del allc, bcc
-    gc.collect()
-
-    combined_joint_df = pd.concat(_joint_per_class_rows, ignore_index=True)
-    # The joint adata has obs columns 'source' (PSYCHAD/VELMESHEV/WANG) and
-    # 'chemistry' (V2/V3/multiome). Build source_chem in camelcase to match
-    # the palette used elsewhere.
-    _src_map = {'PSYCHAD': 'PsychAD', 'VELMESHEV': 'Velmeshev', 'WANG': 'Wang'}
-    _src_cam = combined_joint_df['source'].astype(str).map(_src_map).fillna(
-        combined_joint_df['source'].astype(str))
-    _chem = (combined_joint_df['chemistry'].astype(str)
-             if 'chemistry' in combined_joint_df.columns else 'all')
-    combined_joint_df['source_chem'] = _src_cam + '-' + _chem
-    print(f"  joint source_chem split: "
-          f"{dict(combined_joint_df.groupby('source_chem')['individual'].nunique())}")
 
 # Canonical cell-class display order (user-requested).
 CELL_CLASS_ORDER = ['Excitatory', 'Inhibitory', 'Astrocytes',
@@ -636,27 +575,6 @@ if _v3_pool_rows:
     _subset_rows.append(_v3_pooled)
     print(f"V3-pooled n_donors: {_v3_pooled['individual'].nunique()}")
 
-# Joint-integrated parallel subsets when JOINT_PSEUDOBULK is set.
-if len(combined_joint_df):
-    for label, mask in [
-        ('Velmeshev-V2-joint',
-         (combined_joint_df['source_chem'] == 'Velmeshev-V2')),
-        ('Velmeshev-V3-joint',
-         (combined_joint_df['source_chem'] == 'Velmeshev-V3')),
-        ('PsychAD-V3-joint',
-         (combined_joint_df['source_chem'] == 'PsychAD-V3')),
-        ('V3-pooled-joint',
-         combined_joint_df['source_chem'].isin(
-             ['Velmeshev-V3', 'PsychAD-V3'])),
-        ('All-joint',
-         pd.Series(True, index=combined_joint_df.index)),
-    ]:
-        _sub_j = combined_joint_df[mask].copy()
-        if len(_sub_j):
-            _sub_j['subset'] = label
-            _subset_rows.append(_sub_j)
-            print(f"{label} n_donors: {_sub_j['individual'].nunique()}")
-
 subset_df = pd.concat(_subset_rows, ignore_index=True)
 
 # Optional: z-score the per-donor C3+ score within each source × chemistry
@@ -770,13 +688,8 @@ visible.
 if (exists('compare_summary') && nrow(compare_summary) > 0) {
     pb_present <- PB_KIND_ORDER[PB_KIND_ORDER %in% compare_summary$pb_kind]
 
-    # Pair each "X" column with its "X-joint" column when joint subsets exist,
-    # so the integration-effect comparison is visually adjacent.
-    col_order <- c('PsychAD-V3', 'PsychAD-V3-joint',
-                   'Velmeshev-all', 'All-joint',
-                   'Velmeshev-V2', 'Velmeshev-V2-joint',
-                   'Velmeshev-V3', 'Velmeshev-V3-joint',
-                   'V3-pooled',    'V3-pooled-joint')
+    col_order <- c('PsychAD-V3', 'Velmeshev-all',
+                   'Velmeshev-V2', 'Velmeshev-V3', 'V3-pooled')
     col_present <- col_order[col_order %in% compare_summary$subset]
 
     p_heat <- compare_summary %>%
@@ -1135,11 +1048,8 @@ if (exists('robust_long') && nrow(robust_long) > 0) {
                               log10(n_pos_sig + n_neg_sig + 1)))
 
     pb_present <- PB_KIND_ORDER[PB_KIND_ORDER %in% robust_score$pb_kind]
-    col_order <- c('PsychAD-V3', 'PsychAD-V3-joint',
-                   'Velmeshev-all', 'All-joint',
-                   'Velmeshev-V2', 'Velmeshev-V2-joint',
-                   'Velmeshev-V3', 'Velmeshev-V3-joint',
-                   'V3-pooled',    'V3-pooled-joint')
+    col_order <- c('PsychAD-V3', 'Velmeshev-all',
+                   'Velmeshev-V2', 'Velmeshev-V3', 'V3-pooled')
     col_present <- col_order[col_order %in% robust_score$subset]
 
     p_robust <- robust_score %>%
@@ -1179,11 +1089,8 @@ if (exists('all_sens') && length(all_sens) > 0) {
                condition == 'scanvi_all') %>%
         mutate(pb_kind = factor(pb_kind, levels = c('all_cells', 'Excitatory')))
 
-    col_order <- c('PsychAD-V3', 'PsychAD-V3-joint',
-                   'Velmeshev-all', 'All-joint',
-                   'Velmeshev-V2', 'Velmeshev-V2-joint',
-                   'Velmeshev-V3', 'Velmeshev-V3-joint',
-                   'V3-pooled',    'V3-pooled-joint')
+    col_order <- c('PsychAD-V3', 'Velmeshev-all',
+                   'Velmeshev-V2', 'Velmeshev-V3', 'V3-pooled')
     col_present <- col_order[col_order %in% d_long$subset]
     d_long <- d_long %>%
         mutate(subset = factor(subset, levels = col_present))
@@ -1218,11 +1125,6 @@ if (exists('all_sens') && length(all_sens) > 0) {
     # Subsets to show in 5.4 — exclude pure all-source aggregates so we focus
     # on the chemistry-level breakdowns.
     show_subsets <- c('Velmeshev-V2', 'Velmeshev-V3', 'PsychAD-V3', 'V3-pooled')
-    if (exists('combined_joint_df') && nrow(combined_joint_df) > 0) {
-        show_subsets <- c(show_subsets,
-                          'Velmeshev-V2-joint', 'Velmeshev-V3-joint',
-                          'PsychAD-V3-joint',   'V3-pooled-joint')
-    }
     keep_keys <- intersect(paste0(show_subsets, '__Excitatory'),
                            names(all_sens))
     if (length(keep_keys) > 0) {

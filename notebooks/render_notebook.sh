@@ -35,6 +35,20 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 [[ -n "$PARAMS_FILE" && "$PARAMS_FILE" != /* ]] && PARAMS_FILE="${REPO_ROOT}/${PARAMS_FILE}"
 [[ -n "$OUTPUT_DIR"  && "$OUTPUT_DIR"  != /* ]] && OUTPUT_DIR="${REPO_ROOT}/${OUTPUT_DIR}"
 
+# Resolve RDS_ROOT and substitute path placeholders in the params snapshot.
+# This allows config YAMLs to use ${RDS_ROOT} and ${REPO_ROOT} instead of
+# hardcoded absolute paths, with the correct root chosen per environment.
+if command -v singularity >/dev/null 2>&1; then
+    RDS_ROOT="/home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc"
+else
+    RDS_ROOT="${REPO_ROOT}/rds-cam-psych-transc-Pb9UGUlrwWc"
+fi
+export RDS_ROOT
+if [[ -n "$PARAMS_FILE" ]]; then
+    _tmp=$(mktemp)
+    envsubst '${RDS_ROOT} ${REPO_ROOT}' < "$PARAMS_FILE" > "$_tmp" && mv "$_tmp" "$PARAMS_FILE"
+fi
+
 NOTEBOOK_DIR="$(dirname "$NOTEBOOK")"
 NOTEBOOK_FILE="$(basename "$NOTEBOOK")"
 
@@ -100,6 +114,14 @@ else
         echo "Error: quarto not found in PATH (and singularity is not available)" >&2
         exit 1
     fi
+    # Auto-detect QUARTO_PYTHON from the scanpy conda env if not already set
+    if [[ -z "${QUARTO_PYTHON:-}" ]]; then
+        _LOCAL_PYTHON="${HOME}/mambaforge/envs/scanpy/bin/python"
+        if [[ -x "$_LOCAL_PYTHON" ]]; then
+            export QUARTO_PYTHON="$_LOCAL_PYTHON"
+            echo "Auto-detected QUARTO_PYTHON: $QUARTO_PYTHON"
+        fi
+    fi
     QUARTO_CMD=(quarto render "${RENDER_NOTEBOOK}")
     [[ -n "$OUTPUT_FILE" ]] && QUARTO_CMD+=(--output "${OUTPUT_FILE}")
     [[ -n "$CACHE_FLAG"  ]] && QUARTO_CMD+=("$CACHE_FLAG")
@@ -114,19 +136,22 @@ fi
 [[ "${_CLEANUP_NOTEBOOK}" -eq 1 ]] && rm -f "${RENDER_NOTEBOOK}"
 
 _ELAPSED=$(( $(date +%s) - _JOB_START ))
-_TIME_LIMIT=$(squeue -j "${SLURM_JOB_ID}" -h -o "%l" 2>/dev/null || echo "N/A")
+_TIME_LIMIT="N/A"
 _MAX_RSS_GB="N/A"
-if _tmp=$(sstat --jobs="${SLURM_JOB_ID}.batch" --format=MaxRSS --noheader 2>/dev/null); then
-    _MAX_RSS_GB=$(echo "$_tmp" | awk 'NR==1 && NF {
-        val = $1
-        unit = substr(val, length(val))
-        num = substr(val, 1, length(val)-1) + 0
-        if      (unit == "K") gb = num / 1048576
-        else if (unit == "M") gb = num / 1024
-        else if (unit == "G") gb = num
-        else                  gb = num / 1073741824
-        printf "%.1f G", gb
-    }')
+if [[ -n "${SLURM_JOB_ID:-}" ]]; then
+    _TIME_LIMIT=$(squeue -j "${SLURM_JOB_ID}" -h -o "%l" 2>/dev/null || echo "N/A")
+    if _tmp=$(sstat --jobs="${SLURM_JOB_ID}.batch" --format=MaxRSS --noheader 2>/dev/null); then
+        _MAX_RSS_GB=$(echo "$_tmp" | awk 'NR==1 && NF {
+            val = $1
+            unit = substr(val, length(val))
+            num = substr(val, 1, length(val)-1) + 0
+            if      (unit == "K") gb = num / 1048576
+            else if (unit == "M") gb = num / 1024
+            else if (unit == "G") gb = num
+            else                  gb = num / 1073741824
+            printf "%.1f G", gb
+        }')
+    fi
 fi
 _ALLOC_MEM_GB=$(( ${SLURM_MEM_PER_NODE:-0} / 1024 ))
 echo "========================================"

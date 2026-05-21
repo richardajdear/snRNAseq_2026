@@ -52,7 +52,7 @@ plot_age <- function(df, color_var="source", nrow=2, facet_colors=NULL, ylims=NU
     p
 }
 
-plot_boxes <- function(df, color_var="source", facet_colors=NULL, nrow=2, scales='free_y', ylims=NULL, expand=c(.1,0)) {
+plot_boxes <- function(df, color_var="source", facet_colors=NULL, nrow=2, scales='free_y', ylims=NULL, expand=c(.1,0), pt_size=1) {
     # Ensure source order if present and being used
     if ("source" %in% names(df)) {
         df <- df %>%
@@ -71,7 +71,7 @@ plot_boxes <- function(df, color_var="source", facet_colors=NULL, nrow=2, scales
     
     p <- df_sum %>%
     ggplot(aes(x=age_range, y=value)) + 
-    geom_quasirandom(aes(color=.data[[color_var]]), alpha=0.8, size=1) +
+    geom_quasirandom(aes(color=.data[[color_var]]), alpha=0.8, size=pt_size) +
     geom_boxplot(aes(fill=highlight), alpha=.4, outlier.shape=NA) +
     xlab('Donor Age') +
     scale_y_continuous(name='Pseudobulked Expression (CPM)', limits=ylims, expand=expand, labels=function(y) paste0(round(y/1e3, 1), 'K')) +

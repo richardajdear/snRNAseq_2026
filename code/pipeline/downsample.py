@@ -95,6 +95,16 @@ def main():
                              "Omit or set to null in config to use all cells.")
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
 
+    parser.add_argument("--use_shared_labels", action='store_true',
+                        help="Apply reference/shared_fine_labels.csv to set "
+                             "cell_type_for_scanvi for ALL dataset types "
+                             "(semi-supervised scANVI). Default off preserves "
+                             "the legacy Wang-only-supervised behaviour.")
+    parser.add_argument("--shared_labels_csv", type=str,
+                        default='reference/shared_fine_labels.csv',
+                        help="Path to the shared label CSV. Relative paths are "
+                             "resolved against the repo root.")
+
     args = parser.parse_args()
 
     log_mem("Start")
@@ -286,24 +296,55 @@ def main():
 
     # =========================================================================
     # Step 3b: Build cell_type_for_scanvi column
-    #   WANG cells: keep their fine-grained cell_type_raw as the reference label
-    #   All other datasets: "Unknown" (treated as unlabelled by scANVI)
     # =========================================================================
-    adata.obs['cell_type_for_scanvi'] = 'Unknown'
-    if args.dataset_type == 'Wang':
-        broad = {'Unknown', 'unknown', 'Excitatory', 'Inhibitory', 'Glia', 'Other'}
-        labeled_mask = ~adata.obs['cell_type_raw'].isin(broad)
-        adata.obs.loc[labeled_mask, 'cell_type_for_scanvi'] = \
-            adata.obs.loc[labeled_mask, 'cell_type_raw']
-        counts = adata.obs.loc[labeled_mask, 'cell_type_for_scanvi'].value_counts()
-        print(f"\ncell_type_for_scanvi: {labeled_mask.sum()} labelled WANG cells "
-              f"across {len(counts)} types")
-        for lbl, n in counts.items():
-            flag = "  *** LOW (<15)" if n < 15 else ""
-            print(f"  {lbl:35s}  {n:5d}{flag}")
-        n_broad = (~labeled_mask).sum()
-        if n_broad:
-            print(f"  {'(broad/excluded → Unknown)':35s}  {n_broad:5d}")
+    if args.use_shared_labels:
+        # Semi-supervised mode: translate native fine labels into a shared
+        # vocabulary using reference/shared_fine_labels.csv, so scANVI's
+        # classifier is supervised by examples from all three datasets.
+        # See code/pipeline/shared_labels.py for the API.
+        from pipeline.shared_labels import (
+            load_shared_label_map, apply_shared_labels)
+
+        csv_path = args.shared_labels_csv
+        if not os.path.isabs(csv_path):
+            repo_root = os.path.dirname(os.path.dirname(
+                os.path.dirname(os.path.abspath(__file__))))
+            csv_path = os.path.join(repo_root, csv_path)
+
+        mapping = load_shared_label_map(csv_path)
+        # cell_type_raw is set by read_data.py for every dataset_type and holds
+        # the native fine label (Vel cell_type, Wang Type-updated, PsychAD subclass).
+        if args.dataset_type == 'Generic':
+            raise ValueError(
+                "--use_shared_labels requires --dataset_type in "
+                "{Wang, Velmeshev, PsychAD}")
+        labels, summary = apply_shared_labels(
+            adata, args.dataset_type, 'cell_type_raw', mapping)
+        adata.obs['cell_type_for_scanvi'] = labels.values
+        print(f"\ncell_type_for_scanvi ({args.dataset_type}, shared vocabulary): "
+              f"{summary['n_mapped']}/{summary['n_cells']} cells mapped "
+              f"({summary['coverage_fraction']:.1%}) across "
+              f"{summary['n_shared_labels']} shared labels")
+        if summary['n_unmapped']:
+            print(f"  Top unmapped native labels: {summary['unmapped_top10']}")
+    else:
+        #   WANG cells: keep their fine-grained cell_type_raw as the reference label
+        #   All other datasets: "Unknown" (treated as unlabelled by scANVI)
+        adata.obs['cell_type_for_scanvi'] = 'Unknown'
+        if args.dataset_type == 'Wang':
+            broad = {'Unknown', 'unknown', 'Excitatory', 'Inhibitory', 'Glia', 'Other'}
+            labeled_mask = ~adata.obs['cell_type_raw'].isin(broad)
+            adata.obs.loc[labeled_mask, 'cell_type_for_scanvi'] = \
+                adata.obs.loc[labeled_mask, 'cell_type_raw']
+            counts = adata.obs.loc[labeled_mask, 'cell_type_for_scanvi'].value_counts()
+            print(f"\ncell_type_for_scanvi: {labeled_mask.sum()} labelled WANG cells "
+                  f"across {len(counts)} types")
+            for lbl, n in counts.items():
+                flag = "  *** LOW (<15)" if n < 15 else ""
+                print(f"  {lbl:35s}  {n:5d}{flag}")
+            n_broad = (~labeled_mask).sum()
+            if n_broad:
+                print(f"  {'(broad/excluded → Unknown)':35s}  {n_broad:5d}")
 
     # =========================================================================
     # Step 3c: Add log-postconceptional-age column for scVI covariate

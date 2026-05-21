@@ -94,6 +94,12 @@ GAP_STARTS   = _cfg.get('GAP_STARTS',   [10, 11, 12, 13, 14])  # = childhood upp
 GAP_LENGTHS  = _cfg.get('GAP_LENGTHS',  [0, 1, 2, 3, 4])       # adol_start = gap_start + gap_length
 ADOL_ENDS    = _cfg.get('ADOL_ENDS',    [18, 20, 22, 24, 26])
 
+# --- Sensitivity options ---
+# SENSITIVITY_CPM: when True, compute a full 4D sensitivity grid for CPM
+#   conditions (same axes as scANVI) and use the best CPM age range in
+#   section 4.  When False, CPM panels use fixed boundaries [1,9) / [9,25).
+SENSITIVITY_CPM = _cfg.get('SENSITIVITY_CPM', True)
+
 print(f"EXPERIMENT_NAME  : {EXPERIMENT_NAME}")
 print(f"PSEUDOBULK_FILE  : {PSEUDOBULK_FILE}")
 if CELL_CLASS_COL and CELL_CLASS_VALUE:
@@ -105,6 +111,7 @@ print(f"CHILD_STARTS     : {CHILD_STARTS}")
 print(f"GAP_STARTS       : {GAP_STARTS}")
 print(f"GAP_LENGTHS      : {GAP_LENGTHS}")
 print(f"ADOL_ENDS        : {ADOL_ENDS}")
+print(f"SENSITIVITY_CPM  : {SENSITIVITY_CPM}")
 ```
 
 ### 1.3 Libraries
@@ -309,51 +316,93 @@ Childhood = `[child_start, gap_start)`, Adolescence = `[gap_start + gap_length, 
 ### 3.1 Compute Sensitivity Grid
 
 ```{python}
-%%R -i final_df -i code_dir -i CHILD_STARTS -i GAP_STARTS -i GAP_LENGTHS -i ADOL_ENDS -i N_VALUES
+%%R -i final_df -i code_dir -i CHILD_STARTS -i GAP_STARTS -i GAP_LENGTHS -i ADOL_ENDS -i N_VALUES -i SENSITIVITY_CPM
 
 source(file.path(code_dir, 'plotting', 'hvg_plots.r'))
 source(file.path(code_dir, 'plotting', 'sensitivity_gap_plots.r'))
 
-selected_conds <- c('cpm_all', paste0('cpm_', N_VALUES),
-                    'scanvi_all',  paste0('scanvi_', N_VALUES))
+selected_conds_scanvi <- c('scanvi_all', paste0('scanvi_', N_VALUES))
+selected_conds_cpm    <- c('cpm_all',    paste0('cpm_',    N_VALUES))
+selected_conds_all    <- c(selected_conds_cpm, selected_conds_scanvi)
 
-df <- prepare_r_data_single(final_df, condition_order = selected_conds)
+df <- prepare_r_data_single(final_df, condition_order = selected_conds_all)
 
-sens_4d <- compute_sensitivity_4d(
-    df, selected_conds,
+# ── scANVI sensitivity ─────────────────────────────────────────────────────────
+sens_4d_scanvi <- compute_sensitivity_4d(
+    df, selected_conds_scanvi,
     child_starts = CHILD_STARTS,
     gap_starts   = GAP_STARTS,
     gap_lengths  = GAP_LENGTHS,
     adol_ends    = ADOL_ENDS)
 
-cat(sprintf("Grid size: %d combinations × %d conditions\n",
-            nrow(sens_4d) / length(selected_conds), length(selected_conds)))
-cat(sprintf("Significant (p<0.05): %d / %d\n",
-            sum(sens_4d$signif, na.rm=TRUE), nrow(sens_4d)))
-n_valid_d <- sum(!is.na(sens_4d$cohens_d))
-cat(sprintf("Valid cohens_d: %d / %d  (NA rate: %.1f%%)\n",
-            n_valid_d, nrow(sens_4d), 100 * (1 - n_valid_d / max(nrow(sens_4d), 1))))
+cat(sprintf("scANVI grid: %d combinations × %d conditions\n",
+            nrow(sens_4d_scanvi) / length(selected_conds_scanvi), length(selected_conds_scanvi)))
+cat(sprintf("  Significant (p<0.05): %d / %d\n",
+            sum(sens_4d_scanvi$signif, na.rm=TRUE), nrow(sens_4d_scanvi)))
+n_valid_d <- sum(!is.na(sens_4d_scanvi$cohens_d))
+cat(sprintf("  Valid cohens_d: %d / %d  (NA rate: %.1f%%)\n",
+            n_valid_d, nrow(sens_4d_scanvi),
+            100 * (1 - n_valid_d / max(nrow(sens_4d_scanvi), 1))))
 if (n_valid_d == 0) {
-  cat("WARNING: all cohens_d are NA — check age_years range and donor counts\n")
+  cat("  WARNING: all cohens_d are NA — check age_years range and donor counts\n")
   cat(sprintf("  age_years range in df: %.2f – %.2f\n", min(df$age_years), max(df$age_years)))
   cat(sprintf("  n donors in df: %d unique\n", length(unique(df$individual))))
 }
 
-best <- select_best_4d(sens_4d, baseline = 'scanvi_all')
+best_scanvi      <- select_best_4d(sens_4d_scanvi, baseline = 'scanvi_all')
+best_cond_scanvi <- best_scanvi$condition
+best_cs          <- best_scanvi$child_start
+best_ce          <- best_scanvi$gap_start
+best_as          <- best_scanvi$adol_start
+best_ae          <- best_scanvi$adol_end
 
-cat(sprintf("\nBest HVG condition : %s\n", best$condition))
+cat(sprintf("\nscANVI best HVG condition : %s\n", best_cond_scanvi))
 cat(sprintf(
-    "Best age range     : child [%d, %d)  gap [%d, %d)  adol [%d, %d)\n  p = %.4f  d = %.2f\n",
-    best$child_start, best$gap_start,
-    best$gap_start,   best$adol_start,
-    best$adol_start,  best$adol_end,
-    best$p_value, best$cohens_d))
+    "scANVI best age range     : child [%d, %d)  gap [%d, %d)  adol [%d, %d)\n  p = %.4f  d = %.2f\n",
+    best_cs, best_ce, best_ce, best_as, best_as, best_ae,
+    best_scanvi$p_value, best_scanvi$cohens_d))
 
-best_cond <- best$condition
-best_cs   <- best$child_start
-best_ce   <- best$gap_start
-best_as   <- best$adol_start
-best_ae   <- best$adol_end
+# ── CPM sensitivity ────────────────────────────────────────────────────────────
+if (SENSITIVITY_CPM) {
+    sens_4d_cpm <- compute_sensitivity_4d(
+        df, selected_conds_cpm,
+        child_starts = CHILD_STARTS,
+        gap_starts   = GAP_STARTS,
+        gap_lengths  = GAP_LENGTHS,
+        adol_ends    = ADOL_ENDS)
+
+    cat(sprintf("\nCPM grid: %d combinations × %d conditions\n",
+                nrow(sens_4d_cpm) / length(selected_conds_cpm), length(selected_conds_cpm)))
+    cat(sprintf("  Significant (p<0.05): %d / %d\n",
+                sum(sens_4d_cpm$signif, na.rm=TRUE), nrow(sens_4d_cpm)))
+    n_valid_d_cpm <- sum(!is.na(sens_4d_cpm$cohens_d))
+    cat(sprintf("  Valid cohens_d: %d / %d  (NA rate: %.1f%%)\n",
+                n_valid_d_cpm, nrow(sens_4d_cpm),
+                100 * (1 - n_valid_d_cpm / max(nrow(sens_4d_cpm), 1))))
+
+    best_cpm      <- select_best_4d(sens_4d_cpm, baseline = 'cpm_all')
+    best_cond_cpm <- best_cpm$condition
+    best_cs_cpm   <- best_cpm$child_start
+    best_ce_cpm   <- best_cpm$gap_start
+    best_as_cpm   <- best_cpm$adol_start
+    best_ae_cpm   <- best_cpm$adol_end
+
+    cat(sprintf("\nCPM best HVG condition    : %s\n", best_cond_cpm))
+    cat(sprintf(
+        "CPM best age range        : child [%d, %d)  gap [%d, %d)  adol [%d, %d)\n  p = %.4f  d = %.2f\n",
+        best_cs_cpm, best_ce_cpm, best_ce_cpm, best_as_cpm, best_as_cpm, best_ae_cpm,
+        best_cpm$p_value, best_cpm$cohens_d))
+} else {
+    best_cond_cpm <- 'cpm_all'
+    best_cs_cpm   <- 1L
+    best_ce_cpm   <- 9L
+    best_as_cpm   <- 9L
+    best_ae_cpm   <- 25L
+    cat("\nCPM sensitivity disabled — using fixed boundaries: child [1, 9)  adol [9, 25)\n")
+}
+
+# backwards-compat alias
+best_cond <- best_cond_scanvi
 ```
 
 ### 3.2 Cohen's d
@@ -361,7 +410,13 @@ best_ae   <- best$adol_end
 ```{python}
 %%R -w 220 -h 160 -u mm -r 300
 
-plot_4d_cohens_d(sens_4d, filter_cond = best_cond)
+if (exists('sens_4d_cpm')) plot_4d_cohens_d(sens_4d_cpm, filter_cond = best_cond_cpm)
+```
+
+```{python}
+%%R -w 220 -h 160 -u mm -r 300
+
+plot_4d_cohens_d(sens_4d_scanvi, filter_cond = best_cond_scanvi)
 ```
 
 ### 3.3 P-value
@@ -369,7 +424,13 @@ plot_4d_cohens_d(sens_4d, filter_cond = best_cond)
 ```{python}
 %%R -w 220 -h 160 -u mm -r 300
 
-plot_4d_pvalue(sens_4d, filter_cond = best_cond)
+if (exists('sens_4d_cpm')) plot_4d_pvalue(sens_4d_cpm, filter_cond = best_cond_cpm)
+```
+
+```{python}
+%%R -w 220 -h 160 -u mm -r 300
+
+plot_4d_pvalue(sens_4d_scanvi, filter_cond = best_cond_scanvi)
 ```
 
 ### 3.4 Minimum Detectable Effect Size
@@ -377,21 +438,34 @@ plot_4d_pvalue(sens_4d, filter_cond = best_cond)
 ```{python}
 %%R -w 220 -h 160 -u mm -r 300
 
-plot_4d_power(sens_4d, filter_cond = best_cond)
+if (exists('sens_4d_cpm')) plot_4d_power(sens_4d_cpm, filter_cond = best_cond_cpm)
+```
+
+```{python}
+%%R -w 220 -h 160 -u mm -r 300
+
+plot_4d_power(sens_4d_scanvi, filter_cond = best_cond_scanvi)
 ```
 
 ## 4. Developmental Trends (Best Age Range)
 
-All subsequent sections use the scANVI sensitivity-selected age boundaries for scANVI panels,
-and fixed boundaries (childhood 1–9, adolescence 9–25) for CPM panels.
+All subsequent sections use the sensitivity-selected age boundaries for each normalization
+method.  When `SENSITIVITY_CPM` is disabled, CPM panels fall back to fixed boundaries
+(childhood 1–9, adolescence 9–25).
 
 ```{python}
 %%R
 
 cat(sprintf(
-    "scANVI best range: Childhood = [%d, %d)  Gap = [%d, %d)  Adolescence = [%d, %d)\n",
+    "scANVI best range : Childhood = [%d, %d)  Gap = [%d, %d)  Adolescence = [%d, %d)\n",
     best_cs, best_ce, best_ce, best_as, best_as, best_ae))
-cat("CPM fixed range:  Childhood = [1, 9)  Adolescence = [9, 25)\n")
+if (exists('sens_4d_cpm')) {
+    cat(sprintf(
+        "CPM best range    : Childhood = [%d, %d)  Gap = [%d, %d)  Adolescence = [%d, %d)\n",
+        best_cs_cpm, best_ce_cpm, best_ce_cpm, best_as_cpm, best_as_cpm, best_ae_cpm))
+} else {
+    cat("CPM fixed range   : Childhood = [1, 9)  Adolescence = [9, 25)\n")
+}
 ```
 
 ```{python}
@@ -463,8 +537,6 @@ make_box_plot <- function(df_boxes_data, y_label, title) {
 #| warning: false
 %%R -i TOTAL_GENES -i N_VALUES -w 280 -h 280 -u mm -r 300
 
-FIX_CS <- 1L; FIX_CE <- 9L; FIX_AS <- 9L; FIX_AE <- 25L
-
 facet_levels <- c(paste0("all\n(", TOTAL_GENES, ")"), rev(as.character(N_VALUES)))
 
 decorate_hvg_facets <- function(data_tbl) {
@@ -512,20 +584,21 @@ prep_boxes <- function(df_in, flavor_str, cs, ce, as_, ae) {
         ungroup()
 }
 
-# CPM: fixed boundaries --------------------------------------------------------
+# CPM: sensitivity-selected boundaries ----------------------------------------
 pb_cpm    <- prep_pb(df_dec, 'cpm')
-boxes_cpm <- prep_boxes(df_dec, 'cpm', FIX_CS, FIX_CE, FIX_AS, FIX_AE)
+boxes_cpm <- prep_boxes(df_dec, 'cpm', best_cs_cpm, best_ce_cpm, best_as_cpm, best_ae_cpm)
 
 p_traj_cpm <- make_traj_plot(
-    pb_cpm, FIX_CS, FIX_CE, FIX_AS, FIX_AE,
+    pb_cpm, best_cs_cpm, best_ce_cpm, best_as_cpm, best_ae_cpm,
     'C3+ score (z-scored)',
     'CPM — C3+ age trajectories',
-    sprintf('Childhood [%d, %d), Adolescence [%d, %d)', FIX_CS, FIX_CE, FIX_AS, FIX_AE))
+    sprintf('Childhood [%d, %d), Adolescence [%d, %d)',
+            best_cs_cpm, best_ce_cpm, best_as_cpm, best_ae_cpm))
 
 p_box_cpm <- make_box_plot(
     boxes_cpm, 'C3+ score (z-scored)',
     sprintf('CPM: Childhood [%d, %d) vs Adolescence [%d, %d)',
-            FIX_CS, FIX_CE, FIX_AS, FIX_AE))
+            best_cs_cpm, best_ce_cpm, best_as_cpm, best_ae_cpm))
 
 # scANVI: sensitivity-selected boundaries --------------------------------------
 pb_scanvi    <- prep_pb(df_dec, 'scanvi')
@@ -589,8 +662,6 @@ del _top_c3, _top_c3_all, _top_c3_hvg, _hvg4000, _scanvi_arr, _idx, _cpm_raw_X
 #| warning: false
 %%R -i unweighted_df -w 280 -h 280 -u mm -r 300
 
-FIX_CS <- 1L; FIX_CE <- 9L; FIX_AS <- 9L; FIX_AE <- 25L
-
 df42 <- unweighted_df %>%
     mutate(
         flavor    = ifelse(grepl('cpm', condition), 'cpm', 'scanvi'),
@@ -626,18 +697,19 @@ prep_boxes42 <- function(flavor_str, cs, ce, as_, ae) {
         ungroup()
 }
 
-# CPM panel (fixed boundaries)
+# CPM panel (sensitivity-selected boundaries)
 p_traj42_cpm <- make_traj_plot(
-    prep_pb42('cpm'), FIX_CS, FIX_CE, FIX_AS, FIX_AE,
+    prep_pb42('cpm'), best_cs_cpm, best_ce_cpm, best_as_cpm, best_ae_cpm,
     'Sum expression (z-scored)',
     'CPM — top-1000 C3+ gene sum',
-    sprintf('Childhood [%d, %d), Adolescence [%d, %d)', FIX_CS, FIX_CE, FIX_AS, FIX_AE))
+    sprintf('Childhood [%d, %d), Adolescence [%d, %d)',
+            best_cs_cpm, best_ce_cpm, best_as_cpm, best_ae_cpm))
 
 p_box42_cpm <- make_box_plot(
-    prep_boxes42('cpm', FIX_CS, FIX_CE, FIX_AS, FIX_AE),
+    prep_boxes42('cpm', best_cs_cpm, best_ce_cpm, best_as_cpm, best_ae_cpm),
     'Sum expression (z-scored)',
     sprintf('CPM: Childhood [%d, %d) vs Adolescence [%d, %d)',
-            FIX_CS, FIX_CE, FIX_AS, FIX_AE))
+            best_cs_cpm, best_ce_cpm, best_as_cpm, best_ae_cpm))
 
 # scANVI panel (sensitivity-selected boundaries)
 p_traj42_scanvi <- make_traj_plot(

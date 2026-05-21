@@ -5,6 +5,9 @@
 #
 # Requires: hvg_plots.r loaded first (for add_hvg_columns, condition_levels)
 
+if (!exists('%||%', mode = 'function'))
+    `%||%` <- function(x, y) if (!is.null(x)) x else y
+
 # ── Gap-model Sensitivity Computation ────────────────────────────────────────
 
 compute_sensitivity_gap <- function(df, selected_conds,
