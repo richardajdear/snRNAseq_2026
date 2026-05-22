@@ -1,6 +1,6 @@
 # Template: grn_dev_v2
 EXPERIMENT_NAME: prepost_tuning5_allVel
-PSEUDOBULK_FILE: /Users/richard/Git/snRNAseq_2026/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/VelWangPsychAD_200k_prepost_noage_tuning5_allVel/pseudobulk_output/by_cell_class.h5ad
+PSEUDOBULK_FILE: ${RDS_ROOT}/Cam_snRNAseq/integrated/VelWangPsychAD_200k_prepost_noage_tuning5_allVel/pseudobulk_output/by_cell_class.h5ad
 CELL_CLASS_COL:   cell_class
 CELL_CLASS_VALUE: Excitatory
 N_VALUES:      [4000]

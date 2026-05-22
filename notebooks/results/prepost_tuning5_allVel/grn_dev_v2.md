@@ -5,10 +5,10 @@
 
 ### 1.1 Environment
 
-    Environment : hpc
-      rds_dir  : /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc
-      code_dir : /home/rajd2/rds/hpc-work/snRNAseq_2026/code
-      ref_dir  : /home/rajd2/rds/hpc-work/snRNAseq_2026/reference
+    Environment : local
+      rds_dir  : /Users/richard/Git/snRNAseq_2026/rds-cam-psych-transc-Pb9UGUlrwWc
+      code_dir : /Users/richard/Git/snRNAseq_2026/code
+      ref_dir  : /Users/richard/Git/snRNAseq_2026/reference
 
 ### 1.2 Parameters
 
@@ -17,15 +17,16 @@ the `NOTEBOOK_PARAMS` environment variable (set automatically by
 `render_single.sh`). Defaults below are used when no config is provided
 (e.g. for interactive use).
 
-    Loading params from: /home/rajd2/rds/hpc-work/snRNAseq_2026/notebooks/results/prepost_tuning5_allVel/grn_dev_v2_params.yaml
+    Loading params from: /Users/richard/Git/snRNAseq_2026/notebooks/results/prepost_tuning5_allVel/grn_dev_v2_params.yaml
     EXPERIMENT_NAME  : prepost_tuning5_allVel
-    PSEUDOBULK_FILE  : /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/VelWangPsychAD_200k_prepost_noage_tuning5_allVel/pseudobulk_output/by_cell_class.h5ad
+    PSEUDOBULK_FILE  : /Users/richard/Git/snRNAseq_2026/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/VelWangPsychAD_200k_prepost_noage_tuning5_allVel/pseudobulk_output/by_cell_class.h5ad
     Filter           : cell_class == 'Excitatory'
     N_VALUES         : [4000]
     CHILD_STARTS     : [1, 2, 3, 4, 5]
-    GAP_STARTS       : [10, 11, 12, 13, 14]
-    GAP_LENGTHS      : [0, 1, 2, 3, 4]
+    GAP_STARTS       : [9, 10, 11, 12, 13, 14, 15]
+    GAP_LENGTHS      : [0, 1, 2, 3]
     ADOL_ENDS        : [18, 20, 22, 24, 26]
+    SENSITIVITY_CPM  : True
 
 ### 1.3 Libraries
 
@@ -33,14 +34,14 @@ the `NOTEBOOK_PARAMS` environment variable (set automatically by
 
 ### 2.1 Load Pseudobulk Data
 
-    Loading: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/VelWangPsychAD_200k_prepost_noage_tuning5_allVel/pseudobulk_output/by_cell_class.h5ad
+    Loading: /Users/richard/Git/snRNAseq_2026/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/VelWangPsychAD_200k_prepost_noage_tuning5_allVel/pseudobulk_output/by_cell_class.h5ad
     Full shape: (1101, 15540)
-    Cell classes: {'Inhibitory': 228, 'Excitatory': 224, 'Oligos': 175, 'Astrocytes': 156, 'OPC': 151, 'Microglia': 80, 'Other': 39, 'Glia': 25, 'Endothelial': 23}
+    Cell classes: {'Inhibitory': np.int64(228), 'Excitatory': np.int64(224), 'Oligos': np.int64(175), 'Astrocytes': np.int64(156), 'OPC': np.int64(151), 'Microglia': np.int64(80), 'Other': np.int64(39), 'Glia': np.int64(25), 'Endothelial': np.int64(23)}
 
     Subset shape : (224, 15540)
     Donors       : 224
     Age range    : -0.47 – 89.00 years
-    Sources      : {'PSYCHAD': 133, 'VELMESHEV': 74, 'WANG': 17}
+    Sources      : {'PSYCHAD': np.int64(133), 'VELMESHEV': np.int64(74), 'WANG': np.int64(17)}
 
 ### 2.2 GRN Setup
 
@@ -106,7 +107,7 @@ Two normalization methods × (all genes + top-N HVGs) = 10 conditions:
     Computing sparse-dense dot product...
     scanvi_4000 : 4000 HVGs, 2391 GRN genes
 
-    0
+    17536
 
 ### 2.4 Build Scores DataFrame
 
@@ -169,47 +170,55 @@ Childhood = `[child_start, gap_start)`, Adolescence =
 
 ### 3.1 Compute Sensitivity Grid
 
-    Grid size: 625 combinations × 4 conditions
-    Significant (p<0.05): 67 / 2500
-    Valid cohens_d: 2440 / 2500  (NA rate: 2.4%)
+    scANVI grid: 700 combinations × 2 conditions
+      Significant (p<0.05): 62 / 1400
+      Valid cohens_d: 1370 / 1400  (NA rate: 2.1%)
 
-    Best HVG condition : scanvi_all
-    Best age range     : child [1, 12)  gap [12, 16)  adol [16, 26)
-      p = 0.0064  d = -0.74
+    scANVI best HVG condition : scanvi_all
+    scANVI best age range     : child [1, 13)  gap [13, 16)  adol [16, 26)
+      p = 0.0070  d = -0.74
+
+    CPM grid: 700 combinations × 2 conditions
+      Significant (p<0.05): 1 / 1400
+      Valid cohens_d: 1370 / 1400  (NA rate: 2.1%)
+
+    CPM best HVG condition    : cpm_all
+    CPM best age range        : child [3, 13)  gap [13, 16)  adol [16, 26)
+      p = 0.0878  d = -0.39
 
 ### 3.2 Cohen’s d
 
 ![](grn_dev_v2_files/figure-markdown_strict/cell-12-output-1.png)
 
+![](grn_dev_v2_files/figure-markdown_strict/cell-13-output-1.png)
+
 ### 3.3 P-value
-
-    R[write to console]: In addition: 
-    R[write to console]: Warning message:
-
-    R[write to console]: Removed 5 rows containing missing values or values outside the scale range
-    (`geom_text()`). 
-
-![](grn_dev_v2_files/figure-markdown_strict/cell-13-output-2.png)
-
-### 3.4 Minimum Detectable Effect Size
 
 ![](grn_dev_v2_files/figure-markdown_strict/cell-14-output-1.png)
 
+![](grn_dev_v2_files/figure-markdown_strict/cell-15-output-1.png)
+
+### 3.4 Minimum Detectable Effect Size
+
+![](grn_dev_v2_files/figure-markdown_strict/cell-16-output-1.png)
+
+![](grn_dev_v2_files/figure-markdown_strict/cell-17-output-1.png)
+
 ## 4. Developmental Trends (Best Age Range)
 
-All subsequent sections use the scANVI sensitivity-selected age
-boundaries for scANVI panels, and fixed boundaries (childhood 1–9,
-adolescence 9–25) for CPM panels.
+All subsequent sections use the sensitivity-selected age boundaries for
+each normalization method. When `SENSITIVITY_CPM` is disabled, CPM
+panels fall back to fixed boundaries (childhood 1–9, adolescence 9–25).
 
-    scANVI best range: Childhood = [1, 12)  Gap = [12, 16)  Adolescence = [16, 26)
-    CPM fixed range:  Childhood = [1, 9)  Adolescence = [9, 25)
+    scANVI best range : Childhood = [1, 13)  Gap = [13, 16)  Adolescence = [16, 26)
+    CPM best range    : Childhood = [3, 13)  Gap = [13, 16)  Adolescence = [16, 26)
 
 ### 4.1 Pseudobulk Trajectories + Stage Boxes
 
     `geom_smooth()` using method = 'loess' and formula = 'y ~ x'
     `geom_smooth()` using method = 'loess' and formula = 'y ~ x'
 
-![](grn_dev_v2_files/figure-markdown_strict/cell-17-output-2.png)
+![](grn_dev_v2_files/figure-markdown_strict/cell-20-output-2.png)
 
 ### 4.2 Unweighted Sum of Top-1000 C3+ Genes
 
@@ -219,7 +228,7 @@ adolescence 9–25) for CPM panels.
     `geom_smooth()` using method = 'loess' and formula = 'y ~ x'
     `geom_smooth()` using method = 'loess' and formula = 'y ~ x'
 
-![](grn_dev_v2_files/figure-markdown_strict/cell-19-output-2.png)
+![](grn_dev_v2_files/figure-markdown_strict/cell-22-output-2.png)
 
 ### 4.3 V2 vs V3 C3+ sanity check (CPM, age 5–25)
 

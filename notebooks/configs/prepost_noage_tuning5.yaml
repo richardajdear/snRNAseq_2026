@@ -1,4 +1,4 @@
-# Template: grn_dev
+# Template: grn_dev_v2
 EXPERIMENT_NAME: prepost_noage_tuning5
 PSEUDOBULK_FILE: ${RDS_ROOT}/Cam_snRNAseq/integrated/VelWangPsychAD_200k_prepost_noage_tuning5/pseudobulk_output/by_cell_class.h5ad
 CELL_CLASS_COL:   cell_class
