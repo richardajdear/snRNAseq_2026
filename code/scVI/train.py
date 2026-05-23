@@ -96,10 +96,12 @@ def train_scvi(
         n_latent=config.n_latent,
         n_layers=config.n_layers,
         gene_likelihood=gene_likelihood,
+        dispersion=config.dispersion,
     )
     logger.info(
         f"{model_label}: n_latent={config.n_latent}, n_hidden={config.n_hidden}, "
-        f"n_layers={config.n_layers}, gene_likelihood={gene_likelihood}"
+        f"n_layers={config.n_layers}, gene_likelihood={gene_likelihood}, "
+        f"dispersion={config.dispersion}"
     )
 
     accel = _get_accelerator(device_info)
@@ -284,18 +286,24 @@ def train_scanvi(
         plan_kwargs["lr"] = config.scanvi_lr
         logger.info(f"scANVI learning rate: {config.scanvi_lr} (overriding default)")
 
+    train_kwargs: dict = {
+        "max_epochs": config.max_epochs_scanvi,
+        "early_stopping": config.early_stopping,
+        "train_size": config.train_size,
+        "validation_size": 1.0 - config.train_size,
+        "batch_size": config.batch_size,
+        "enable_progress_bar": True,
+        **extra_kwargs,
+        **accel,
+    }
+    if plan_kwargs:
+        train_kwargs["plan_kwargs"] = plan_kwargs
+    if config.n_samples_per_label is not None:
+        train_kwargs["n_samples_per_label"] = config.n_samples_per_label
+        logger.info(f"scANVI balanced sampling: n_samples_per_label={config.n_samples_per_label}")
+
     with Timer(f"Training scANVI ({config.max_epochs_scanvi} max epochs)", logger):
-        model.train(
-            max_epochs=config.max_epochs_scanvi,
-            early_stopping=config.early_stopping,
-            train_size=config.train_size,
-            validation_size=1.0 - config.train_size,
-            batch_size=config.batch_size,
-            enable_progress_bar=True,
-            plan_kwargs=plan_kwargs if plan_kwargs else None,
-            **extra_kwargs,
-            **accel,
-        )
+        model.train(**train_kwargs)
 
     model_path.mkdir(parents=True, exist_ok=True)
     model.save(str(model_path), overwrite=True)

@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Union
 
 
 @dataclass
@@ -34,6 +34,7 @@ class PipelineConfig:
     n_layers: int = 2
     gene_likelihood: str = "zinb"  # "nb" or "zinb"; tunable via scvi_tuning/best_hyperparameters.yaml
     linear_decoder: bool = False   # use LinearDecoderSCVI (LDVAE) instead of standard SCVI
+    dispersion: str = "gene"       # "gene" | "gene-batch" | "gene-label" | "gene-cell"
 
     # -- Training --
     max_epochs_scvi: int = 400
@@ -46,6 +47,7 @@ class PipelineConfig:
     num_workers: int = 4
     random_seed: int = 42
     scanvi_lr: Optional[float] = None  # None → scvi-tools default (~1e-3); set lower (e.g. 1e-4) to avoid NaN explosions
+    n_samples_per_label: Optional[int] = None  # balanced sampling for scANVI train(); None → disabled
 
     # -- Inference --
     run_scvi_inference: bool = True
@@ -53,7 +55,7 @@ class PipelineConfig:
     run_scanvi_inference: bool = False
     predict_cell_types: bool = False  # run model.predict() after scANVI for label transfer
     n_mc_samples: int = 10
-    transform_batch: Optional[str] = None
+    transform_batch: Optional[Union[str, List[str]]] = None  # str or list of batches; list → averaged across them at inference
     chunk_size: Optional[int] = None
     target_vram_fraction: float = 0.25
     max_chunk_size: int = 50000

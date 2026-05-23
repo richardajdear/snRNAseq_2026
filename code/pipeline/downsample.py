@@ -86,6 +86,14 @@ def main():
                         help="Keep only postnatal cells (age_years >= 0). Applied before age_downsample.")
     parser.add_argument("--min_age", type=float, default=None,
                         help="Keep only cells from donors with age_years >= this value.")
+    parser.add_argument("--max_age", type=float, default=None,
+                        help="Drop cells from donors with age_years > this value "
+                             "(applied before n_cells random downsample).")
+    parser.add_argument("--unlabel_below_age", type=float, default=None,
+                        help="After shared-label assignment, override cell_type_for_scanvi "
+                             "to 'Unknown' for cells with age_years < this value. "
+                             "Use for datasets whose annotation is unreliable for "
+                             "developmental cells (e.g. PsychAD < 5 y).")
     parser.add_argument("--cell_class_filter", nargs='+', default=None,
                         help="Keep only cells whose cell_class is in this list (e.g. Excitatory Glia).")
     parser.add_argument("--chemistry_filter", nargs='+', default=None,
@@ -199,6 +207,15 @@ def main():
         n_before = mask.sum()
         mask = mask & (meta_df['age_years'] >= args.min_age)
         print(f"Min age filter (age_years >= {args.min_age}): {n_before} -> {mask.sum()} cells")
+
+    # --- Maximum age filter (Phase D) ---
+    if args.max_age is not None:
+        if 'age_years' not in meta_df.columns:
+            print("Error: --max_age requested but 'age_years' column missing.")
+            sys.exit(1)
+        n_before = mask.sum()
+        mask = mask & (meta_df['age_years'] <= args.max_age)
+        print(f"Max age filter (age_years <= {args.max_age}): {n_before} -> {mask.sum()} cells")
 
     # --- Cell class filter ---
     if args.cell_class_filter:
@@ -338,6 +355,23 @@ def main():
             print(f"    {lbl:30s}  {n:7d}")
         if summary['n_unmapped']:
             print(f"  Top unmapped native labels: {summary['unmapped_top10']}")
+
+        # --- Withhold labels from young cells (Phase B) ---
+        # Applied AFTER apply_shared_labels so we can see what labels would have
+        # been assigned, but override them to Unknown so the scANVI classifier
+        # is not taught potentially wrong developmental labels.
+        if args.unlabel_below_age is not None and 'age_years' in adata.obs.columns:
+            young_mask = adata.obs['age_years'] < args.unlabel_below_age
+            n_unlabeled = int(young_mask.sum())
+            adata.obs.loc[young_mask, 'cell_type_for_scanvi'] = 'Unknown'
+            adata.uns['unlabel_below_age'] = args.unlabel_below_age
+            print(f"  Withheld supervised labels from {n_unlabeled} cells with "
+                  f"age_years < {args.unlabel_below_age} (now 'Unknown').")
+            # Re-emit value_counts after withhold
+            vc = adata.obs['cell_type_for_scanvi'].value_counts()
+            print(f"  Post-withhold value_counts:")
+            for lbl, n in vc.items():
+                print(f"    {lbl:30s}  {n:7d}")
     else:
         #   WANG cells: keep their fine-grained cell_type_raw as the reference label
         #   All other datasets: "Unknown" (treated as unlabelled by scANVI)

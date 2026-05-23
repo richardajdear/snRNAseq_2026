@@ -182,7 +182,16 @@ def _is_scvi_step_complete(cfg: dict, scvi_output_dir: Path) -> bool:
     # Verify inference layers are present — opened in backed mode so only HDF5
     # metadata is read (fast, no data loaded into RAM).
     pb_layers = cfg.get('pseudobulk', {}).get('layers', [])
-    required = {lc['name'] for lc in pb_layers if lc['name'] != 'counts'}
+    # Only check for layers that will actually be generated. If run_scvi_inference
+    # is false, scvi_normalized is not produced — skip it in the completeness check.
+    scvi_infer_enabled = cfg.get('scvi', {}).get('run_scvi_inference', True)
+    required = set()
+    for lc in pb_layers:
+        if lc['name'] == 'counts':
+            continue
+        if lc['name'] == 'scvi_normalized' and not scvi_infer_enabled:
+            continue  # skipped by run_scvi_inference: false
+        required.add(lc['name'])
     if required:
         try:
             import anndata as _ad
@@ -233,6 +242,11 @@ def step_downsample(cfg: dict, output_dir: Path, overwrite: bool,
             cmd += ['--pfc_only']
         if src.get('n_cells'):
             cmd += ['--n_cells', str(src['n_cells'])]
+        # Per-source age bounds (Phases B and D)
+        if src.get('max_age') is not None:
+            cmd += ['--max_age', str(src['max_age'])]
+        if src.get('unlabel_below_age') is not None:
+            cmd += ['--unlabel_below_age', str(src['unlabel_below_age'])]
         if cfg.get('age_downsample', False):
             cmd += ['--age_downsample']
         if cfg.get('postnatal_only', False):
@@ -370,22 +384,27 @@ def step_scvi(cfg: dict, output_dir: Path, combined_path: Path,
             scvi_cfg['max_epochs_scanvi'] = slt['max_epochs_scanvi']
         if 'scanvi_lr' in slt:
             scvi_cfg['scanvi_lr'] = slt['scanvi_lr']
+        if 'n_samples_per_label' in slt:
+            scvi_cfg['n_samples_per_label'] = slt['n_samples_per_label']
         # Run both scVI and scANVI inference so that:
         #   scvi_normalized  → inferred UMAP column showing age gradient without
         #                       cell-type conditioning (useful diagnostic)
         #   scanvi_normalized → primary batch-corrected layer for downstream analysis
         scvi_cfg['run_scanvi_inference'] = True
-        scvi_cfg['run_scvi_inference'] = True
-        # Default transform_batch to WANG (reference dataset) so all cells are
-        # normalized as if WANG cells of their type — ideal for cross-dataset GRN scoring.
-        scvi_cfg.setdefault('transform_batch', 'WANG')
+        # Allow config to override run_scvi_inference (Phase E3: set to false to skip)
+        if 'run_scvi_inference' not in scvi_cfg:
+            scvi_cfg['run_scvi_inference'] = True
+        # transform_batch: let YAML drive it (str or list). Do NOT setdefault here
+        # — the YAML value was already merged via scvi_cfg.update(cfg.get('scvi', {}))
+        if 'transform_batch' not in scvi_cfg:
+            scvi_cfg.setdefault('transform_batch', 'WANG')
         # Ensure train_scanvi is included so scANVI is trained end-to-end
         scvi_cfg['steps'] = ['prep', 'train_scvi', 'train_scanvi', 'infer', 'save']
         logger.info(
             f"  scANVI label transfer enabled: "
             f"cell_type_key={scvi_cfg['cell_type_key']}, "
             f"max_epochs_scanvi={scvi_cfg.get('max_epochs_scanvi', 20)}, "
-            f"transform_batch={scvi_cfg['transform_batch']}"
+            f"transform_batch={scvi_cfg.get('transform_batch', 'WANG (default)')}"
         )
 
     scvi_config_path = output_dir / 'scvi_config.yaml'
@@ -535,6 +554,15 @@ def step_pseudobulk(cfg: dict, output_dir: Path, overwrite: bool,
         cmd += ['--overwrite']
 
     _run(cmd, logger)
+
+    # Soft validation: composition check (Phase F)
+    comp_cmd = [
+        sys.executable, '-m', 'pipeline.composition_check',
+        '--input', str(Path(pb_output_dir) / 'by_cell_class.h5ad'),
+        '--output_dir', str(Path(pb_output_dir) / 'composition_check'),
+    ]
+    _run(comp_cmd, logger, required=False)
+
 
 
 def step_notebook(cfg: dict, config_path: str, output_dir: Path,

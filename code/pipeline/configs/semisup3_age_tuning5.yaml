@@ -1,0 +1,188 @@
+# ============================================================================
+# semisup3_age_tuning5 — third iteration of the semi-supervised scANVI redesign
+# ============================================================================
+#
+# Iteration history (read top-to-bottom for context):
+#
+#   v1 (prepost_tuning5_allVel.yaml)
+#       Wang-only supervision; all other cells cell_type_for_scanvi="Unknown".
+#       Finding: joint scANVI relabelled PsychAD <1 y cells away from Excitatory
+#       (10/11 donors at 0% EN), shrunk Velmeshev developmental signal.
+#
+#   v2 (prepost_tuning5_allVel_semisup.yaml)
+#       Semi-supervised: shared-vocabulary labels for ALL three datasets where
+#       they mapped (via reference/shared_fine_labels.csv).
+#       Findings:
+#         (a) Velmeshev's "Interneurons" catchall (>50% of Vel cells) had been
+#             mapped to IN_CALB2 — this taught scANVI half of Vel was inhibitory,
+#             dropping Vel <1y EN% from 62.6% to 29.4% (97k cells reassigned).
+#         (b) PsychAD <1 y STILL produced 0% Excitatory. Root cause: PsychAD's
+#             annotation pipeline uses an adult-Alzheimer's reference (Mathys
+#             et al. 2019) which has no perinatal cell types — so PsychAD's young
+#             EN cells were raw-labelled as IN/OPC, and feeding those wrong labels
+#             into scANVI propagated the error.
+#
+#   v3 (this file)
+#       Two principled fixes for the (b) issue, plus refinements and architecture
+#       upgrades, listed below.
+#
+# Changes vs v2:
+#
+#   (1) PsychAD cells with age_years < 5 get cell_type_for_scanvi="Unknown"
+#       (`unlabel_below_age: 5` on the PSYCHAD source). PsychAD's annotation
+#       is unreliable for developmental cells; Wang + Velmeshev perinatal
+#       labels alone anchor that region (both biology-marker based, not
+#       aging-reference based). The unreliable Vel "Interneurons" and
+#       "Glial_progenitors" remain Unknown (dropped from shared_fine_labels.csv).
+#
+#   (2) scVI continuous_covariate_keys: [age_years]. Forces scVI to model age
+#       explicitly so its batch correction can't absorb developmental signal
+#       (which would otherwise put PsychAD young cells closer to PsychAD adults
+#       than to Wang perinatal cells in latent space). REQUIRES scVI retrain
+#       (cached scvi_model has different setup_anndata signature).
+#
+#   (3) PsychAD max_age: 30 — drop all PsychAD >30 y entirely. The adult
+#       PsychAD cells dominate latent space and contribute nothing to the
+#       developmental question we're solving. Adult-cohort analysis revisited
+#       separately. The n_cells random cap is removed from PsychAD and Wang
+#       both (Wang totals only slightly >200k; we want all of it).
+#
+#   (4) shared_fine_labels.csv refined: Vel "Interneurons|INT|CCK|NOS|SV2C" →
+#       Unknown (Phase A1), Glial_progenitor row deleted (Phase A2). EN
+#       layer-IT/ET/CT subtypes collapsed to EN_L2_3, EN_L4, EN_L5, EN_L6.
+#
+#   (5) n_samples_per_label: 2000 — SCANVI balanced sampling. Now safe because
+#       (1) cleaned the supervision signal; small classes (Wang/Vel perinatal
+#       EN) get equal weight per epoch with large classes (Oligo, Astrocyte).
+#
+#   (6) n_latent: 30 → 50. More capacity to preserve cell-type structure
+#       alongside the new age covariate.
+#
+#   (7) max_epochs_scanvi: 100 → 200. v2 didn't hit early stopping at 100,
+#       so the classifier was undertrained.
+#
+#   (8) dispersion: gene-batch. Lets NB overdispersion vary per (gene, batch);
+#       different chemistries/protocols have systematically different noise.
+#
+#   (9) transform_batch: list of [WANG-multiome, VELMESHEV-V3, PSYCHAD-V3]
+#       (omit VELMESHEV-V2 — older chemistry). At inference time scvi-tools
+#       averages across these; no single batch is the "right" reference once
+#       age is a covariate.
+#
+#   (10) Skip the `scvi_normalized` layer entirely: run_scvi_inference: false,
+#        pseudobulk produces only `counts` and `scanvi_normalized`. Saves
+#        inference time and disk; we're committed to scANVI's classifier for
+#        cell labels anyway.
+#
+#   (11) Validation: composition_check runs after pseudobulk, checks that
+#        Vel-V3 vs PsychAD-V3 <1 y EN% agree to within 15 pp, both >30%.
+#        Soft (warning only). Output: pseudobulk_output/composition_check/.
+#
+# scVI retrain required: YES (cached scvi_model incompatible with new covariate).
+# Expected runtime: ~3-4 h on HPC (smaller dataset compensates for retrain).
+#
+# If this iteration still fails on the validation: investigate scPoli/scArches
+# as a separate plan; they're explicitly out of scope here.
+# ============================================================================
+
+output_dir: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/VelWangPsychAD_semisup3_age_tuning5
+
+sources:
+  - name: WANG
+    path: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/wang/wang.h5ad
+    dataset_type: Wang
+    cell_type_field: "Type_updated"
+    pfc_only: true
+    # n_cells: 200000   # REMOVED — Wang totals only slightly above 200k; keep all
+
+  - name: VELMESHEV
+    path: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/velmeshev/velmeshev.h5ad
+    dataset_type: Velmeshev
+    cell_type_field: "Cell_Type"
+    pfc_only: true       # already uncapped; mostly developmental
+
+  - name: PSYCHAD
+    paths:
+      aging: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_PsychAD/RNAseq/Aging_Cohort.h5ad
+      hbcc:  /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_PsychAD/RNAseq/HBCC_Cohort.h5ad
+    dataset_type: PsychAD
+    cell_type_field: "subclass"
+    pfc_only: true
+    max_age: 30                # NEW (Phase D) — drop all donors >30 y
+    unlabel_below_age: 5       # NEW (Phase B) — cells <5 y get cell_type_for_scanvi=Unknown
+    # n_cells: 200000          # REMOVED — keep all remaining cells
+
+age_downsample: false          # superseded by max_age (was true in v2)
+postnatal_only: false
+seed: 42
+
+scvi:
+  n_top_genes: 15000
+  hvg_flavor: pearson_residuals
+  hvg_batch_key: source-chemistry
+  batch_key: source-chemistry
+  n_latent: 50               # CHANGED (Phase E2a) — was 30
+  n_hidden: 512
+  n_layers: 3
+  gene_likelihood: zinb
+  dispersion: gene-batch     # NEW (Phase E2b)
+  max_epochs_scvi: 400
+  batch_size: 512
+  early_stopping: true
+  early_stopping_patience: 20
+  num_workers: 16
+  transform_batch:           # CHANGED (Phase E2c) — was 'WANG-multiome' (single string)
+    - WANG-multiome
+    - VELMESHEV-V3
+    - PSYCHAD-V3
+  continuous_covariate_keys: [age_years]   # NEW (Phase C)
+  categorical_covariate_keys: [sex]
+  run_scvi_inference: false  # NEW (Phase E3) — skip the scvi_normalized layer
+  run_scanvi_inference: true # explicit
+  overwrite_scvi: true       # CHANGED — must retrain scVI (covariate change)
+  overwrite_scanvi: true
+
+scanvi_label_transfer:
+  enabled: true
+  label_column: cell_type_for_scanvi
+  max_epochs_scanvi: 200     # CHANGED (Phase E) — was 100
+  scanvi_lr: 0.0001
+  confidence_threshold: 0.5
+  use_shared_labels: true
+  shared_labels_csv: reference/shared_fine_labels.csv
+  n_samples_per_label: 2000  # NEW (Phase E) — balanced sampling
+
+pseudobulk:
+  layers:
+    - name: counts
+      aggregation: sum
+    # scvi_normalized REMOVED (Phase E3) — we don't run scvi inference
+    - name: scanvi_normalized
+      aggregation: mean
+  min_cells: 100
+  groups:
+    - name: all_cells_by_donor
+      group_cols: [individual]
+    - name: by_cell_class
+      group_cols: [individual, cell_class]
+
+notebook:
+  template: notebooks/templates/grn_dev_multi.qmd
+  pseudobulk_inputs:
+    - name: by_cell_class_Excitatory
+      group: by_cell_class
+      cell_class_col: cell_class
+      cell_class_value: Excitatory
+    - name: all_cells_by_donor
+      group: all_cells_by_donor
+      cell_class_col: ''
+      cell_class_value: ''
+
+steps:
+  - downsample
+  # combine is automatic on this branch — removed
+  - scvi
+  - pseudobulk      # composition_check (Phase F) runs at the end of this step
+  - notebook
+  - diagnostics
+overwrite: false
