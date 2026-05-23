@@ -105,6 +105,7 @@ def apply_shared_labels(
     fine_label_col: str,
     mapping: pd.DataFrame,
     unlabeled_token: str = 'Unknown',
+    min_coverage: float = 0.5,
 ) -> tuple[pd.Series, dict]:
     """Translate adata's native fine labels into the shared vocabulary.
 
@@ -119,6 +120,10 @@ def apply_shared_labels(
         As returned by load_shared_label_map().
     unlabeled_token : str
         Value for cells whose native label has no clean mapping.
+    min_coverage : float
+        Hard floor on mapped-cell fraction. If `is_mapped.mean() < min_coverage`,
+        raises ValueError so the caller can fail loudly instead of silently
+        feeding a near-empty supervision signal into scANVI.
 
     Returns
     -------
@@ -127,7 +132,8 @@ def apply_shared_labels(
         `unlabeled_token`.
     summary : dict
         Diagnostics for logging: n_cells, n_mapped, n_unmapped,
-        coverage_fraction, unmapped_top10, n_shared_labels.
+        coverage_fraction, unmapped_top10, n_shared_labels,
+        value_counts (full distribution of shared labels).
     """
     if dataset_type not in DATASET_COL:
         raise ValueError(
@@ -144,12 +150,21 @@ def apply_shared_labels(
 
     is_mapped = labels != unlabeled_token
     unmapped = native[~is_mapped].value_counts().head(10).to_dict()
+    coverage = float(is_mapped.mean())
     summary = dict(
         n_cells=len(native),
         n_mapped=int(is_mapped.sum()),
         n_unmapped=int((~is_mapped).sum()),
-        coverage_fraction=float(is_mapped.mean()),
+        coverage_fraction=coverage,
         unmapped_top10=unmapped,
         n_shared_labels=int(labels[is_mapped].nunique()),
+        value_counts=labels.value_counts().to_dict(),
     )
+    if coverage < min_coverage:
+        raise ValueError(
+            f'apply_shared_labels: coverage {coverage:.1%} below threshold '
+            f'{min_coverage:.1%} for dataset_type={dataset_type!r}. '
+            f'Top unmapped native labels: {unmapped}. '
+            f'Either fix the {DATASET_COL[dataset_type]!r} column in the '
+            f'shared-labels CSV, or lower min_coverage if this is expected.')
     return labels, summary

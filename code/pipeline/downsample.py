@@ -321,15 +321,27 @@ def main():
         labels, summary = apply_shared_labels(
             adata, args.dataset_type, 'cell_type_raw', mapping)
         adata.obs['cell_type_for_scanvi'] = labels.values
-        print(f"\ncell_type_for_scanvi ({args.dataset_type}, shared vocabulary): "
+        # Persistent marker so anyone inspecting the .h5ad downstream can verify
+        # the run used shared labels (no hidden fallback).
+        adata.uns['cell_type_for_scanvi_source'] = 'shared_labels'
+        adata.uns['shared_labels_csv'] = os.path.basename(csv_path)
+        adata.uns['shared_labels_coverage'] = summary['coverage_fraction']
+
+        print(f"\ncell_type_for_scanvi ({args.dataset_type}, SHARED VOCABULARY): "
               f"{summary['n_mapped']}/{summary['n_cells']} cells mapped "
               f"({summary['coverage_fraction']:.1%}) across "
               f"{summary['n_shared_labels']} shared labels")
+        print(f"  CSV: {csv_path}")
+        print(f"  Full value_counts (sorted, label → n_cells):")
+        for lbl, n in sorted(summary['value_counts'].items(),
+                             key=lambda kv: -kv[1]):
+            print(f"    {lbl:30s}  {n:7d}")
         if summary['n_unmapped']:
             print(f"  Top unmapped native labels: {summary['unmapped_top10']}")
     else:
         #   WANG cells: keep their fine-grained cell_type_raw as the reference label
         #   All other datasets: "Unknown" (treated as unlabelled by scANVI)
+        adata.uns['cell_type_for_scanvi_source'] = 'legacy_wang_only'
         adata.obs['cell_type_for_scanvi'] = 'Unknown'
         if args.dataset_type == 'Wang':
             broad = {'Unknown', 'unknown', 'Excitatory', 'Inhibitory', 'Glia', 'Other'}

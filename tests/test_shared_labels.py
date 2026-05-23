@@ -208,6 +208,40 @@ def test_ambiguous_mapping_raises(tmp_path):
         apply_shared_labels(a, 'Velmeshev', 'cell_type_raw', mapping)
 
 
+def test_coverage_floor_raises_on_low_mapping(tmp_path):
+    """When most cells don't map, apply_shared_labels must hard-fail (no
+    silent fallback to near-empty supervision)."""
+    mapping = load_shared_label_map(_write(tmp_path, VALID_CSV))
+    # 10 cells: only 1 matches (L2-3); rest are unknown to the mapping
+    a = _adata('cell_type_raw',
+               ['L2-3'] + ['MysteryType'] * 9)
+    with pytest.raises(ValueError, match='coverage'):
+        apply_shared_labels(
+            a, 'Velmeshev', 'cell_type_raw', mapping, min_coverage=0.5)
+
+
+def test_coverage_floor_can_be_relaxed(tmp_path):
+    """An advanced caller can opt into lower coverage explicitly."""
+    mapping = load_shared_label_map(_write(tmp_path, VALID_CSV))
+    a = _adata('cell_type_raw',
+               ['L2-3'] + ['MysteryType'] * 9)
+    labels, summary = apply_shared_labels(
+        a, 'Velmeshev', 'cell_type_raw', mapping, min_coverage=0.0)
+    assert summary['coverage_fraction'] == pytest.approx(0.1)
+    assert (labels == 'Unknown').sum() == 9
+
+
+def test_summary_includes_full_value_counts(tmp_path):
+    mapping = load_shared_label_map(_write(tmp_path, VALID_CSV))
+    a = _adata('cell_type_raw',
+               ['L2-3', 'L2-3', 'PV', 'Oligos', 'Oligos', 'Oligos'])
+    _, summary = apply_shared_labels(
+        a, 'Velmeshev', 'cell_type_raw', mapping, min_coverage=0.0)
+    assert summary['value_counts'] == {
+        'Oligo': 3, 'EN_L2_3_IT': 2, 'IN_PV': 1,
+    }
+
+
 # ── Production CSV sanity check ─────────────────────────────────────────────
 def test_production_csv_loads_and_resolves_all_datasets():
     """The shipped reference/shared_fine_labels.csv must validate AND resolve
