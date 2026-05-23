@@ -2,6 +2,7 @@
 
 import logging
 import os
+import sys
 import time
 import warnings
 from typing import Optional
@@ -23,7 +24,7 @@ def setup_logger(
         "[%(asctime)s] %(levelname)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
     )
 
-    ch = logging.StreamHandler()
+    ch = logging.StreamHandler(sys.stdout)
     ch.setFormatter(fmt)
     logger.addHandler(ch)
 

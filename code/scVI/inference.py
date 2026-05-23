@@ -1,6 +1,7 @@
 """Chunked inference for batch-corrected normalized expression with OOM retry."""
 
 import logging
+import sys
 import psutil
 from typing import Optional
 
@@ -143,7 +144,7 @@ def _chunked_inference(
     start_idx = 0
     chunk_num = 0
 
-    pbar = tqdm(total=n_cells, desc="Inference", unit=" cells")
+    pbar = tqdm(total=n_cells, desc="Inference", unit=" cells", file=sys.stdout)
 
     while start_idx < n_cells:
         end_idx = min(start_idx + current_chunk_size, n_cells)
