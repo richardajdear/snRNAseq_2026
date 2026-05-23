@@ -64,6 +64,15 @@ class PipelineConfig:
     # -- UMAP --
     umap_n_neighbors: int = 30
     umap_min_dist: float = 0.3
+    # "exact": sc.pp.neighbors + sc.tl.umap on every cell (slow / memory-heavy
+    # at >1M cells). "subsample": fit umap-learn on a random subset of size
+    # umap_subsample_n, then transform the rest — scales to millions of cells.
+    umap_backend: str = "exact"
+    umap_subsample_n: int = 200_000
+    # Inferred-layer UMAPs (PCA of scvi_normalized / scanvi_normalized) require
+    # materialising the dense layers and an extra PCA pass each; opt in only
+    # when the inferred-expression batch-correction plots are needed.
+    compute_inferred_umaps: bool = False
     # umap_color_vars is kept for backward compat but not used by plot_umap_grids.
     # The 4×3 grid rows are fixed: batch_key, age_years, cell_class, cell_type_aligned.
     umap_color_vars: List[str] = field(

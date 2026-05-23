@@ -1,5 +1,6 @@
 """UMAP computation and comparison plots for batch correction QC."""
 
+import gc
 import logging
 from pathlib import Path
 from typing import List, Optional
@@ -8,6 +9,7 @@ import anndata as ad
 import matplotlib.pyplot as plt
 import numpy as np
 import scanpy as sc
+import scipy.sparse as sp
 
 from .utils import Timer
 
@@ -137,9 +139,54 @@ def compute_umap(
     umap_key: str,
     n_neighbors: int = 30,
     min_dist: float = 0.3,
+    backend: str = "exact",
+    subsample_n: int = 200_000,
+    random_state: int = 42,
     logger: Optional[logging.Logger] = None,
 ):
-    """Compute neighbors + UMAP from a latent representation in obsm."""
+    """Compute UMAP from a latent representation in obsm.
+
+    Two backends:
+      - "exact": sc.pp.neighbors + sc.tl.umap on every cell (default; matches
+        the previous behaviour).
+      - "subsample": fit umap-learn on a random subset of size subsample_n and
+        transform the rest. Scales to millions of cells in pure Python without
+        building the full kNN graph in scanpy. Falls back to "exact" when the
+        dataset already fits inside subsample_n.
+    """
+    if backend == "subsample" and adata.n_obs > subsample_n:
+        import umap as umap_learn  # local import — only needed on this path
+
+        if obsm_key not in adata.obsm:
+            if logger:
+                logger.warning(f"  {obsm_key} not in obsm — cannot compute {umap_key}")
+            return
+
+        if logger:
+            logger.info(
+                f"Computing UMAP from {obsm_key} via subsample backend "
+                f"(fit on {subsample_n:,} / {adata.n_obs:,} cells, "
+                f"n_neighbors={n_neighbors})"
+            )
+        rng = np.random.default_rng(random_state)
+        sub = np.sort(rng.choice(adata.n_obs, size=subsample_n, replace=False))
+        rep = np.asarray(adata.obsm[obsm_key])
+
+        reducer = umap_learn.UMAP(
+            n_neighbors=n_neighbors,
+            min_dist=min_dist,
+            random_state=random_state,
+        ).fit(rep[sub])
+
+        embedding = np.empty((adata.n_obs, 2), dtype=np.float32)
+        batch = 50_000
+        for i in range(0, adata.n_obs, batch):
+            embedding[i:i + batch] = reducer.transform(rep[i:i + batch])
+        adata.obsm[umap_key] = embedding
+        if logger:
+            logger.info(f"Stored UMAP in obsm['{umap_key}'] (subsample backend)")
+        return
+
     if logger:
         logger.info(f"Computing UMAP from {obsm_key} (n_neighbors={n_neighbors})")
     sc.pp.neighbors(adata, use_rep=obsm_key, n_neighbors=n_neighbors, key_added=neighbors_key)
@@ -162,19 +209,32 @@ def compute_raw_pca_umap(
     """
     logger.info("Computing raw (uncorrected) PCA + UMAP on HVG counts")
 
-    # Work on a temporary copy of the HVG subset to avoid mutating adata.X
+    # Avoid adata[:, hvg_mask].copy() — for a HVG-only h5ad that duplicates the
+    # full payload (including any dense layers). Pull only the sparse X slice
+    # we need into a fresh minimal AnnData and run sparse-aware PCA.
     hvg_mask = adata.var.get("highly_variable", None)
-    if hvg_mask is not None and hvg_mask.any():
-        tmp = adata[:, adata.var["highly_variable"]].copy()
+    if hvg_mask is not None and hvg_mask.any() and not hvg_mask.all():
+        hvg_idx = np.where(np.asarray(hvg_mask))[0]
+        X_hvg = adata.X[:, hvg_idx]
     else:
-        tmp = adata.copy()
+        X_hvg = adata.X  # already HVG-only
 
-    # Normalize and log-transform for PCA (standard scanpy preprocessing)
+    if sp.issparse(X_hvg):
+        X_work = X_hvg.copy()
+    else:
+        X_work = np.asarray(X_hvg, dtype=np.float32, order="C")
+
+    tmp = ad.AnnData(X=X_work)
     sc.pp.normalize_total(tmp, target_sum=1e4)
     sc.pp.log1p(tmp)
-    sc.pp.pca(tmp, n_comps=50)
+    # zero_center=False keeps PCA on the sparse matrix (TruncatedSVD under the
+    # hood) — avoids densifying ~43 GiB for a (767k, 15k) HVG matrix.
+    sc.pp.pca(tmp, n_comps=50, zero_center=False)
 
     adata.obsm["X_pca_raw"] = tmp.obsm["X_pca"]
+    del tmp, X_work
+    gc.collect()
+
     compute_umap(
         adata,
         obsm_key="X_pca_raw",
@@ -182,6 +242,9 @@ def compute_raw_pca_umap(
         umap_key="X_umap_raw",
         n_neighbors=config.umap_n_neighbors,
         min_dist=config.umap_min_dist,
+        backend=getattr(config, "umap_backend", "exact"),
+        subsample_n=getattr(config, "umap_subsample_n", 200_000),
+        random_state=getattr(config, "random_seed", 42),
         logger=logger,
     )
 
@@ -190,6 +253,7 @@ def compute_inferred_pca_umaps(
     adata: ad.AnnData,
     config,
     logger: logging.Logger,
+    chunk_size: int = 20_000,
 ):
     """Compute PCA+UMAP on scvi_normalized and scanvi_normalized layers.
 
@@ -197,14 +261,16 @@ def compute_inferred_pca_umaps(
     normalized expression encodes biological variation that the latent space
     removes when age is an explicit covariate.
 
+    Memory model: each dense layer is (n_obs × n_hvg) float32. We stream it
+    through IncrementalPCA in chunks of `chunk_size` rows, applying log1p on
+    the fly. Peak extra RAM ≈ chunk_size × n_hvg × 4 B (~1.2 GB at 20k × 15k).
+
     Results stored in:
         obsm['X_umap_scvi_inferred']    — from scvi_normalized PCA
         obsm['X_umap_scanvi_inferred']  — from scanvi_normalized PCA
     """
-    import scipy.sparse as sp
-
     try:
-        from sklearn.decomposition import PCA as _PCA
+        from sklearn.decomposition import IncrementalPCA
     except ImportError:
         logger.warning("sklearn not available — skipping inferred PCA UMAPs")
         return
@@ -217,12 +283,27 @@ def compute_inferred_pca_umaps(
     ]
 
     hvg_mask = adata.var.get("highly_variable", None)
-    if hvg_mask is not None and hvg_mask.any():
-        hvg_idx = np.where(hvg_mask.values)[0]
+    if hvg_mask is not None and hvg_mask.any() and not hvg_mask.all():
+        hvg_idx = np.where(np.asarray(hvg_mask))[0]
         logger.info(f"Inferred PCA UMAPs: using {len(hvg_idx):,} HVGs")
+        use_all_cols = False
     else:
-        hvg_idx = np.arange(adata.n_vars)
-        logger.info("Inferred PCA UMAPs: no HVG mask, using all genes")
+        hvg_idx = None
+        logger.info(f"Inferred PCA UMAPs: data already HVG-only ({adata.n_vars:,} genes)")
+        use_all_cols = True
+
+    def _load_chunk(layer, start, stop):
+        # Slice rows first, then optionally HVG cols. Keeps reads contiguous
+        # for backed h5ad layers and avoids fancy-indexing the full matrix.
+        if use_all_cols:
+            block = layer[start:stop]
+        else:
+            block = layer[start:stop][:, hvg_idx]
+        if sp.issparse(block):
+            block = block.toarray()
+        block = np.asarray(block, dtype=np.float32)
+        np.log1p(block, out=block)
+        return block
 
     for layer_name, pca_key, umap_key, nbrs_key in tasks:
         if layer_name not in adata.layers:
@@ -230,16 +311,38 @@ def compute_inferred_pca_umaps(
             continue
 
         with Timer(f"Inferred PCA+UMAP from {layer_name}", logger):
-            X = adata.layers[layer_name][:, hvg_idx]
-            if sp.issparse(X):
-                X = X.toarray()
-            X = np.asarray(X, dtype=np.float32)
-            X = np.log1p(X)
+            layer = adata.layers[layer_name]
+            n_obs = layer.shape[0]
+            n_cols = len(hvg_idx) if not use_all_cols else layer.shape[1]
+            n_pcs = min(50, n_cols - 1)
+            logger.info(
+                f"  IncrementalPCA n_components={n_pcs} on ({n_obs:,}, {n_cols:,}) "
+                f"in chunks of {chunk_size:,}"
+            )
 
-            n_pcs = min(50, X.shape[1] - 1)
-            logger.info(f"  PCA n_components={n_pcs} on {X.shape} …")
-            pcs = _PCA(n_components=n_pcs).fit_transform(X)
+            ipca = IncrementalPCA(n_components=n_pcs, batch_size=chunk_size)
+            for start in range(0, n_obs, chunk_size):
+                stop = min(start + chunk_size, n_obs)
+                chunk = _load_chunk(layer, start, stop)
+                if chunk.shape[0] < n_pcs:
+                    # IncrementalPCA requires batch_size ≥ n_components; merge
+                    # the final stub into the previous partial_fit by skipping.
+                    logger.info(
+                        f"  Skipping partial_fit on final stub of {chunk.shape[0]} rows "
+                        "(< n_components); transform pass still covers it."
+                    )
+                    continue
+                ipca.partial_fit(chunk)
+
+            pcs = np.empty((n_obs, n_pcs), dtype=np.float32)
+            for start in range(0, n_obs, chunk_size):
+                stop = min(start + chunk_size, n_obs)
+                chunk = _load_chunk(layer, start, stop)
+                pcs[start:stop] = ipca.transform(chunk)
+
             adata.obsm[pca_key] = pcs
+            del ipca
+            gc.collect()
 
             compute_umap(
                 adata,
@@ -248,6 +351,9 @@ def compute_inferred_pca_umaps(
                 umap_key=umap_key,
                 n_neighbors=config.umap_n_neighbors,
                 min_dist=config.umap_min_dist,
+                backend=getattr(config, "umap_backend", "exact"),
+                subsample_n=getattr(config, "umap_subsample_n", 200_000),
+                random_state=getattr(config, "random_seed", 42),
                 logger=logger,
             )
 
@@ -294,6 +400,10 @@ def compute_umaps(
     logger: logging.Logger,
 ):
     """Compute UMAPs: raw (uncorrected), scVI/scANVI latent, scVI/scANVI inferred."""
+    backend = getattr(config, "umap_backend", "exact")
+    subsample_n = getattr(config, "umap_subsample_n", 200_000)
+    random_state = getattr(config, "random_seed", 42)
+
     with Timer("Computing raw (uncorrected) PCA UMAP", logger):
         compute_raw_pca_umap(adata, config, logger)
 
@@ -306,6 +416,9 @@ def compute_umaps(
                 umap_key="X_umap_scvi",
                 n_neighbors=config.umap_n_neighbors,
                 min_dist=config.umap_min_dist,
+                backend=backend,
+                subsample_n=subsample_n,
+                random_state=random_state,
                 logger=logger,
             )
 
@@ -318,11 +431,20 @@ def compute_umaps(
                 umap_key="X_umap_scanvi",
                 n_neighbors=config.umap_n_neighbors,
                 min_dist=config.umap_min_dist,
+                backend=backend,
+                subsample_n=subsample_n,
+                random_state=random_state,
                 logger=logger,
             )
 
-    with Timer("Computing inferred PCA UMAPs (normalized expression)", logger):
-        compute_inferred_pca_umaps(adata, config, logger)
+    if getattr(config, "compute_inferred_umaps", False):
+        with Timer("Computing inferred PCA UMAPs (normalized expression)", logger):
+            compute_inferred_pca_umaps(adata, config, logger)
+    else:
+        logger.info(
+            "Skipping inferred PCA UMAPs (compute_inferred_umaps=False). "
+            "Enable in config to compute UMAPs of scvi_normalized / scanvi_normalized."
+        )
 
     with Timer("Computing PCA of latent representations", logger):
         compute_latent_pcas(adata, logger)

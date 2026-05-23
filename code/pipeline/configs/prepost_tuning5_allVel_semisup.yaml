@@ -111,8 +111,8 @@ notebook:
 
 steps:
   - downsample      # required — sets cell_type_for_scanvi from shared labels
-  - combine         # required — propagates new column into combined.h5ad
   - scvi            # reuses existing scvi_model/ if present; retrains scANVI
   - pseudobulk
   - notebook
+  - diagnostics
 overwrite: false
