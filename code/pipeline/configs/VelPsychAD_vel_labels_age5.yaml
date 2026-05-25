@@ -1,0 +1,101 @@
+# ============================================================================
+# VelPsychAD_vel_labels_age5 — Diagnostic: Vel native labels as scANVI supervision
+# ============================================================================
+#
+# Motivation: Investigate whether PsychAD <1y cells cluster with Velmeshev
+# "Interneurons" (a developmental label used for cells that our main pipeline
+# calls EN) or with Vel genuine IN cells (SST/PV/VIP).
+#
+# Design:
+#   - Velmeshev + PsychAD only (no Wang).  Wang's fine EN labels were the
+#     primary supervision signal defining the EN/IN boundary in the main run;
+#     removing Wang lets Vel's own native vocabulary define the class space.
+#   - Age-stratified sampling: 20 000 cells per source per age bin (<1y, 1-5y).
+#     max_age: 5 so we focus on the developmental window where the EN% discrepancy
+#     is largest and the PsychAD composition question is most acute.
+#   - Vel supervision: use_raw_labels: true — cell_type_for_scanvi = cell_type_raw
+#     (i.e. "Interneurons", "INT", "L4", "L5", "L6", "SST", "PV", "VIP", ...).
+#   - PsychAD: all Unknown (unlabel_below_age: 100), so scANVI assigns each
+#     PsychAD cell to the nearest Vel native class.
+#
+# Key output: cell_type_aligned for PsychAD cells — does it land on
+#   "Interneurons", "INT", or genuine IN types like "SST"/"PV"?
+#
+# Expected total cells: ~4 × 20 000 = 80 000 (fast, CPU-feasible for scVI training
+# if GPU queue is long; GPU recommended for speed).
+# ============================================================================
+
+output_dir: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/VelPsychAD_vel_labels_age5
+
+sources:
+  - name: VELMESHEV
+    path: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/velmeshev/velmeshev.h5ad
+    dataset_type: Velmeshev
+    cell_type_field: "Cell_Type"
+    pfc_only: true
+    max_age: 5
+    n_cells_per_age_bin: 20000
+    use_raw_labels: true          # cell_type_for_scanvi = cell_type_raw (native Vel labels)
+
+  - name: PSYCHAD
+    paths:
+      aging: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_PsychAD/RNAseq/Aging_Cohort.h5ad
+      hbcc:  /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_PsychAD/RNAseq/HBCC_Cohort.h5ad
+    dataset_type: PsychAD
+    cell_type_field: "subclass"
+    pfc_only: true
+    max_age: 5
+    n_cells_per_age_bin: 20000
+    unlabel_below_age: 100        # all PsychAD → Unknown
+
+age_downsample: false
+postnatal_only: false
+seed: 42
+
+scvi:
+  n_top_genes: 5000               # smaller HVG set — fast diagnostic run
+  hvg_flavor: pearson_residuals
+  hvg_batch_key: source-chemistry
+  batch_key: source-chemistry
+  n_latent: 30
+  n_hidden: 256
+  n_layers: 2
+  gene_likelihood: zinb
+  dispersion: gene-batch
+  max_epochs_scvi: 200
+  batch_size: 256
+  early_stopping: true
+  early_stopping_patience: 15
+  num_workers: 8
+  transform_batch: []             # no Wang-multiome; standard 10x batches only
+  continuous_covariate_keys: []
+  categorical_covariate_keys: [sex]
+  run_scvi_inference: false
+  run_scanvi_inference: false     # skip 62GB inference — we only need cell_type_aligned
+  overwrite_scvi: true
+  overwrite_scanvi: true
+
+scanvi_label_transfer:
+  enabled: true
+  label_column: cell_type_for_scanvi
+  max_epochs_scanvi: 100
+  scanvi_lr: 0.0001
+  confidence_threshold: 0.5
+  use_shared_labels: false        # labels are set per-source via use_raw_labels / unlabel_below_age
+  n_samples_per_label: 500        # conservative cap — some Vel native types are rare (<500 cells)
+
+pseudobulk:
+  layers:
+    - name: counts
+      aggregation: sum
+  min_cells: 20
+  groups:
+    - name: by_cell_type_aligned
+      group_cols: [individual, cell_type_aligned]
+    - name: by_source_age
+      group_cols: [source, individual]
+
+steps:
+  - scvi
+  - diagnostics
+overwrite: false

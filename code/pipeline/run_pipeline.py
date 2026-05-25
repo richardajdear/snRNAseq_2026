@@ -247,6 +247,10 @@ def step_downsample(cfg: dict, output_dir: Path, overwrite: bool,
             cmd += ['--max_age', str(src['max_age'])]
         if src.get('unlabel_below_age') is not None:
             cmd += ['--unlabel_below_age', str(src['unlabel_below_age'])]
+        if src.get('use_raw_labels', False):
+            cmd += ['--use_raw_labels']
+        if src.get('n_cells_per_age_bin') is not None:
+            cmd += ['--n_cells_per_age_bin', str(src['n_cells_per_age_bin'])]
         if cfg.get('age_downsample', False):
             cmd += ['--age_downsample']
         if cfg.get('postnatal_only', False):

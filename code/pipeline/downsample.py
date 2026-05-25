@@ -112,6 +112,15 @@ def main():
                         default='reference/shared_fine_labels.csv',
                         help="Path to the shared label CSV. Relative paths are "
                              "resolved against the repo root.")
+    parser.add_argument("--use_raw_labels", action='store_true',
+                        help="Use cell_type_raw directly as cell_type_for_scanvi "
+                             "without mapping through the shared vocabulary. "
+                             "Intended for diagnostic runs where native source labels "
+                             "are the supervision target (e.g. Vel 'Interneurons').")
+    parser.add_argument("--n_cells_per_age_bin", type=int, default=None,
+                        help="After all other filters, cap to this many cells per "
+                             "age bin (<1y, 1-5y, 5-18y, 18+y). Applied before "
+                             "the existing --n_cells random downsample.")
 
     args = parser.parse_args()
 
@@ -289,6 +298,33 @@ def main():
     elif not args.n_cells:
         print(f"No cell-count cap — using all {mask.sum():,} cells that pass filters.")
 
+    # --- Age-bin stratified downsampling ---
+    if args.n_cells_per_age_bin is not None:
+        if 'age_years' not in meta_df.columns:
+            print("Error: --n_cells_per_age_bin requested but 'age_years' column missing.")
+            sys.exit(1)
+        bins = [(-np.inf, 1), (1, 5), (5, 18), (18, np.inf)]
+        bin_labels = ['<1y', '1-5y', '5-18y', '18+y']
+        active_idx = np.where(mask.values)[0]
+        ages = meta_df['age_years'].values[active_idx]
+        keep_positions = []
+        print(f"Age-bin stratified sampling (cap={args.n_cells_per_age_bin} per bin):")
+        for (lo, hi), label in zip(bins, bin_labels):
+            bin_pos = active_idx[(ages >= lo) & (ages < hi)]
+            if len(bin_pos) == 0:
+                continue
+            n_before_bin = len(bin_pos)
+            if len(bin_pos) > args.n_cells_per_age_bin:
+                np.random.seed(args.seed)
+                bin_pos = np.random.choice(bin_pos, size=args.n_cells_per_age_bin, replace=False)
+            print(f"  {label}: {n_before_bin:,} → {len(bin_pos):,} cells")
+            keep_positions.extend(bin_pos)
+        new_mask = pd.Series(False, index=meta_df.index)
+        new_mask.iloc[sorted(keep_positions)] = True
+        n_before = mask.sum()
+        mask = new_mask
+        print(f"  Total after age-bin stratification: {n_before:,} → {mask.sum():,} cells")
+
     log_mem("All filters computed")
     print(f"\nFinal cell count: {mask.sum()} / {len(meta_df)}")
 
@@ -372,6 +408,23 @@ def main():
             print(f"  Post-withhold value_counts:")
             for lbl, n in vc.items():
                 print(f"    {lbl:30s}  {n:7d}")
+    elif args.use_raw_labels:
+        # Diagnostic mode: native cell_type_raw labels directly as scANVI supervision.
+        # No mapping through shared vocabulary — the scANVI class vocabulary IS the
+        # native label set (e.g. Vel "Interneurons", "L4", "SST", ...).
+        adata.obs['cell_type_for_scanvi'] = adata.obs['cell_type_raw'].astype(str)
+        adata.uns['cell_type_for_scanvi_source'] = 'raw_labels'
+        vc = adata.obs['cell_type_for_scanvi'].value_counts()
+        print(f"\ncell_type_for_scanvi ({args.dataset_type}, RAW LABELS): "
+              f"{len(vc)} classes across {len(adata):,} cells")
+        for lbl, n in vc.items():
+            print(f"  {lbl:35s}  {n:7d}")
+        if args.unlabel_below_age is not None and 'age_years' in adata.obs.columns:
+            young_mask = adata.obs['age_years'] < args.unlabel_below_age
+            n_unlabeled = int(young_mask.sum())
+            adata.obs.loc[young_mask, 'cell_type_for_scanvi'] = 'Unknown'
+            print(f"  Withheld labels from {n_unlabeled:,} cells with "
+                  f"age_years < {args.unlabel_below_age} (now 'Unknown').")
     else:
         #   WANG cells: keep their fine-grained cell_type_raw as the reference label
         #   All other datasets: "Unknown" (treated as unlabelled by scANVI)
