@@ -140,6 +140,22 @@ def run(config: PipelineConfig):
             logger.info(f"Freed adata_scvi layers not needed for inference: {_unneeded_layers}")
             log_memory("After freeing adata_scvi layers", logger)
 
+        # Strip stale normalized layers from adata early — before any training or
+        # checkpoint save. Without this, a copied integrated.h5ad (e.g. from a
+        # previous run) carries ~65 GB dense layers that (a) waste RAM throughout
+        # training and (b) get written to the checkpoint, so inference-only reruns
+        # load a full-size file unnecessarily.
+        _stale_norm = [
+            l for l in [config.output_layer_scvi, config.output_layer_scanvi]
+            if l in adata.layers
+        ]
+        if _stale_norm:
+            for _l in _stale_norm:
+                del adata.layers[_l]
+            gc.collect()
+            logger.info(f"Freed stale normalized layers from adata before training: {_stale_norm}")
+            log_memory("After freeing stale normalized layers", logger)
+
     # Load saved checkpoint when running downstream steps (umap/plot/save) without training
     if adata is None and any(s in steps for s in ["umap", "plot", "save"]):
         checkpoint = config.output_h5ad_path

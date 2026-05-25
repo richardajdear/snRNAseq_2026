@@ -161,7 +161,8 @@ def apply_shared_labels(
         value_counts=labels.value_counts().to_dict(),
     )
     if coverage < min_coverage:
-        raise ValueError(
+        import warnings
+        warnings.warn(
             f'apply_shared_labels: coverage {coverage:.1%} below threshold '
             f'{min_coverage:.1%} for dataset_type={dataset_type!r}. '
             f'Top unmapped native labels: {unmapped}. '

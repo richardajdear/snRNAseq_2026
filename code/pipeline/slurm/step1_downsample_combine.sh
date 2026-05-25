@@ -4,7 +4,7 @@
 #SBATCH --time=01:00:00
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --mem=64G
+#SBATCH --mem=128G
 #SBATCH --partition=icelake
 #SBATCH --account=vertes-sl2-cpu
 

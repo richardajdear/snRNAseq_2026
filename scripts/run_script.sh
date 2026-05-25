@@ -2,9 +2,9 @@
 #SBATCH --job-name=run_script
 #SBATCH --output=/home/rajd2/rds/hpc-work/snRNAseq_2026/logs/%j_run_script.out
 #SBATCH --error=/home/rajd2/rds/hpc-work/snRNAseq_2026/logs/%j_run_script.err
-#SBATCH --time=00:20:00
-#SBATCH --mem=100G
-#SBATCH --partition=cclake
+#SBATCH --time=00:30:00
+#SBATCH --mem=200G
+#SBATCH --partition=icelake
 #SBATCH --account=vertes-sl2-cpu
 
 

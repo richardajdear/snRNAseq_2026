@@ -1,0 +1,121 @@
+# ============================================================================
+# semisup4_s2_tuning5 — S2: drop ALL PsychAD supervision labels
+# ============================================================================
+#
+# Builds on semisup3_tuning5. Single change: `unlabel_below_age: 100` removes
+# ALL PsychAD cells from scANVI supervision (was: <5 y only in v3).
+#
+# Motivation (D11/D12/D13 diagnostics, job 29643012):
+#   PsychAD <1y EN% is ~5% in scANVI, ~12-20% from raw marker frac_nonzero.
+#   The ~2x underestimate is caused by 453k adult PsychAD cells (Mathys 2023
+#   reference) dominating scANVI supervision and placing the entire PSYCHAD-V3
+#   batch region firmly in IN/OPC territory. Removing all PsychAD labels forces
+#   the classifier boundary to be defined by Wang + Vel alone.
+#
+#   scVI model is REUSED (overwrite_scvi: false) — only scANVI retrains.
+#   Use util_scanvi_rerun.sh (--steps scanvi --overwrite) to run this config.
+#   Prerequisites: semisup4_s2_tuning5/scvi_output/scvi_model symlinked from
+#   semisup3_tuning5, and integrated.h5ad copied (not symlinked) from semisup3.
+#
+# Changes vs semisup3_tuning5:
+#   (1) output_dir → semisup4_s2_tuning5
+#   (2) unlabel_below_age: 5 → 100  (all PsychAD → Unknown)
+#   (3) overwrite_scvi: true → false (reuse semisup3 scVI model)
+#
+# Validation targets:
+#   PsychAD <1y EN% rises from 5% → 10-20% (raw marker floor)
+#   EN/IN gradient no longer inverted (<1y ≥ 1-5y)
+#   Wang/Vel <1y unchanged (scVI reused, predictions ≤1% change)
+#
+# Expected runtime: ~1-2h scANVI (GPU Ampere) + ~30min pseudobulk (CPU).
+# ============================================================================
+
+output_dir: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/VelWangPsychAD_semisup4_s2_tuning5
+
+sources:
+  - name: WANG
+    path: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/wang/wang.h5ad
+    dataset_type: Wang
+    cell_type_field: "Type_updated"
+    pfc_only: true
+
+  - name: VELMESHEV
+    path: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/velmeshev/velmeshev.h5ad
+    dataset_type: Velmeshev
+    cell_type_field: "Cell_Type"
+    pfc_only: true
+
+  - name: PSYCHAD
+    paths:
+      aging: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_PsychAD/RNAseq/Aging_Cohort.h5ad
+      hbcc:  /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_PsychAD/RNAseq/HBCC_Cohort.h5ad
+    dataset_type: PsychAD
+    cell_type_field: "subclass"
+    pfc_only: true
+    max_age: 30
+    unlabel_below_age: 100      # CHANGED (S2) — all PsychAD → Unknown; was 5
+
+age_downsample: false
+postnatal_only: false
+seed: 42
+
+scvi:
+  n_top_genes: 15000
+  hvg_flavor: pearson_residuals
+  hvg_batch_key: source-chemistry
+  batch_key: source-chemistry
+  n_latent: 50
+  n_hidden: 512
+  n_layers: 3
+  gene_likelihood: zinb
+  dispersion: gene-batch
+  max_epochs_scvi: 400
+  batch_size: 512
+  early_stopping: true
+  early_stopping_patience: 20
+  num_workers: 16
+  transform_batch:
+    - WANG-multiome
+  continuous_covariate_keys: []
+  categorical_covariate_keys: [sex]
+  run_scvi_inference: false
+  run_scanvi_inference: true
+  overwrite_scvi: false         # CHANGED (S2) — reuse semisup3 scVI model
+  overwrite_scanvi: true
+
+scanvi_label_transfer:
+  enabled: true
+  label_column: cell_type_for_scanvi
+  max_epochs_scanvi: 200
+  scanvi_lr: 0.0001
+  confidence_threshold: 0.5
+  use_shared_labels: true
+  shared_labels_csv: reference/shared_fine_labels.csv
+  n_samples_per_label: 2000
+
+pseudobulk:
+  layers:
+    - name: counts
+      aggregation: sum
+    - name: scanvi_normalized
+      aggregation: mean
+  min_cells: 100
+  groups:
+    - name: all_cells_by_donor
+      group_cols: [individual]
+    - name: by_cell_class
+      group_cols: [individual, cell_class]
+
+notebook:
+  template: notebooks/templates/grn_dev_multi.qmd
+  pseudobulk_inputs:
+    - name: by_cell_class_Excitatory
+      group: by_cell_class
+      cell_class_col: cell_class
+      cell_class_value: Excitatory
+
+steps:
+  - scvi
+  - pseudobulk
+  - diagnostics
+overwrite: false

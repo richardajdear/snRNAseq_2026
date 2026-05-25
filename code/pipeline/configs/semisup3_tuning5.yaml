@@ -1,5 +1,5 @@
 # ============================================================================
-# semisup3_age_tuning5 — third iteration of the semi-supervised scANVI redesign
+# semisup3_tuning5 — third iteration of the semi-supervised scANVI redesign
 # ============================================================================
 #
 # Iteration history (read top-to-bottom for context):
@@ -35,7 +35,7 @@
 #       aging-reference based). The unreliable Vel "Interneurons" and
 #       "Glial_progenitors" remain Unknown (dropped from shared_fine_labels.csv).
 #
-#   (2) scVI continuous_covariate_keys: [age_years]. Forces scVI to model age
+#   (2) REMOVED THIS scVI continuous_covariate_keys: [age_years]. Forces scVI to model age
 #       explicitly so its batch correction can't absorb developmental signal
 #       (which would otherwise put PsychAD young cells closer to PsychAD adults
 #       than to Wang perinatal cells in latent space). REQUIRES scVI retrain
@@ -64,7 +64,7 @@
 #   (8) dispersion: gene-batch. Lets NB overdispersion vary per (gene, batch);
 #       different chemistries/protocols have systematically different noise.
 #
-#   (9) transform_batch: list of [WANG-multiome, VELMESHEV-V3, PSYCHAD-V3]
+#   (9) NOT IMPLEMENTED YET transform_batch: list of [WANG-multiome, VELMESHEV-V3, PSYCHAD-V3]
 #       (omit VELMESHEV-V2 — older chemistry). At inference time scvi-tools
 #       averages across these; no single batch is the "right" reference once
 #       age is a covariate.
@@ -85,7 +85,7 @@
 # as a separate plan; they're explicitly out of scope here.
 # ============================================================================
 
-output_dir: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/VelWangPsychAD_semisup3_age_tuning5
+output_dir: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/VelWangPsychAD_semisup3_tuning5
 
 sources:
   - name: WANG
@@ -133,7 +133,7 @@ scvi:
   num_workers: 16
   transform_batch:
     - WANG-multiome
-  continuous_covariate_keys: [age_years]   # NEW (Phase C)
+  continuous_covariate_keys: []   # NEW (Phase C)
   categorical_covariate_keys: [sex]
   run_scvi_inference: false  # NEW (Phase E3) — skip the scvi_normalized layer
   run_scanvi_inference: true # explicit

@@ -1,0 +1,529 @@
+---
+title: "Supplementary Analysis: Excitatory Neuron Classification in Postnatal PsychAD Cells"
+subtitle: "Root-cause evaluation of low EN fraction in scANVI-integrated infant transcriptomes"
+author: "R.A. Dear"
+date: today
+format:
+  html:
+    embed-resources: true
+    toc: true
+    toc-depth: 3
+    toc-title: "Contents"
+    theme: cosmo
+    code-fold: true
+    code-summary: "Show code"
+    fig-width: 8
+    fig-height: 4.5
+    number-sections: true
+engine: knitr
+execute:
+  warning: false
+  message: false
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(yaml)
+library(patchwork)
+library(scales)
+
+# Read config path from environment (set by render_notebook.sh via NOTEBOOK_PARAMS)
+params_file <- Sys.getenv("NOTEBOOK_PARAMS", unset = NA_character_)
+if (!is.na(params_file) && file.exists(params_file)) {
+  cfg  <- yaml::read_yaml(params_file)
+  BASE <- cfg$BASE
+} else {
+  BASE <- "/home/rajd2/rds/hpc-work/snRNAseq_2026/scripts/relabel_comparison"
+}
+
+# Colour scheme — consistent across all figures
+GROUP_COLORS <- c(
+  "PsychAD <1y"   = "#C0392B",
+  "PsychAD 1–5y"  = "#E07B5A",
+  "Wang <1y"      = "#2980B9",
+  "Vel <1y"       = "#27AE60",
+  "PsychAD"       = "#C0392B",
+  "Wang"          = "#2980B9",
+  "Vel"           = "#27AE60"
+)
+
+# Shared ggplot theme
+theme_pub <- function(...) {
+  theme_classic(base_size = 11) +
+    theme(
+      strip.background  = element_blank(),
+      strip.text        = element_text(face = "bold", size = 10),
+      axis.title        = element_text(size = 10),
+      axis.text         = element_text(size = 9),
+      legend.title      = element_blank(),
+      legend.text       = element_text(size = 9),
+      legend.key.size   = unit(0.45, "cm"),
+      plot.title        = element_text(face = "bold", size = 11),
+      plot.subtitle     = element_text(size = 9, colour = "grey40"),
+      ...
+    )
+}
+```
+
+## Background {.unnumbered}
+
+In the integrated snRNAseq dataset combining Wang (2022), Velmeshev (2022; hereafter Vel), and
+PsychAD (Mathys 2023), scANVI-based label transfer assigns approximately 5% of PsychAD infant
+(<1 year) cells to the Excitatory (EN) class. By contrast, Wang and Vel cells from the same
+developmental window carry EN fractions of ~25% and ~30%, respectively. Given that the prefrontal
+cortex is characterised by substantial excitatory neuron populations at birth
+(*in utero* EN migration is largely complete by mid-gestation), a 5-fold deficit raises the question of
+whether the low EN fraction reflects (i) genuine biological differences in the PsychAD cohort,
+(ii) a technical or normalisation artefact, or (iii) a misclassification error arising from the
+integration model.
+
+This supplementary analysis applies a series of orthogonal marker-based diagnostics to the raw,
+unnormalised count matrices of each source. The principal conclusion is that the EN fraction in
+PsychAD infants is genuinely low relative to Wang/Vel — partly reflecting a biological signature
+of early postnatal EN immaturity — but is further suppressed by a label-transfer artefact caused
+by the dominance of 453,000 adult PsychAD cells in the scANVI supervision signal.
+
+---
+
+## Hypothesis H9 Rejected: Library Depth and HVG Selection Are Not Confounders
+
+### Per-cell library depth
+
+A straightforward confound would arise if PsychAD cells have systematically lower UMI counts than
+Wang/Vel, causing EN markers to fall below detection thresholds under CPM normalisation. We
+examined total UMI depth for the matched <1 year subsets from each source.
+
+```{r fig-depth, fig.cap="**Figure S1.** Per-cell library depth (total UMI counts) for the matched infant (<1 year) subsets. Bars show the inter-quartile range (P25–P75); the point marks the mean; the horizontal line within the bar marks the median. PsychAD cells carry approximately twice the UMI depth of Wang and Vel cells, ruling out sparse-count normalisation as an explanation for the observed EN deficit."}
+qc <- read_csv(file.path(BASE, "hvg_intersection_v2", "per_cell_qc.csv"), show_col_types = FALSE) |>
+  mutate(
+    group_label = recode(group,
+      "PSYCHAD" = "PsychAD",
+      "WANG"    = "Wang",
+      "VEL"     = "Vel"
+    ),
+    group_label = factor(group_label, levels = c("PsychAD", "Wang", "Vel"))
+  )
+
+p_depth <- ggplot(qc, aes(x = group_label, fill = group_label)) +
+  geom_col(aes(y = total_counts_median), colour = "white", width = 0.55) +
+  geom_errorbar(
+    aes(ymin = total_counts_P25, ymax = total_counts_P75),
+    width = 0.22, linewidth = 0.6, colour = "grey30"
+  ) +
+  geom_point(aes(y = total_counts_mean), shape = 21, fill = "white",
+             colour = "grey20", size = 2.5, stroke = 0.8) +
+  scale_fill_manual(values = GROUP_COLORS, guide = "none") +
+  scale_y_continuous(
+    labels = label_comma(),
+    expand = expansion(mult = c(0, 0.08))
+  ) +
+  labs(
+    x     = NULL,
+    y     = "UMI count per cell",
+    title = "Library depth: PsychAD is ~2× deeper than Wang/Vel"
+  ) +
+  theme_pub()
+
+p_depth
+```
+
+PsychAD infant cells have a median of **8,636 UMI/cell** (mean 12,587), compared with 5,486 (mean
+6,508) for Wang and 4,319 (mean 5,560) for Vel. Because CPM normalisation scales expression
+*inversely* with library size, deeper PsychAD libraries would, if anything, *reduce* normalised
+marker counts per unit of genuine expression — making this hypothesis untenable in the direction
+that would inflate IN relative to EN.
+
+### EN:IN ratio is invariant across gene-set sizes
+
+A second technical concern is that HVG selection could preferentially capture IN markers while
+excluding EN markers when Wang/Vel gene space is used as the reference. We evaluated the EN:IN
+marker ratio across HVG intersection sizes ranging from 423 to 15,000 genes.
+
+```{r fig-hvg, fig.cap="**Figure S2.** EN-to-IN marker mean CPM ratio across five HVG intersection sizes (cross-dataset intersections of Seurat PearsonResiduals HVGs). Each source group is independently normalised before computing the ratio. At ≥1,374 genes (2,500 nominal HVGs), the ratio stabilises: PsychAD ≈ 0.16, Wang ≈ 1.1–1.3, Vel ≈ 3.0–4.1. The 7–25-fold deficit is consistent across gene-set sizes, rejecting a gene-selection explanation."}
+hvg <- read_csv(file.path(BASE, "hvg_intersection_v2", "markers_by_hvg_size.csv"),
+                show_col_types = FALSE) |>
+  filter(intersection_size >= 1000) |>   # ≥1000 genes: all EN markers captured
+  mutate(
+    group_label = recode(group,
+      "PSYCHAD" = "PsychAD",
+      "WANG"    = "Wang",
+      "VEL"     = "Vel"
+    ),
+    group_label = factor(group_label, levels = c("PsychAD", "Wang", "Vel"))
+  )
+
+p_hvg <- ggplot(hvg, aes(x = intersection_size, y = en_over_in,
+                          colour = group_label, group = group_label)) +
+  geom_line(linewidth = 0.8) +
+  geom_point(size = 3, stroke = 0.5, fill = "white", shape = 21) +
+  scale_colour_manual(values = GROUP_COLORS) +
+  scale_x_continuous(labels = label_comma(), breaks = c(1000, 3000, 5000, 8000, 15000)) +
+  scale_y_continuous(limits = c(0, NA), expand = expansion(mult = c(0, 0.08))) +
+  annotate("text", x = 14500, y = 4.25, label = "Vel",
+           colour = GROUP_COLORS["Vel"], size = 3.5, fontface = "bold") +
+  annotate("text", x = 14500, y = 1.35, label = "Wang",
+           colour = GROUP_COLORS["Wang"], size = 3.5, fontface = "bold") +
+  annotate("text", x = 14500, y = 0.08, label = "PsychAD",
+           colour = GROUP_COLORS["PsychAD"], size = 3.5, fontface = "bold") +
+  labs(
+    x     = "HVG intersection size (genes)",
+    y     = "EN / IN marker mean CPM",
+    title = "EN:IN ratio is stable across gene-set sizes",
+    subtitle = "PsychAD ≈ 0.16, Wang ≈ 1.2, Vel ≈ 3.0 — independent of HVG choice"
+  ) +
+  theme_pub() +
+  theme(legend.position = "none")
+
+p_hvg
+```
+
+Across all intersection sizes ≥1,374 genes (at which point both EN and IN marker sets are fully
+represented), the EN:IN ratio is stable within each source. The ratio for PsychAD plateaus at
+0.16, while Wang and Vel maintain 1.1–1.3 and 3.0–4.1, respectively. This 7–25-fold differential
+does not narrow as more genes are included, definitively rejecting gene-selection bias as an
+explanation.
+
+---
+
+## Raw Marker Expression Confirms a Genuine EN Deficit in PsychAD Infants
+
+Having excluded technical confounders, we examined raw count-derived marker expression using
+CPM values computed directly from each source's un-integrated count matrix.
+
+```{r fig-cpm, fig.height=5.5, fig.cap="**Figure S3.** Mean CPM of established excitatory (EN) and inhibitory (IN) neuron markers computed directly from the raw unnormalised count matrix of each source. Groups shown are the matched postnatal subsets (<1 year and 1–5 years for PsychAD). EN marker expression is depressed 4–11× in PsychAD <1y relative to Wang/Vel despite comparable or greater library depth (Fig. S1). IN marker expression is elevated in PsychAD relative to the other sources. Prenatal Wang and Vel groups are shown as reference for the expected mature EN state."}
+cpm_raw <- read_csv(file.path(BASE, "no_age_run", "marker_means_raw_cpm.csv"),
+                    show_col_types = FALSE) |>
+  filter(group %in% c("PSYCHAD_under1y", "PSYCHAD_1_5y",
+                       "WANG_under1y",    "VEL_V3_under1y")) |>
+  filter(marker %in% c("SATB2", "SLC17A7", "NEUROD2", "RBFOX3",
+                        "GAD1",  "GAD2",    "LHX6")) |>
+  mutate(
+    group_label = recode(group,
+      "PSYCHAD_under1y" = "PsychAD <1y",
+      "PSYCHAD_1_5y"    = "PsychAD 1–5y",
+      "WANG_under1y"    = "Wang <1y",
+      "VEL_V3_under1y"  = "Vel <1y"
+    ),
+    group_label = factor(group_label,
+                         levels = c("PsychAD <1y", "PsychAD 1–5y",
+                                    "Wang <1y", "Vel <1y")),
+    marker_type_label = if_else(marker_type == "EN",
+                                "Excitatory (EN) markers",
+                                "Inhibitory (IN) markers"),
+    marker = factor(marker, levels = c("SATB2", "SLC17A7", "NEUROD2", "RBFOX3",
+                                        "GAD1",  "GAD2",    "LHX6"))
+  )
+
+p_cpm <- ggplot(cpm_raw, aes(x = marker, y = mean_norm, fill = group_label)) +
+  geom_col(position = position_dodge(width = 0.75), width = 0.7, colour = "white") +
+  scale_fill_manual(values = GROUP_COLORS) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.08))) +
+  facet_wrap(~marker_type_label, scales = "free") +
+  labs(
+    x     = "Marker gene",
+    y     = "Mean CPM",
+    title = "EN markers are 4–11× lower in PsychAD <1y; IN markers are elevated"
+  ) +
+  theme_pub() +
+  theme(
+    legend.position = "bottom",
+    axis.text.x     = element_text(face = "italic", angle = 30, hjust = 1)
+  )
+
+p_cpm
+```
+
+SATB2 — a high-specificity excitatory neuron transcription factor widely used to quantify EN
+content in developing cortex — shows a mean CPM of **0.73** in PsychAD <1y versus **3.48** in
+Wang and **8.42** in Vel, a 4.8–11.5-fold deficit. SLC17A7 (vGLUT1) and NEUROD2 show comparable
+or larger deficits. Conversely, GAD1 (0.237 CPM in Wang, 0.117 in Vel, **2.37** in PsychAD <1y)
+and GAD2 are substantially elevated in PsychAD, producing an inverted EN:IN balance at the
+transcriptomic level.
+
+This pattern is consistent with a genuine preponderance of cortical interneurons at the expense of
+pyramidal cells in the PsychAD DLPFC sample. However, the magnitude of the deficit relative to
+Wang and Vel — sourced from the same developmental window — suggests additional sources of
+variance that we examine below.
+
+---
+
+## Per-Cell Marker Detectability Confirms the Composition Shift
+
+The CPM analysis above reflects mean expression per cell summed across the population; high
+expression in a minority of cells can inflate the mean. We therefore examined the fraction of
+cells with detectable expression (UMI ≥ 1) for each marker independently.
+
+```{r fig-frac, fig.cap="**Figure S4.** Fraction of cells with detectable expression (≥1 UMI) of EN and IN marker genes, computed from raw counts. Each dot represents one marker gene; the bar shows the mean across markers within each class. Dashed lines connect the EN and IN mean for each group, highlighting the EN/IN contrast. Across all EN markers, PsychAD <1y shows ~12% detectability versus ~48% (Wang) and ~62% (Vel). IN detectability is substantially higher in PsychAD (<1y: 44%) than in the reference cohorts (~20%)."}
+d12 <- read_csv(file.path(BASE, "d11_d12_d13", "d12_frac_nonzero.csv"),
+                show_col_types = FALSE) |>
+  mutate(
+    group_label = recode(group,
+      "PSYCHAD_under1y" = "PsychAD <1y",
+      "PSYCHAD_1_5y"    = "PsychAD 1–5y",
+      "WANG_under1y"    = "Wang <1y",
+      "VEL_V3_under1y"  = "Vel <1y"
+    ),
+    group_label = factor(group_label,
+                         levels = c("PsychAD <1y", "PsychAD 1–5y",
+                                    "Wang <1y",    "Vel <1y"))
+  ) |>
+  select(group_label,
+         EN_SATB2    = EN_SATB2_frac1,
+         EN_SLC17A7  = EN_SLC17A7_frac1,
+         EN_NEUROD2  = EN_NEUROD2_frac1,
+         EN_RBFOX3   = EN_RBFOX3_frac1,
+         EN_TBR1     = EN_TBR1_frac1,
+         IN_GAD1     = IN_GAD1_frac1,
+         IN_GAD2     = IN_GAD2_frac1,
+         IN_LHX6     = IN_LHX6_frac1,
+         IN_SLC32A1  = IN_SLC32A1_frac1) |>
+  pivot_longer(-group_label, names_to = c("type", "marker"),
+               names_sep = "_(?=[A-Z])", values_to = "frac_nonzero") |>
+  mutate(
+    marker_type_label = if_else(type == "EN",
+                                "Excitatory (EN) markers",
+                                "Inhibitory (IN) markers")
+  )
+
+# Means for dashed connectors
+d12_means <- d12 |>
+  group_by(group_label, marker_type_label) |>
+  summarise(mean_frac = mean(frac_nonzero), .groups = "drop") |>
+  pivot_wider(names_from = marker_type_label, values_from = mean_frac)
+
+d12_long_means <- d12 |>
+  group_by(group_label, marker_type_label) |>
+  summarise(mean_frac = mean(frac_nonzero), .groups = "drop")
+
+p_frac <- ggplot(d12, aes(x = group_label, y = frac_nonzero, colour = group_label)) +
+  geom_jitter(width = 0.12, size = 2.5, alpha = 0.8, stroke = 0.3) +
+  stat_summary(fun = mean, geom = "crossbar",
+               width = 0.55, linewidth = 0.6, fatten = 1.5,
+               colour = "grey20") +
+  scale_colour_manual(values = GROUP_COLORS, guide = "none") +
+  scale_y_continuous(labels = label_percent(accuracy = 1),
+                     limits = c(0, 0.85),
+                     expand = expansion(mult = c(0, 0.05))) +
+  facet_wrap(~marker_type_label) +
+  labs(
+    x     = NULL,
+    y     = "Fraction of cells (≥1 UMI)",
+    title = "EN detectability 4–5× lower in PsychAD; IN detectability elevated"
+  ) +
+  theme_pub() +
+  theme(axis.text.x = element_text(angle = 30, hjust = 1))
+
+p_frac
+```
+
+The frac_nonzero metric is unaffected by CPM normalisation or library size. Across five EN
+markers, PsychAD <1y shows a mean detectability of **12%** (range 3–20%), compared with **24–48%**
+for Wang and **13–62%** for Vel. The IN equivalent for PsychAD <1y is **44%**, substantially
+above the reference cohorts (20% and 19%, respectively). The EN/IN detectability ratio for
+PsychAD <1y is 0.26, versus 1.21 for Wang and 1.65 for Vel — a consistent 5–6-fold difference
+that cannot be attributed to normalisation choices.
+
+Notably, the 1–5 year PsychAD group shows intermediate EN detectability (15%) and reduced IN
+detectability (28%) relative to the <1y group, suggesting a partial developmental trajectory —
+albeit one that does not reach the Wang/Vel level even by age 5.
+
+---
+
+## Within-Cohort Donor Analysis Shows No Age Gradient
+
+A potential confound within the PsychAD <1y group is age heterogeneity: if the youngest donors
+(1 month) have genuinely lower EN fractions than donors at 4–6 months, the bulk aggregate could
+mask a biologically coherent developmental signal.
+
+```{r fig-donor, fig.width=7, fig.height=4, fig.cap="**Figure S5.** Per-donor SATB2 detectability (fraction of cells ≥1 UMI; *n* = 11 donors, 1–6 months) against donor age. Point size encodes the number of cells. Horizontal dashed lines mark the Wang (blue) and Vel (green) group-level SATB2 detectability for the matched <1y subset. No consistent age gradient is observed: the two 6-month donors are the most discordant pair in the cohort (0.115 vs. 0.294), and the 1-month donor (Donor_122) lies at the cohort median (0.219). SATB2 retention — the fraction of SATB2⁺ cells (≥1 UMI) that also express ≥3 UMI — is uniformly low across donors (mean 0.31; Wang 0.77; Vel 0.75), indicating a systematic early postnatal feature rather than a dropout artefact."}
+d11 <- read_csv(file.path(BASE, "d11_d12_d13", "d11_per_donor.csv"),
+                show_col_types = FALSE)
+
+# Wang and Vel SATB2_frac1 reference lines from d12
+wang_satb2 <- d12 |>
+  filter(group_label == "Wang <1y", marker == "SATB2") |>
+  pull(frac_nonzero)
+vel_satb2 <- d12 |>
+  filter(group_label == "Vel <1y",  marker == "SATB2") |>
+  pull(frac_nonzero)
+
+p_donor <- ggplot(d11, aes(x = age_months, y = SATB2_frac1)) +
+  geom_hline(yintercept = wang_satb2,
+             colour = GROUP_COLORS["Wang <1y"], linetype = "dashed", linewidth = 0.7) +
+  geom_hline(yintercept = vel_satb2,
+             colour = GROUP_COLORS["Vel <1y"],  linetype = "dashed", linewidth = 0.7) +
+  annotate("text", x = 6.3, y = wang_satb2 + 0.015,
+           label = paste0("Wang <1y (", percent(wang_satb2, accuracy = 0.1), ")"),
+           colour = GROUP_COLORS["Wang <1y"], size = 3, hjust = 1) +
+  annotate("text", x = 6.3, y = vel_satb2 + 0.015,
+           label = paste0("Vel <1y (", percent(vel_satb2, accuracy = 0.1), ")"),
+           colour = GROUP_COLORS["Vel <1y"], size = 3, hjust = 1) +
+  geom_point(aes(size = n_cells),
+             colour = GROUP_COLORS["PsychAD <1y"], alpha = 0.85, stroke = 0.3) +
+  geom_smooth(method = "lm", formula = y ~ x,
+              colour = "grey40", fill = "grey85", linewidth = 0.7, se = TRUE) +
+  scale_x_continuous(breaks = 1:6, limits = c(0.7, 7)) +
+  scale_y_continuous(labels = label_percent(accuracy = 1),
+                     limits = c(0, 0.75),
+                     expand = expansion(mult = c(0.02, 0.05))) +
+  scale_size_area(max_size = 9, name = "Cells per donor") +
+  labs(
+    x     = "Donor age (months)",
+    y     = "SATB2 fraction of cells (≥1 UMI)",
+    title = "No consistent age gradient within PsychAD <1y",
+    subtitle = "All donors are ~4–11× below Wang/Vel; 6-month donors are the most discordant pair"
+  ) +
+  theme_pub() +
+  theme(legend.position = "right")
+
+p_donor
+```
+
+The linear trend across 1–6 months is flat and non-significant; the two 6-month donors (Donor_202:
+11.5%; Donor_503: 29.4%) bracket the entire cohort distribution. SATB2 retention (≥3 UMI / ≥1 UMI,
+measuring per-cell expression intensity among SATB2-expressing cells) has a donor mean of
+**0.31 ± 0.08** in PsychAD <1y versus **0.77** in Wang and **0.75** in Vel — a deficit that is
+consistent across all 11 donors and not explained by any obvious technical covariate (Table S1
+shows per-donor metadata).
+
+```{r tbl-donor}
+knitr::kable(
+  d11 |>
+    select(Donor = individual,
+           `Age (mo.)` = age_months,
+           `Stage` = development_stage,
+           `N cells` = n_cells,
+           `UMI/cell` = total_UMI_mean,
+           `SATB2 frac1` = SATB2_frac1,
+           `SATB2 ret.` = SATB2_retention,
+           `GAD1 frac1` = GAD1_frac1) |>
+    mutate(across(where(is.double), ~round(., 3))),
+  caption = "**Table S1.** Per-donor summary for PsychAD <1y group (sorted by age).
+  SATB2 ret. = fraction of SATB2-positive cells with ≥3 UMI (expression intensity proxy).
+  Donor_920 has only 392 cells and should be interpreted cautiously.",
+  align = c("l", "r", "l", "r", "r", "r", "r", "r")
+)
+```
+
+---
+
+## Ambient RNA Contamination Does Not Explain Elevated IN Signal
+
+High IN marker CPM in PsychAD cells could arise not from genuine interneuron content but from
+ambient RNA contamination if the droplet suspension is enriched for nuclear fragments expressing
+GAD1/GAD2. We tested this by computing IN marker levels in cells classified as *non-neuronal*
+by the source-native PsychAD annotation (HBCC cohort `class` column: Astro, Oligo, OPC, Mural,
+Endo, Immune) — cells that should not express interneuron markers in the absence of contamination.
+
+```{r fig-ambient, fig.cap="**Figure S6.** IN marker expression in non-neuronal cells, classified by source-native labels (HBCC `class` for PsychAD; scANVI `cell_type_aligned` for Wang/Vel). CPM is computed from raw counts for cells not assigned to EN or IN classes. If elevated GAD1/GAD2 in PsychAD non-neuronal cells were driven by ambient RNA, the PsychAD bars would substantially exceed Wang/Vel. The observed pattern shows PsychAD intermediate between Wang and Vel for GAD1, and comparable for GAD2 and SLC32A1. This argues against ambient contamination as the explanation for elevated IN signal in PsychAD infants."}
+d13b <- read_csv(file.path(BASE, "d11_d12_d13", "d13b_ambient_native_labels.csv"),
+                 show_col_types = FALSE) |>
+  mutate(
+    group_label = recode(group,
+      "PSYCHAD_under1y" = "PsychAD <1y",
+      "PSYCHAD_1_5y"    = "PsychAD 1–5y",
+      "WANG_under1y"    = "Wang <1y",
+      "VEL_V3_under1y"  = "Vel <1y"
+    ),
+    group_label = factor(group_label,
+                         levels = c("PsychAD <1y", "PsychAD 1–5y",
+                                    "Wang <1y", "Vel <1y"))
+  ) |>
+  select(group_label, label_source, n_nonneuronal,
+         GAD1 = GAD1_mean_cpm, GAD2 = GAD2_mean_cpm, SLC32A1 = SLC32A1_mean_cpm) |>
+  pivot_longer(c(GAD1, GAD2, SLC32A1), names_to = "marker", values_to = "mean_cpm") |>
+  mutate(marker = factor(marker, levels = c("GAD1", "GAD2", "SLC32A1")))
+
+p_ambient <- ggplot(d13b, aes(x = marker, y = mean_cpm, fill = group_label)) +
+  geom_col(position = position_dodge(width = 0.75), width = 0.7, colour = "white") +
+  scale_fill_manual(values = GROUP_COLORS) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.08))) +
+  labs(
+    x     = "Marker gene",
+    y     = "Mean CPM (non-neuronal cells only)",
+    title = "IN marker background is comparable across sources",
+    subtitle = "PsychAD non-neuronal cells classified by HBCC native class labels (not scANVI)"
+  ) +
+  theme_pub() +
+  theme(legend.position = "bottom",
+        axis.text.x = element_text(face = "italic"))
+
+p_ambient
+```
+
+```{r tbl-ambient}
+d13b_wide <- read_csv(file.path(BASE, "d11_d12_d13", "d13b_ambient_native_labels.csv"),
+                      show_col_types = FALSE) |>
+  mutate(
+    group_label = recode(group,
+      "PSYCHAD_under1y" = "PsychAD <1y",
+      "PSYCHAD_1_5y"    = "PsychAD 1–5y",
+      "WANG_under1y"    = "Wang <1y",
+      "VEL_V3_under1y"  = "Vel <1y"
+    )
+  ) |>
+  select(`Group` = group_label,
+         `Label source` = label_source,
+         `Non-neuronal` = n_nonneuronal,
+         `Neuronal` = n_neuronal,
+         `EN CPM` = EN_mean_cpm,
+         `IN CPM` = IN_mean_cpm,
+         `IN/EN` = IN_over_EN_nonneuronal,
+         `GAD1 CPM` = GAD1_mean_cpm) |>
+  mutate(across(where(is.double), ~round(., 3)))
+
+knitr::kable(d13b_wide,
+  caption = "**Table S2.** IN/EN marker CPM in non-neuronal cells by source. Label source indicates
+  which annotation was used to identify non-neuronal cells. The IN/EN ratio in PsychAD non-neuronal
+  cells is elevated relative to Wang/Vel but is consistent with the Vel prenatal group, which also
+  uses FANS nuclear isolation and has well-characterised ambient contamination levels."
+)
+```
+
+GAD1 CPM in PsychAD <1y non-neuronal cells (0.629) is intermediate between Wang (0.464) and Vel
+(0.833). GAD2 and SLC32A1 are uniformly low across all sources. Critically, the classification of
+PsychAD non-neuronal cells by the HBCC native annotation (`class` column) and by scANVI-derived
+`cell_type_aligned` differs by only 7 cells (of 15,037), confirming that the ambient RNA test is
+not circular with respect to the scANVI model under investigation.
+
+Both PsychAD and Vel use FANS (fluorescence-activated nuclear sorting) for single-nucleus isolation,
+which substantially reduces cytoplasmic ambient RNA. The comparable GAD1 background across these
+FANS-sorted datasets argues against contamination as the primary explanation for elevated IN signal
+in PsychAD infants.
+
+---
+
+## Summary and Implications for Integration
+
+The diagnostic analyses above support the following decomposition of the low EN fraction in
+PsychAD <1y cells:
+
+| Component | Evidence | Magnitude |
+|-----------|----------|-----------|
+| **Genuine biology** | SATB2 frac_nonzero 12% vs 48–62%; stable across donors; no library-size confound | ~4–5× EN deficit relative to Wang/Vel |
+| **Annotation bias (scANVI)** | 453k adult PsychAD cells dominate supervision signal; scANVI assigns ~5% EN vs ~12–20% from raw markers | ~2× additional suppression |
+| **Ambient RNA** | Non-neuronal GAD1 in PsychAD comparable to Wang/Vel | Not a primary driver |
+
+: **Table S3.** Decomposition of the PsychAD <1y EN fraction deficit. {tbl-colwidths="[25,55,20]"}
+
+The raw marker analysis establishes a biological floor of approximately 12–20% EN cells in
+PsychAD <1y (SATB2 frac_nonzero 19.5%, mean CPM-inferred proportion ~12%). The scANVI estimate
+of 5% is ~2–4× below this floor, consistent with label-transfer suppression from the adult
+PsychAD reference dominating the decision boundary for the PsychAD-derived latent cluster.
+
+**Correction strategy (v4a):** Removing all PsychAD cells from scANVI supervision
+(`unlabel_below_age: 100`) forces the EN/IN boundary to be defined by Wang and Vel labels alone.
+If the v4a model produces PsychAD <1y EN fractions in the 10–20% range, the correction is
+deemed successful. If EN fractions remain below 10%, the Wang/Vel boundary does not extrapolate
+sufficiently into the PsychAD latent cluster, and age-stratified downsampling of adult PsychAD
+cells during scVI training (v4b) would be warranted to reduce adult-cell dominance of the
+batch embedding.
+
+---
+
+## Session Information {.unnumbered}
+
+```{r session-info}
+#| code-fold: false
+sessionInfo()
+```
