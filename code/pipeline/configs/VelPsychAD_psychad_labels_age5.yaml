@@ -1,0 +1,90 @@
+# ============================================================================
+# VelPsychAD_psychad_labels_age5 — Diagnostic: PsychAD native labels as scANVI supervision
+# ============================================================================
+#
+# Mirror experiment to VelPsychAD_vel_labels_age5: same cells, same scVI model,
+# but supervision flipped. PsychAD native subclass labels (IN_SST, IN_VIP,
+# IN_PVALB, EN_L6B, EN_L2_3_IT, ...) define the scANVI class vocabulary.
+# Velmeshev cells are all Unknown → scANVI assigns each to the nearest
+# PsychAD subclass.
+#
+# Key question: what do Vel "Interneurons" map to under PsychAD labels?
+#   - EN_L2_3_IT / EN_L3_5_IT_* → confirms they are EN despite the name
+#   - IN_SST / IN_VIP / IN_PVALB → would support the batch-confound hypothesis
+#
+# scVI model REUSED from VelPsychAD_vel_labels_age5 (same 82K cells, same
+# 5K HVGs, same batch structure). Only scANVI is retrained.
+# Prerequisite: scvi_output/scvi_model symlinked from vel_labels run.
+# ============================================================================
+
+output_dir: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/VelPsychAD_psychad_labels_age5
+
+sources:
+  - name: VELMESHEV
+    path: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/velmeshev/velmeshev.h5ad
+    dataset_type: Velmeshev
+    cell_type_field: "Cell_Type"
+    pfc_only: true
+    max_age: 5
+    n_cells_per_age_bin: 20000
+    # No use_raw_labels, no unlabel_below_age → legacy path → all Unknown
+
+  - name: PSYCHAD
+    paths:
+      aging: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_PsychAD/RNAseq/Aging_Cohort.h5ad
+      hbcc:  /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_PsychAD/RNAseq/HBCC_Cohort.h5ad
+    dataset_type: PsychAD
+    cell_type_field: "subclass"
+    pfc_only: true
+    max_age: 5
+    n_cells_per_age_bin: 20000
+    use_raw_labels: true          # native PsychAD subclass labels as scANVI supervision
+
+age_downsample: false
+postnatal_only: false
+seed: 42
+
+scvi:
+  n_top_genes: 5000
+  hvg_flavor: pearson_residuals
+  hvg_batch_key: source-chemistry
+  batch_key: source-chemistry
+  n_latent: 30
+  n_hidden: 256
+  n_layers: 2
+  gene_likelihood: zinb
+  dispersion: gene-batch
+  max_epochs_scvi: 200
+  batch_size: 256
+  early_stopping: true
+  early_stopping_patience: 15
+  num_workers: 8
+  transform_batch: []             # → normalised to null by PipelineConfig.__post_init__
+  continuous_covariate_keys: []
+  categorical_covariate_keys: [sex]
+  run_scvi_inference: false
+  run_scanvi_inference: false
+  overwrite_scvi: false           # reuse scvi_model from VelPsychAD_vel_labels_age5
+  overwrite_scanvi: true
+
+scanvi_label_transfer:
+  enabled: true
+  label_column: cell_type_for_scanvi
+  max_epochs_scanvi: 100
+  scanvi_lr: 0.0001
+  confidence_threshold: 0.5
+  use_shared_labels: false
+  n_samples_per_label: 500
+
+pseudobulk:
+  layers:
+    - name: counts
+      aggregation: sum
+  min_cells: 20
+  groups:
+    - name: by_cell_type_aligned
+      group_cols: [individual, cell_type_aligned]
+
+steps:
+  - scvi
+overwrite: false
