@@ -96,6 +96,14 @@ class PipelineConfig:
     overwrite_scanvi: bool = False
 
     # -- Derived paths --
+    def __post_init__(self):
+        # Normalise transform_batch: [] → None.
+        # An empty list passes `is not None` checks but causes scVI's
+        # get_normalized_expression to iterate over zero batches, leaving
+        # `inference_outputs` unassigned → UnboundLocalError at inference time.
+        if isinstance(self.transform_batch, list) and len(self.transform_batch) == 0:
+            self.transform_batch = None
+
     @property
     def _resolved_output_dir(self) -> Path:
         """
