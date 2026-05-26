@@ -77,8 +77,12 @@ GRNS = _cfg.get('GRNS', [])
 if not GRNS:
     raise ValueError("Config must define GRNS: list of {name, kind: ahba|pc1, ...} entries.")
 
-CELL_CLASSES = _cfg.get('CELL_CLASSES',
-    ['Excitatory', 'Inhibitory', 'Astrocytes', 'Microglia', 'OPC', 'Oligos'])
+# Single cell class used for all analyses in this notebook. Restricting to one
+# class avoids the cross-integration cell-class composition confound (different
+# pseudobulks may keep different cell classes per donor), so the donor-level
+# comparison reflects the GRN × normalisation difference alone.
+PB_CELL_CLASS = _cfg.get('PB_CELL_CLASS', 'Excitatory')
+
 CHILD_STARTS = _cfg.get('CHILD_STARTS', [1, 2, 3, 4, 5])
 GAP_STARTS   = _cfg.get('GAP_STARTS',   [8, 9, 10, 11, 12, 13, 14])
 GAP_LENGTHS  = _cfg.get('GAP_LENGTHS',  [0, 1, 2, 3, 4])
@@ -88,17 +92,16 @@ ADOL_ENDS    = _cfg.get('ADOL_ENDS',    [18, 20, 22, 24, 26])
 ROLLING_WINDOW = int(_cfg.get('ROLLING_WINDOW', 11))
 
 print(f"\nEXPERIMENT_NAME : {EXPERIMENT_NAME}")
+print(f"PB_CELL_CLASS    : {PB_CELL_CLASS}")
 print(f"N datasets       : {len(DATASETS)}")
 for d in DATASETS:
     print(f"  [{d['name']}] cell_class_col={d['cell_class_col']}")
     print(f"    by_cell_class : {d['by_cell_class']}")
-    print(f"    all_cells     : {d.get('all_cells')}")
 print(f"N GRNs           : {len(GRNS)}")
 for g in GRNS:
     extra = (f" loadings_csv={g['loadings_csv']}" if g['kind'] == 'pc1'
              else f" network={g.get('network', 'C3+')}")
     print(f"  [{g['name']}] kind={g['kind']}{extra}")
-print(f"CELL_CLASSES     : {CELL_CLASSES}")
 print(f"CHILD_STARTS     : {CHILD_STARTS}")
 print(f"GAP_STARTS       : {GAP_STARTS}")
 print(f"GAP_LENGTHS      : {GAP_LENGTHS}")
@@ -183,8 +186,12 @@ source(file.path(code_dir, 'plotting', 'sensitivity_gap_plots.r'))
 
 ## 2. Load GRNs and project across datasets
 
-For each dataset (column), set up its gene space, then project every GRN
-(AHBA C3+ + each PC1) onto each cell class and onto the all-cells aggregate.
+For each dataset (column), set up its gene space, restrict the pseudobulk
+to the configured `PB_CELL_CLASS` (default `Excitatory`), then project
+every GRN (AHBA C3+ + each PC1) onto that cell-class slice. Restricting to
+one cell class removes the cross-integration composition confound:
+different pseudobulks would otherwise include different cell classes for
+the same donor, biasing donor-level comparisons.
 
 ```{python}
 import contextlib as _ctx
@@ -325,57 +332,37 @@ for d in DATASETS:
     print(f"[{name}] AHBA-C3 genes={total_grn} | grn_concat rows={len(grn_concat)} | "
           f"unique networks={grn_concat['Network'].nunique()}")
 
-    # Per-cell-class projection
-    n_per_class = {}
-    for cls in CELL_CLASSES:
-        mask = bcc.obs[cc_col].astype(str) == cls
-        n = int(mask.sum())
-        if n < 5:
-            continue
-        sub = bcc[mask].copy()
-        fdf = _project_subset(sub, grn_concat)
-        fdf['dataset'] = name
-        fdf['pb_kind'] = cls
-        all_rows.append(fdf)
-        n_per_class[cls] = n
-        del sub
-        gc.collect()
-
-    # All-cells projection (optional)
-    n_allc = 'N/A'
-    if d.get('all_cells'):
-        allc = sc.read_h5ad(d['all_cells'])
-        if source_filter:
-            mask_af = allc.obs['source'].astype(str).str.upper() == source_filter.upper()
-            allc = allc[mask_af].copy()
-        fdf_all = _project_subset(allc, grn_concat)
-        fdf_all['dataset'] = name
-        fdf_all['pb_kind'] = 'all_cells'
-        all_rows.append(fdf_all)
-        n_allc = allc.n_obs
-        del allc
-
-    print(f"  per-class n_donors={n_per_class}; all_cells n_donors={n_allc}")
-
-    del bcc
+    # Single-cell-class projection (PB_CELL_CLASS). Drops the all_cells path
+    # so all downstream analyses operate on a fixed, integration-independent
+    # cell-class slice.
+    mask = bcc.obs[cc_col].astype(str) == PB_CELL_CLASS
+    n_cells = int(mask.sum())
+    if n_cells < 5:
+        raise ValueError(
+            f"[{name}] PB_CELL_CLASS={PB_CELL_CLASS!r} matched only {n_cells} "
+            f"pseudobulk rows in cell_class_col={cc_col!r}. "
+            f"Available: {sorted(bcc.obs[cc_col].astype(str).unique().tolist())}"
+        )
+    sub = bcc[mask].copy()
+    fdf = _project_subset(sub, grn_concat)
+    fdf['dataset'] = name
+    all_rows.append(fdf)
+    print(f"  [{name}] {PB_CELL_CLASS} pseudobulk rows: {n_cells} "
+          f"(donors: {sub.obs['individual'].nunique()})")
+    del sub, bcc
     gc.collect()
 
 combined_df = pd.concat(all_rows, ignore_index=True)
-
-# Cell class ordering (display)
-CELL_CLASS_ORDER = ['Excitatory', 'Inhibitory', 'Astrocytes',
-                    'Microglia', 'Oligos', 'OPC']
-PB_KIND_ORDER    = ['all_cells'] + CELL_CLASS_ORDER
 
 # GRN / dataset ordering = config order
 GRN_ORDER     = [g['name'] for g in GRNS]
 DATASET_ORDER = [d['name'] for d in DATASETS]
 
 print(f"\nCombined long-form df: {combined_df.shape}")
-print(f"  grn_names  : {sorted(combined_df['grn_name'].unique().tolist())}")
-print(f"  datasets   : {sorted(combined_df['dataset'].unique().tolist())}")
-print(f"  pb_kinds   : {sorted(combined_df['pb_kind'].unique().tolist())}")
-print(f"  conditions : {sorted(combined_df['condition'].unique().tolist())}")
+print(f"  pb_cell_class : {PB_CELL_CLASS}")
+print(f"  grn_names     : {sorted(combined_df['grn_name'].unique().tolist())}")
+print(f"  datasets      : {sorted(combined_df['dataset'].unique().tolist())}")
+print(f"  conditions    : {sorted(combined_df['condition'].unique().tolist())}")
 
 # Build a source × chemistry palette that always covers what's present.
 # Known sources get hand-picked colours; unknown sources are assigned from a
@@ -429,17 +416,10 @@ Two versions are shown:
   meaningfully different donor scores.
 
 ```{python}
-# Pivot to donor-level: one row per (dataset, individual), one column per grn_name.
-# Use 'all_cells' rows preferentially, then fall back to a per-donor mean across
-# cell-class rows if all_cells is missing for that dataset.
-def _donor_score(grp):
-    if (grp['pb_kind'] == 'all_cells').any():
-        return grp.loc[grp['pb_kind'] == 'all_cells', 'value'].mean()
-    return grp['value'].mean()
-
-
+# Each pseudobulk row already IS the donor's PB_CELL_CLASS aggregate (one row
+# per donor × class × condition × GRN), so the donor-level score is just the
+# mean over that donor's rows for the given (GRN, dataset, condition).
 def _build_scatter_long(combined_df, condition_value):
-    """Return a long-form donor-score table for a given normalisation condition."""
     sub_all = combined_df[combined_df['condition'] == condition_value].copy()
     pivot_cols = []
     for d_name in DATASET_ORDER:
@@ -447,8 +427,8 @@ def _build_scatter_long(combined_df, condition_value):
             sub = sub_all[(sub_all['dataset'] == d_name) & (sub_all['grn_name'] == gname)]
             if sub.empty:
                 continue
-            donor_scores = (sub.groupby('individual')
-                                .apply(_donor_score)
+            donor_scores = (sub.groupby('individual')['value']
+                                .mean()
                                 .rename(f'{gname}__{d_name}'))
             pivot_cols.append(donor_scores)
     wide = pd.concat(pivot_cols, axis=1)
@@ -470,7 +450,7 @@ print(f"scatter_long_scanvi : {scatter_long_scanvi.shape}")
 ```
 
 ```{python}
-%%R -i GRN_ORDER -i DATASET_ORDER
+%%R -i GRN_ORDER -i DATASET_ORDER -i PB_CELL_CLASS
 
 # Helper that builds the pairwise scatter-matrix plot from a long-form
 # scatter_long table (one row per (donor, grn_name, dataset, value)).
@@ -569,7 +549,8 @@ make_scatter_matrix <- function(scatter_long, condition_label) {
               plot.title        = element_text(size = 11),
               plot.subtitle     = element_text(size = 9),
               legend.position   = 'bottom') +
-        ggtitle(sprintf('Donor-level scatter matrix — %s', condition_label),
+        ggtitle(sprintf('Donor-level scatter matrix — %s (%s pseudobulk)',
+                         condition_label, PB_CELL_CLASS),
                 subtitle = paste(
                   'Each dot = one shared donor (same individual on both axes).',
                   'Axes z-scored within each (GRN × dataset) column.',
@@ -617,31 +598,14 @@ vs age with a rolling-mean curve over `ROLLING_WINDOW` donors (sorted by
 age). Y-axis is z-scored per panel so curves are comparable.
 
 ```{python}
-# Donor-level pseudobulk for trajectory (one row per donor per (grn, dataset, pb_kind)).
-# Use the all_cells aggregate where available, else mean across cell-class rows.
-def _donor_aggregate(df):
-    if (df['pb_kind'] == 'all_cells').any():
-        return (df[df['pb_kind'] == 'all_cells']
-                .groupby(['individual', 'age_years', 'source_chemistry'])['value']
-                .mean().reset_index())
-    return (df.groupby(['individual', 'age_years', 'source_chemistry'])['value']
-              .mean().reset_index())
-
-
-traj_rows = []
-for d_name in DATASET_ORDER:
-    for gname in GRN_ORDER:
-        sub = combined_df[(combined_df['dataset'] == d_name)
-                          & (combined_df['grn_name'] == gname)
-                          & (combined_df['condition'] == 'scanvi_all')]
-        if sub.empty:
-            continue
-        donor = _donor_aggregate(sub)
-        donor['dataset']  = d_name
-        donor['grn_name'] = gname
-        traj_rows.append(donor)
-
-traj_df = pd.concat(traj_rows, ignore_index=True)
+# Donor-level scores for the trajectory. combined_df has exactly one row per
+# (donor × condition × grn_name × dataset) since we projected onto a single
+# cell class — so the per-donor mean is just the row itself.
+traj_df = (combined_df[combined_df['condition'] == 'scanvi_all']
+           .groupby(['grn_name', 'dataset', 'individual',
+                     'age_years', 'source_chemistry'])['value']
+           .mean()
+           .reset_index())
 print(f"traj_df: {traj_df.shape}")
 print(f"  per (grn, dataset) n_donors:")
 for (g, d), grp in traj_df.groupby(['grn_name', 'dataset']):
@@ -649,7 +613,7 @@ for (g, d), grp in traj_df.groupby(['grn_name', 'dataset']):
 ```
 
 ```{python}
-%%R -w 280 -h 220 -u mm -r 300 -i traj_df -i GRN_ORDER -i DATASET_ORDER -i ROLLING_WINDOW -i SOURCE_CHEM_PALETTE
+%%R -w 280 -h 220 -u mm -r 300 -i traj_df -i GRN_ORDER -i DATASET_ORDER -i ROLLING_WINDOW -i SOURCE_CHEM_PALETTE -i PB_CELL_CLASS
 
 # SOURCE_CHEM_PALETTE imported from python as a named R vector (from pd.Series).
 source_chem_palette <- setNames(as.character(SOURCE_CHEM_PALETTE),
@@ -699,10 +663,11 @@ p_traj <- ggplot(traj_R, aes(x = age_years, y = value)) +
           panel.spacing    = unit(0.3, 'lines'),
           legend.position  = 'bottom') +
     ggtitle('Developmental trajectory — AHBA C3+ vs PC1 across datasets',
-            subtitle = paste(
+            subtitle = sprintf(paste(
               'Rows = GRN, cols = dataset. Z-scored per panel.',
-              'Black line = rolling mean over ±2.5 years of donor age,',
-              'capped at age 30. scANVI-normalised; donor-level.'))
+              'Black line = rolling mean over ±2.5 years of donor age, capped at 30.',
+              'scANVI-normalised; donor-level on %s pseudobulk.'),
+              PB_CELL_CLASS))
 suppressMessages(suppressWarnings(print(p_traj)))
 ```
 
@@ -717,33 +682,16 @@ sign. A sign flip means that cell does not count toward robustness.
 
 ```{python}
 # Build per-(grn × dataset) donor-level frames for R's compute_sensitivity_4d.
-# Each row needs: condition, individual, age_years, value, C
-# (project_GRN was called with a fixed network name, so 'C' is constant per cell.)
-sens_input = (combined_df[combined_df['condition'] == 'scanvi_all']
-              .copy())
-# Use 'all_cells' rows where available, else mean across cell classes per donor.
-def _donor_for_sens(grp):
-    sub = grp[grp['pb_kind'] == 'all_cells']
-    if sub.empty:
-        sub = grp
-    return (sub.groupby(['individual', 'age_years'])['value']
-                .mean().reset_index())
-
-box_rows = []
-for (gname, dname), grp in sens_input.groupby(['grn_name', 'dataset']):
-    donor = _donor_for_sens(grp)
-    donor['grn_name'] = gname
-    donor['dataset']  = dname
-    box_rows.append(donor)
-box_df = pd.concat(box_rows, ignore_index=True)
-# compute_sensitivity_4d expects a 'condition' and 'C' column for filtering.
+# Each donor contributes one row per (grn × dataset) — the projected score on
+# the configured cell class.
+box_df = (combined_df[combined_df['condition'] == 'scanvi_all']
+          .groupby(['grn_name', 'dataset', 'individual',
+                    'age_years', 'source', 'source_chemistry'])['value']
+          .mean()
+          .reset_index())
+# compute_sensitivity_4d expects 'condition' and 'C' columns for filtering.
 box_df['condition'] = 'scanvi_all'
 box_df['C']         = 'C3+'
-# Attach source for the make_boxes_gap_df helper (uses source as a coloring key).
-_donor_src = (combined_df[['individual', 'source', 'source_chemistry']]
-              .drop_duplicates('individual')
-              .set_index('individual'))
-box_df = box_df.merge(_donor_src, left_on='individual', right_index=True, how='left')
 print(f"box_df: {box_df.shape}")
 ```
 
@@ -792,7 +740,7 @@ print(robust_df, row.names = FALSE)
 ```
 
 ```{python}
-%%R -w 280 -h 280 -u mm -r 300 -i SOURCE_CHEM_PALETTE -i GRN_ORDER -i DATASET_ORDER
+%%R -w 280 -h 280 -u mm -r 300 -i SOURCE_CHEM_PALETTE -i GRN_ORDER -i DATASET_ORDER -i PB_CELL_CLASS
 
 age_range_levels <- c('Prenatal', 'Infancy', 'Childhood',
                       'Gap', 'Adolescence', 'Adult')
@@ -861,10 +809,11 @@ p_box <- ggplot(boxes_df_all, aes(x = age_range, y = value)) +
           panel.spacing    = unit(0.4, 'lines'),
           legend.position  = 'bottom') +
     ggtitle('Childhood vs Adolescence — robustness across 4D age-window grid',
-            subtitle = paste(
+            subtitle = sprintf(paste(
               'Each panel uses its own best window from the 4D grid (strongest p).',
-              'Annotation: % of grid cells with p<0.05 AND sign(d)==sign(best);',
-              'sign flips do not count.'))
+              'Annotation: %% of grid cells with p<0.05 AND sign(d)==sign(best);',
+              'sign flips do not count. Donor-level on %s pseudobulk.'),
+              PB_CELL_CLASS))
 suppressMessages(suppressWarnings(print(p_box)))
 ```
 

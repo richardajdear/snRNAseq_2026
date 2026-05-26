@@ -13,18 +13,19 @@
 # to compute loadings post-hoc from an existing integrated.h5ad.
 EXPERIMENT_NAME: pc1_vs_ahba_local
 
+# Restrict all donor-level analyses to one cell class. Defaults to Excitatory.
+# Other useful options: Inhibitory, Astrocytes, Microglia, OPC, Oligos.
+PB_CELL_CLASS: Excitatory
+
 DATASETS:
   - name: Velmeshev
     by_cell_class:  ${RDS_ROOT}/Cam_snRNAseq/integrated/Vel_prepost_noage_tuning5/pseudobulk_output/by_cell_class.h5ad
-    all_cells:      null
     cell_class_col: cell_class_original
   - name: PsychAD
     by_cell_class:  ${RDS_ROOT}/Cam_snRNAseq/integrated/PsychAD_noage_tuning5/pseudobulk_output/by_cell_class.h5ad
-    all_cells:      null
     cell_class_col: cell_class
   - name: Vel+PsychAD-joint
     by_cell_class:  ${RDS_ROOT}/Cam_snRNAseq/integrated/VelWangPsychAD_200k_prepost_noage_tuning5_allVel/pseudobulk_output/by_cell_class.h5ad
-    all_cells:      null
     cell_class_col: cell_class
 
 # Only one PC1 loadings file is currently available locally (the legacy joint
@@ -39,7 +40,6 @@ GRNS:
      loadings_csv: ${RDS_ROOT}/Cam_snRNAseq/integrated/scvi_output/pca_scanvi_loadings.csv,
      pc: 'PC1'}
 
-CELL_CLASSES: [Excitatory, Inhibitory, Astrocytes, Microglia, OPC, Oligos]
 CHILD_STARTS: [1, 2, 3, 4, 5]
 GAP_STARTS:   [8, 9, 10, 11, 12, 13, 14]
 GAP_LENGTHS:  [0, 1, 2, 3, 4]
