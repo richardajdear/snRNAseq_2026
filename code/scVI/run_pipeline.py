@@ -88,6 +88,40 @@ def _predict_scanvi_with_confidence(scanvi_model, adata_scvi, logger):
     return predictions, confidence
 
 
+def _export_pca_loadings_csv(adata, config, logger):
+    """Write per-gene PCA loadings as CSV next to integrated.h5ad.
+
+    One CSV per inferred-PCA varm key (pca_scvi_inferred_loadings,
+    pca_scanvi_inferred_loadings). Rows are gene IDs (adata.var_names);
+    columns are PC1..PCk. Genes not used in the PCA fit have NaN values
+    and are dropped from the CSV. These files are small (~MB) and meant
+    to be downloaded from HPC so notebooks can treat PC1 as a GRN.
+    """
+    out_dir = config._resolved_output_dir
+    for key in list(adata.varm.keys()):
+        if not key.endswith("_loadings"):
+            continue
+        if not key.startswith("pca_") or "inferred" not in key:
+            continue
+        loadings = np.asarray(adata.varm[key])
+        col_key = key + "_columns"
+        if col_key in adata.uns:
+            columns = list(adata.uns[col_key])
+        else:
+            columns = [f"PC{i + 1}" for i in range(loadings.shape[1])]
+        df = pd.DataFrame(loadings, index=adata.var_names, columns=columns)
+        df = df.dropna(how="all")
+        # Short filename: drop the "_inferred" suffix for readability.
+        # e.g. pca_scanvi_inferred_loadings → pca_scanvi_loadings.csv
+        short = key.replace("_inferred", "")
+        out_path = out_dir / f"{short}.csv"
+        df.to_csv(out_path, index_label="gene_id")
+        logger.info(
+            f"Wrote {out_path} (shape={df.shape}; "
+            f"genes={len(df):,} × components={len(columns)})"
+        )
+
+
 def run(config: PipelineConfig):
     """Execute the pipeline according to config.steps."""
 
@@ -379,6 +413,7 @@ def run(config: PipelineConfig):
     # --- SAVE ---
     if "save" in steps and adata is not None:
         save_checkpoint(adata, str(config.output_h5ad_path), logger)
+        _export_pca_loadings_csv(adata, config, logger)
 
     logger.info("=" * 60)
     logger.info("Pipeline complete.")

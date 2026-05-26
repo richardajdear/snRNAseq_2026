@@ -341,6 +341,31 @@ def compute_inferred_pca_umaps(
                 pcs[start:stop] = ipca.transform(chunk)
 
             adata.obsm[pca_key] = pcs
+
+            # Persist gene loadings (transpose: components_ is (n_pcs, n_features)).
+            # Stored in full gene space with NaN for non-HVGs, matching the
+            # ldvae_loadings pattern, so downstream code can use adata.var_names
+            # directly to look up per-gene weights.
+            comps = ipca.components_.astype(np.float32)
+            pc_columns = [f"PC{i + 1}" for i in range(n_pcs)]
+            loadings_key = pca_key.lstrip("X_") + "_loadings"
+            if use_all_cols:
+                adata.varm[loadings_key] = comps.T
+            else:
+                full = np.full((adata.n_vars, n_pcs), np.nan, dtype=np.float32)
+                full[hvg_idx, :] = comps.T
+                adata.varm[loadings_key] = full
+            adata.uns[loadings_key + "_columns"] = pc_columns
+            adata.uns[loadings_key + "_explained_variance_ratio"] = (
+                ipca.explained_variance_ratio_.astype(np.float32)
+            )
+            logger.info(
+                f"  Stored loadings in varm['{loadings_key}'] "
+                f"shape={adata.varm[loadings_key].shape}; "
+                f"top-3 explained variance ratios: "
+                f"{ipca.explained_variance_ratio_[:3].round(4).tolist()}"
+            )
+
             del ipca
             gc.collect()
 

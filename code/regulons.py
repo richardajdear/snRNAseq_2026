@@ -168,3 +168,75 @@ def project_GRN(adata, GRN, GRN_name='GRN', use_raw=False, use_residuals=False, 
     # Add to adata.obsm as array to work with scanpy plotting
     adata.obsm[GRN_name] = projected.values
     adata.uns[GRN_name + '_names'] = GRN_pivot.index.tolist()
+
+
+def load_pc1_as_grn(
+    loadings_csv,
+    network_name='PC1',
+    pc='PC1',
+    sign_align_to=None,
+):
+    """Load a PC's per-gene loadings from a CSV and return as a GRN DataFrame.
+
+    The CSV is written by the scVI pipeline alongside integrated.h5ad. It has
+    rows = gene IDs (typically Ensembl, matching adata.var_names) and columns
+    PC1..PCk. NaN rows are dropped on load.
+
+    Parameters
+    ----------
+    loadings_csv : str
+        Path to pca_*_loadings.csv produced by the scVI pipeline.
+    network_name : str
+        Label to use for the returned GRN's Network column (e.g. 'PC1_VelV3').
+    pc : str
+        Column name to select from the CSV (default 'PC1').
+    sign_align_to : pd.DataFrame, optional
+        A reference GRN DataFrame (Network, Gene, Importance) — usually the
+        AHBA C3+ rows mapped to the same gene ID space. If passed, the Pearson
+        correlation between this PC's loadings and the reference Importance is
+        computed on shared Gene IDs; if negative, the PC's loadings are
+        sign-flipped so trajectories trend the same direction.
+
+    Returns
+    -------
+    pd.DataFrame
+        Long-form GRN with columns Network, Gene, Importance — compatible with
+        project_GRN(). The Network value is `network_name`.
+    """
+    loadings = pd.read_csv(loadings_csv, index_col=0)
+    if pc not in loadings.columns:
+        raise ValueError(
+            f"PC column '{pc}' not found in {loadings_csv}. "
+            f"Available: {list(loadings.columns)[:5]}..."
+        )
+    weights = loadings[pc].dropna()
+
+    if sign_align_to is not None:
+        ref = (sign_align_to
+               .set_index('Gene')['Importance']
+               .groupby(level=0).first())
+        shared = weights.index.intersection(ref.index)
+        if len(shared) < 10:
+            print(
+                f"load_pc1_as_grn[{network_name}]: only {len(shared)} shared "
+                "genes with sign-alignment reference; skipping flip."
+            )
+        else:
+            r = np.corrcoef(weights.loc[shared].values, ref.loc[shared].values)[0, 1]
+            if np.isfinite(r) and r < 0:
+                weights = -weights
+                print(
+                    f"load_pc1_as_grn[{network_name}]: flipped sign "
+                    f"(r vs reference on {len(shared)} shared genes = {r:+.3f})"
+                )
+            else:
+                print(
+                    f"load_pc1_as_grn[{network_name}]: kept sign "
+                    f"(r vs reference on {len(shared)} shared genes = {r:+.3f})"
+                )
+
+    return pd.DataFrame({
+        'Network': network_name,
+        'Gene': weights.index,
+        'Importance': weights.values,
+    })

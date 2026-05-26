@@ -1,0 +1,833 @@
+---
+title: "AHBA C3+ vs snRNAseq PC1 — Cross-Dataset Developmental Comparison"
+format: md
+jupyter: python3
+execute:
+  echo: false
+---
+
+## 1. Setup
+
+### 1.1 Environment
+
+```{python}
+import os
+import sys
+import warnings
+from IPython import get_ipython
+_ip = get_ipython()
+if _ip:
+    _ip.run_line_magic('load_ext', 'autoreload')
+    _ip.run_line_magic('autoreload', '2')
+```
+
+```{python}
+def _find_repo_root(marker='.git'):
+    current = os.path.abspath(os.getcwd())
+    while True:
+        if os.path.exists(os.path.join(current, marker)):
+            return current
+        parent = os.path.dirname(current)
+        if parent == current:
+            raise RuntimeError(f"Could not find '{marker}' above {os.getcwd()}")
+        current = parent
+
+_repo_root = _find_repo_root()
+if os.path.join(_repo_root, 'code') not in sys.path:
+    sys.path.insert(0, os.path.join(_repo_root, 'code'))
+
+from environment import get_environment
+_env = get_environment()
+rds_dir  = _env['rds_dir']
+code_dir = _env['code_dir']
+ref_dir  = _env['ref_dir']
+
+print(f"Environment : {_env['name']}")
+print(f"  rds_dir  : {rds_dir}")
+print(f"  code_dir : {code_dir}")
+print(f"  ref_dir  : {ref_dir}")
+```
+
+### 1.2 Parameters
+
+Loads a list of `DATASETS` (the *columns* of the comparison grid) and a list of
+`GRNS` (the *rows* of the comparison grid). Each GRN is either AHBA C3+ or a
+snRNAseq PC1 fit on a particular integrated dataset; PC1 weights are loaded
+from a small CSV produced by the scVI pipeline alongside `integrated.h5ad`.
+
+```{python}
+import yaml as _yaml
+
+_cfg = {}
+_param_file = os.environ.get('NOTEBOOK_PARAMS', '')
+if _param_file:
+    print(f"Loading params from: {_param_file}")
+    with open(_param_file) as _f:
+        _cfg = _yaml.safe_load(_f) or {}
+else:
+    print("No NOTEBOOK_PARAMS set — using defaults (interactive mode)")
+
+EXPERIMENT_NAME = _cfg.get('EXPERIMENT_NAME', 'pc1_vs_ahba_interactive')
+
+DATASETS = _cfg.get('DATASETS', [])
+if not DATASETS:
+    raise ValueError("Config must define DATASETS: list of {name, by_cell_class, all_cells, cell_class_col} entries.")
+
+GRNS = _cfg.get('GRNS', [])
+if not GRNS:
+    raise ValueError("Config must define GRNS: list of {name, kind: ahba|pc1, ...} entries.")
+
+CELL_CLASSES = _cfg.get('CELL_CLASSES',
+    ['Excitatory', 'Inhibitory', 'Astrocytes', 'Microglia', 'OPC', 'Oligos'])
+CHILD_STARTS = _cfg.get('CHILD_STARTS', [1, 2, 3, 4, 5])
+GAP_STARTS   = _cfg.get('GAP_STARTS',   [8, 9, 10, 11, 12, 13, 14])
+GAP_LENGTHS  = _cfg.get('GAP_LENGTHS',  [0, 1, 2, 3, 4])
+ADOL_ENDS    = _cfg.get('ADOL_ENDS',    [18, 20, 22, 24, 26])
+
+# Rolling-mean window size (in donors) for the trajectory plots.
+ROLLING_WINDOW = int(_cfg.get('ROLLING_WINDOW', 11))
+
+print(f"\nEXPERIMENT_NAME : {EXPERIMENT_NAME}")
+print(f"N datasets       : {len(DATASETS)}")
+for d in DATASETS:
+    print(f"  [{d['name']}] cell_class_col={d['cell_class_col']}")
+    print(f"    by_cell_class : {d['by_cell_class']}")
+    print(f"    all_cells     : {d.get('all_cells')}")
+print(f"N GRNs           : {len(GRNS)}")
+for g in GRNS:
+    extra = (f" loadings_csv={g['loadings_csv']}" if g['kind'] == 'pc1'
+             else f" network={g.get('network', 'C3+')}")
+    print(f"  [{g['name']}] kind={g['kind']}{extra}")
+print(f"CELL_CLASSES     : {CELL_CLASSES}")
+print(f"CHILD_STARTS     : {CHILD_STARTS}")
+print(f"GAP_STARTS       : {GAP_STARTS}")
+print(f"GAP_LENGTHS      : {GAP_LENGTHS}")
+print(f"ADOL_ENDS        : {ADOL_ENDS}")
+print(f"ROLLING_WINDOW   : {ROLLING_WINDOW}")
+```
+
+### 1.3 Libraries
+
+```{python}
+#| include: false
+import gc
+import scanpy as sc
+import pandas as pd
+import numpy as np
+import scipy.sparse as _sp
+from collections import OrderedDict
+from IPython.display import Markdown, display
+
+warnings.filterwarnings('ignore')
+
+if _env['name'] == 'local':
+    os.environ['R_HOME'] = '/Users/richard/mambaforge/envs/scanpy/lib/R'
+
+%load_ext rpy2.ipython
+```
+
+```{python}
+#| include: false
+%%R
+
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(patchwork)
+library(ggpubr)
+library(pwr)
+
+# Base-R rolling mean (centered, partial windows at boundaries).
+# Avoids the zoo dependency.
+rolling_mean <- function(x, width) {
+    n <- length(x)
+    if (n == 0L) return(numeric(0))
+    half <- width %/% 2L
+    out <- numeric(n)
+    for (i in seq_len(n)) {
+        lo <- max(1L, i - half)
+        hi <- min(n,  i + half)
+        out[i] <- mean(x[lo:hi], na.rm = TRUE)
+    }
+    out
+}
+
+# Age-binned smoothed line: bin donors by age, compute mean per bin, return
+# (bin_centre, mean) so geom_line plots a smooth curve across age. Avoids the
+# stairstep artefact a per-donor rolling mean produces when many donors share
+# the same age (e.g. neonates clustered at age 0).
+age_binned_mean <- function(df, n_bins = 20) {
+    if (nrow(df) == 0L) return(df[0, c('age_years', 'value')])
+    breaks <- seq(min(df$age_years, na.rm = TRUE),
+                  max(df$age_years, na.rm = TRUE),
+                  length.out = n_bins + 1L)
+    if (length(unique(breaks)) < 2L) {
+        return(data.frame(age_years = mean(breaks),
+                          value     = mean(df$value, na.rm = TRUE)))
+    }
+    df %>%
+        mutate(.bin = cut(age_years, breaks = breaks, include.lowest = TRUE)) %>%
+        group_by(.bin) %>%
+        summarize(age_years = mean(age_years, na.rm = TRUE),
+                  value     = mean(value,     na.rm = TRUE),
+                  n         = n(),
+                  .groups   = 'drop') %>%
+        select(age_years, value, n)
+}
+```
+
+```{python}
+%%R -i code_dir
+
+source(file.path(code_dir, 'plotting', 'hvg_plots.r'))
+source(file.path(code_dir, 'plotting', 'sensitivity_gap_plots.r'))
+```
+
+## 2. Load GRNs and project across datasets
+
+For each dataset (column), set up its gene space, then project every GRN
+(AHBA C3+ + each PC1) onto each cell class and onto the all-cells aggregate.
+
+```{python}
+import contextlib as _ctx
+import io as _io
+
+from hvg_investigation import setup_grn
+from regulons import project_GRN, load_pc1_as_grn
+
+
+def _build_grns_for_dataset(grns_cfg, ahba_full, ahba_c3_for_signalign):
+    """Build the full list of (label, GRN_df) tuples for one dataset.
+
+    For each GRN row in config:
+      - kind='ahba': select the requested network from the pre-computed
+        ensembl-mapped AHBA GRN (`ahba_full`).
+      - kind='pc1': read loadings CSV (Ensembl-indexed) and sign-align to the
+        ensembl-mapped AHBA C3+ reference for the same dataset.
+
+    `ahba_full` is passed in already-computed so setup_grn (and its mygene
+    fallback) runs only once per dataset rather than once per AHBA row.
+
+    Returned GRN DataFrames all have one Network value (= the GRN's display
+    name) so they can be concatenated and projected via project_GRN in one
+    pass per dataset.
+    """
+    out = []
+    for g in grns_cfg:
+        name = g['name']
+        kind = g['kind']
+        if kind == 'ahba':
+            network = g.get('network', 'C3+')
+            sel = ahba_full[ahba_full['Network'] == network].copy()
+            sel['Network'] = name
+            out.append((name, sel))
+        elif kind == 'pc1':
+            pc = g.get('pc', 'PC1')
+            df = load_pc1_as_grn(
+                g['loadings_csv'],
+                network_name=name,
+                pc=pc,
+                sign_align_to=ahba_c3_for_signalign,
+            )
+            out.append((name, df))
+        else:
+            raise ValueError(f"Unknown GRN kind: {kind!r}")
+    return out
+
+
+def _project_all(adata, grn_concat, label='X_pc1ahba'):
+    """Project a combined long-form GRN onto adata and return long-form scores.
+
+    grn_concat has multiple Network values (one per GRN); project_GRN writes
+    them all together as columns of obsm[label]. Returns one row per cell × GRN.
+    """
+    with _ctx.redirect_stdout(_io.StringIO()):
+        project_GRN(adata, grn_concat, label,
+                    use_residuals=False, use_highly_variable=False,
+                    log_transform=False)
+    cols = adata.uns[label + '_names']
+    return (pd.DataFrame(adata.obsm[label], index=adata.obs_names, columns=cols)
+              .assign(obs_names=lambda d: d.index)
+              .melt(id_vars=['obs_names'], var_name='grn_name', value_name='value'))
+
+
+def _normalize_and_project_all(adata, grn_concat, mode):
+    """Apply CPM or scANVI normalisation, then project all GRNs at once.
+
+    mode = 'cpm_all' or 'scanvi_all'.
+    """
+    if mode == 'cpm_all':
+        adata.X = adata.layers['counts'].copy()
+        sc.pp.normalize_total(adata, target_sum=1e6, inplace=True)
+        adata.X = (adata.X.toarray() if _sp.issparse(adata.X) else adata.X).copy()
+    else:
+        _raw = adata.layers['scanvi_normalized']
+        adata.X = (_raw.toarray() if _sp.issparse(_raw)
+                   else np.array(_raw, dtype=np.float32)).copy()
+    if 'highly_variable' in adata.var.columns:
+        del adata.var['highly_variable']
+    return _project_all(adata, grn_concat).assign(condition=mode)
+
+
+def _add_meta(adata):
+    """Build per-row donor metadata frame."""
+    if 'source-chemistry' in adata.obs.columns:
+        sc_ = adata.obs['source-chemistry'].astype(str)
+    elif 'chemistry' in adata.obs.columns:
+        sc_ = (adata.obs['source'].astype(str) + '-' +
+               adata.obs['chemistry'].astype(str))
+    else:
+        sc_ = adata.obs['source'].astype(str)
+    cols = ['individual', 'age_years', 'source']
+    meta = adata.obs[cols].copy()
+    meta['source_chemistry'] = sc_.values
+    meta['obs_names'] = meta.index
+    if 'chemistry' in adata.obs.columns:
+        meta['chemistry'] = adata.obs['chemistry'].astype(str).values
+    if 'n_cells' in adata.obs.columns:
+        meta['n_cells'] = adata.obs['n_cells'].astype(int).values
+    return meta
+
+
+def _project_subset(adata_sub, grn_concat):
+    s_cpm    = _normalize_and_project_all(adata_sub, grn_concat, 'cpm_all')
+    s_scanvi = _normalize_and_project_all(adata_sub, grn_concat, 'scanvi_all')
+    meta = _add_meta(adata_sub)
+    return (pd.concat([s_cpm, s_scanvi], ignore_index=True)
+              .merge(meta, on='obs_names'))
+
+
+all_rows = []
+dataset_grn_genes = {}
+
+for d in DATASETS:
+    name = d['name']
+    cc_col = d['cell_class_col']
+
+    # Load reference adata for gene-space (just to get var_names + counts layer).
+    bcc = sc.read_h5ad(d['by_cell_class'])
+    source_filter = d.get('source_filter')
+    if source_filter:
+        mask = bcc.obs['source'].astype(str).str.upper() == source_filter.upper()
+        bcc = bcc[mask].copy()
+        print(f"  [{name}] source_filter={source_filter!r} → {mask.sum()}/{len(mask)} samples kept")
+
+    # AHBA C3+ baseline used for PC1 sign-alignment against this dataset's gene space.
+    with _ctx.redirect_stdout(_io.StringIO()):
+        ahba_full, total_grn = setup_grn(ref_dir, bcc)
+    ahba_c3pos = ahba_full[ahba_full['Network'] == 'C3+'].copy()
+    dataset_grn_genes[name] = total_grn
+
+    # Build the per-dataset (name, GRN_df) list and concat into one long frame
+    # so projection runs once per (CPM, scANVI) pass — much faster than looping.
+    # Pass ahba_full so setup_grn (and its mygene fallback) is not re-run.
+    grns = _build_grns_for_dataset(GRNS, ahba_full,
+                                   ahba_c3_for_signalign=ahba_c3pos)
+    grn_concat = pd.concat([g for _, g in grns], ignore_index=True)
+    print(f"[{name}] AHBA-C3 genes={total_grn} | grn_concat rows={len(grn_concat)} | "
+          f"unique networks={grn_concat['Network'].nunique()}")
+
+    # Per-cell-class projection
+    n_per_class = {}
+    for cls in CELL_CLASSES:
+        mask = bcc.obs[cc_col].astype(str) == cls
+        n = int(mask.sum())
+        if n < 5:
+            continue
+        sub = bcc[mask].copy()
+        fdf = _project_subset(sub, grn_concat)
+        fdf['dataset'] = name
+        fdf['pb_kind'] = cls
+        all_rows.append(fdf)
+        n_per_class[cls] = n
+        del sub
+        gc.collect()
+
+    # All-cells projection (optional)
+    n_allc = 'N/A'
+    if d.get('all_cells'):
+        allc = sc.read_h5ad(d['all_cells'])
+        if source_filter:
+            mask_af = allc.obs['source'].astype(str).str.upper() == source_filter.upper()
+            allc = allc[mask_af].copy()
+        fdf_all = _project_subset(allc, grn_concat)
+        fdf_all['dataset'] = name
+        fdf_all['pb_kind'] = 'all_cells'
+        all_rows.append(fdf_all)
+        n_allc = allc.n_obs
+        del allc
+
+    print(f"  per-class n_donors={n_per_class}; all_cells n_donors={n_allc}")
+
+    del bcc
+    gc.collect()
+
+combined_df = pd.concat(all_rows, ignore_index=True)
+
+# Cell class ordering (display)
+CELL_CLASS_ORDER = ['Excitatory', 'Inhibitory', 'Astrocytes',
+                    'Microglia', 'Oligos', 'OPC']
+PB_KIND_ORDER    = ['all_cells'] + CELL_CLASS_ORDER
+
+# GRN / dataset ordering = config order
+GRN_ORDER     = [g['name'] for g in GRNS]
+DATASET_ORDER = [d['name'] for d in DATASETS]
+
+print(f"\nCombined long-form df: {combined_df.shape}")
+print(f"  grn_names  : {sorted(combined_df['grn_name'].unique().tolist())}")
+print(f"  datasets   : {sorted(combined_df['dataset'].unique().tolist())}")
+print(f"  pb_kinds   : {sorted(combined_df['pb_kind'].unique().tolist())}")
+print(f"  conditions : {sorted(combined_df['condition'].unique().tolist())}")
+
+# Build a source × chemistry palette that always covers what's present.
+# Known sources get hand-picked colours; unknown sources are assigned from a
+# fallback Brewer palette so new datasets (e.g. Zhu) plot cleanly. Stored as
+# a pd.Series (index = source-chemistry label) so rpy2 turns it into a named
+# R vector usable directly with scale_*_manual(). Lookup is case-insensitive
+# because some adatas keep source uppercase ('VELMESHEV') and others titlecase.
+_known_pal_canon = {
+    'velmeshev-v2':  'steelblue',
+    'velmeshev-v3':  'goldenrod',
+    'psychad-v3':    'indianred',
+    'psychad-v2':    'firebrick',
+    'wang-v3':       'darkolivegreen',
+    'wang-multiome': 'darkgreen',
+    'zhu-multiome':  'mediumpurple',
+}
+_fallback = ['#66C2A5', '#FC8D62', '#8DA0CB', '#E78AC3', '#A6D854', '#FFD92F', '#B3B3B3']
+_present = sorted(combined_df['source_chemistry'].dropna().unique().tolist())
+_pal_dict = {}
+_fb_i = 0
+for s in _present:
+    key = str(s).lower()
+    if key in _known_pal_canon:
+        _pal_dict[s] = _known_pal_canon[key]
+    else:
+        _pal_dict[s] = _fallback[_fb_i % len(_fallback)]
+        _fb_i += 1
+SOURCE_CHEM_PALETTE = pd.Series(_pal_dict, name='color')
+print(f"  source_chem_palette:\n{SOURCE_CHEM_PALETTE.to_dict()}")
+```
+
+## 3. Donor-level scatter matrix of pairwise scores
+
+Each donor gets one score per `(grn_name × dataset)` combination, averaged
+across all cell classes after pseudobulking by donor. The scatter matrix
+shows every pair of `(grn_name × dataset)` columns at donor level, with the
+Pearson correlation printed on each off-diagonal facet.
+
+`condition = scanvi_all` is used here (batch-corrected expression). The
+`all_cells` pb_kind is preferred when available; otherwise the mean across
+available cell-class pseudobulks per donor is used.
+
+```{python}
+# Pivot to donor-level: one row per (dataset, individual), one column per grn_name.
+# Use 'all_cells' rows preferentially, then fall back to a per-donor mean across
+# cell-class rows if all_cells is missing for that dataset.
+def _donor_score(grp):
+    if (grp['pb_kind'] == 'all_cells').any():
+        return grp.loc[grp['pb_kind'] == 'all_cells', 'value'].mean()
+    return grp['value'].mean()
+
+
+pivot_cols = []
+_scan = combined_df[combined_df['condition'] == 'scanvi_all'].copy()
+
+for d_name in DATASET_ORDER:
+    for gname in GRN_ORDER:
+        sub = _scan[(_scan['dataset'] == d_name) & (_scan['grn_name'] == gname)]
+        if sub.empty:
+            continue
+        donor_scores = (sub.groupby('individual')
+                            .apply(_donor_score)
+                            .rename(f'{gname}__{d_name}'))
+        pivot_cols.append(donor_scores)
+
+scatter_df = pd.concat(pivot_cols, axis=1)
+# Donor-level metadata frame keyed by individual (age + source)
+_donor_meta = (_scan[['individual', 'age_years', 'source_chemistry']]
+               .drop_duplicates('individual')
+               .set_index('individual'))
+scatter_df = scatter_df.join(_donor_meta, how='left').reset_index()
+
+# Build a long-form table for R — each row is (donor, grn_name, dataset, value)
+_id_cols = ['individual', 'age_years', 'source_chemistry']
+scatter_long = (scatter_df.melt(id_vars=_id_cols, var_name='grn_dataset',
+                                value_name='value')
+                          .dropna(subset=['value']))
+scatter_long[['grn_name', 'dataset']] = scatter_long['grn_dataset'].str.split('__', expand=True)
+print(f"scatter_df: {scatter_df.shape} (donors × (grn × dataset) score columns + meta)")
+print(f"scatter_long: {scatter_long.shape}")
+```
+
+```{python}
+%%R -w 320 -h 320 -u mm -r 300 -i scatter_long -i GRN_ORDER -i DATASET_ORDER
+
+# Build pairwise scatter matrix: every (grn_x, dataset_x) vs (grn_y, dataset_y).
+# Score columns are encoded as "grn_name__dataset"; the matrix is square in
+# this combined axis. Lower triangle = scatter, upper triangle = correlation
+# value, diagonal = label.
+
+scatter_w <- scatter_long %>%
+    mutate(grn_dataset = paste(grn_name, dataset, sep = ' | ')) %>%
+    select(individual, grn_dataset, value) %>%
+    tidyr::pivot_wider(names_from = grn_dataset, values_from = value)
+
+# Order axes by GRN first, then dataset (config order on both)
+axis_order <- as.vector(outer(GRN_ORDER, DATASET_ORDER,
+                              FUN = function(g, d) paste(g, d, sep = ' | ')))
+axis_order <- axis_order[axis_order %in% colnames(scatter_w)]
+
+# Build all pairs (x, y) including diagonal
+pairs <- expand.grid(x = axis_order, y = axis_order, stringsAsFactors = FALSE)
+
+# Compute correlation per (x, y) for cells where x != y
+cor_df <- pairs %>%
+    rowwise() %>%
+    mutate(r = {
+        sub <- scatter_w[, c(x, y)] %>% na.omit()
+        if (nrow(sub) < 5 || x == y) NA_real_
+        else suppressWarnings(cor(sub[[1]], sub[[2]], method = 'pearson'))
+    }) %>%
+    ungroup() %>%
+    mutate(x = factor(x, levels = axis_order),
+           y = factor(y, levels = rev(axis_order)))
+
+# Long-form scatter points for upper triangle
+scatter_pts <- list()
+for (i in seq_along(axis_order)) {
+    for (j in seq_along(axis_order)) {
+        xn <- axis_order[i]
+        yn <- axis_order[j]
+        if (i == j) next
+        sub <- scatter_w[, c('individual', xn, yn)] %>%
+            tidyr::drop_na()
+        if (nrow(sub) == 0) next
+        scatter_pts[[paste(xn, yn, sep = '__')]] <- sub %>%
+            rename(xval = !!xn, yval = !!yn) %>%
+            mutate(x = xn, y = yn)
+    }
+}
+scatter_pts_df <- bind_rows(scatter_pts) %>%
+    mutate(x = factor(x, levels = axis_order),
+           y = factor(y, levels = rev(axis_order)))
+
+# Diagonal labels: each (x == y) facet shows the GRN×dataset name large and bold.
+diag_labels <- data.frame(
+    x = factor(axis_order, levels = axis_order),
+    y = factor(axis_order, levels = rev(axis_order)),
+    label = gsub(' \\| ', '\n', axis_order)
+)
+# Color tile by |r| for off-diagonal facets to make stronger pairs pop.
+tile_df <- cor_df %>%
+    filter(!is.na(r)) %>%
+    mutate(abs_r = abs(r))
+
+p_matrix <- ggplot() +
+    facet_grid(y ~ x, switch = 'y') +
+    geom_rect(data = tile_df,
+              aes(fill = abs_r),
+              xmin = -Inf, xmax = Inf, ymin = -Inf, ymax = Inf,
+              alpha = 0.25, inherit.aes = FALSE) +
+    geom_point(data = scatter_pts_df, aes(x = xval, y = yval),
+               size = 0.6, alpha = 0.55, color = 'steelblue4') +
+    geom_text(data = cor_df %>% filter(!is.na(r)),
+              aes(label = sprintf('r=%.2f', r),
+                  color = ifelse(abs(r) >= 0.5, 'strong', 'weak')),
+              x = -Inf, y = Inf, hjust = -0.1, vjust = 1.4,
+              size = 2.8, fontface = 'bold', inherit.aes = FALSE) +
+    geom_text(data = diag_labels,
+              aes(label = label), x = 0.5, y = 0.5,
+              size = 2.8, fontface = 'bold', color = 'grey20',
+              inherit.aes = FALSE) +
+    scale_x_continuous(name = NULL, breaks = NULL) +
+    scale_y_continuous(name = NULL, breaks = NULL) +
+    scale_fill_gradient(low = 'white', high = 'firebrick',
+                        limits = c(0, 1), name = '|r|') +
+    scale_color_manual(values = c(strong = 'firebrick4', weak = 'grey40'),
+                       guide = 'none') +
+    theme_bw(base_size = 8) +
+    theme(strip.text.x      = element_text(size = 7, angle = 0),
+          strip.text.y.left = element_text(size = 7, angle = 0, hjust = 1),
+          strip.background  = element_rect(fill = 'grey95', color = NA),
+          panel.grid        = element_blank(),
+          panel.spacing     = unit(0.1, 'lines'),
+          plot.title        = element_text(size = 10),
+          legend.position   = 'bottom') +
+    ggtitle('Donor-level scatter matrix: every (GRN × dataset) score vs every other',
+            subtitle = paste('Each dot = one donor. Pearson r printed top-left of each facet;',
+                             'tile shade = |r| (red = strong). Diagonal labels each axis.',
+                             'Score = scANVI-normalised mean across cells per donor.'))
+suppressMessages(suppressWarnings(print(p_matrix)))
+```
+
+## 4. Continuous developmental trajectories (rolling-mean)
+
+Rows = GRN, columns = dataset. Each panel shows donor-level scANVI scores
+vs age with a rolling-mean curve over `ROLLING_WINDOW` donors (sorted by
+age). Y-axis is z-scored per panel so curves are comparable.
+
+```{python}
+# Donor-level pseudobulk for trajectory (one row per donor per (grn, dataset, pb_kind)).
+# Use the all_cells aggregate where available, else mean across cell-class rows.
+def _donor_aggregate(df):
+    if (df['pb_kind'] == 'all_cells').any():
+        return (df[df['pb_kind'] == 'all_cells']
+                .groupby(['individual', 'age_years', 'source_chemistry'])['value']
+                .mean().reset_index())
+    return (df.groupby(['individual', 'age_years', 'source_chemistry'])['value']
+              .mean().reset_index())
+
+
+traj_rows = []
+for d_name in DATASET_ORDER:
+    for gname in GRN_ORDER:
+        sub = combined_df[(combined_df['dataset'] == d_name)
+                          & (combined_df['grn_name'] == gname)
+                          & (combined_df['condition'] == 'scanvi_all')]
+        if sub.empty:
+            continue
+        donor = _donor_aggregate(sub)
+        donor['dataset']  = d_name
+        donor['grn_name'] = gname
+        traj_rows.append(donor)
+
+traj_df = pd.concat(traj_rows, ignore_index=True)
+print(f"traj_df: {traj_df.shape}")
+print(f"  per (grn, dataset) n_donors:")
+for (g, d), grp in traj_df.groupby(['grn_name', 'dataset']):
+    print(f"    {g:30s} × {d:35s}  n={grp['individual'].nunique()}")
+```
+
+```{python}
+%%R -w 280 -h 220 -u mm -r 300 -i traj_df -i GRN_ORDER -i DATASET_ORDER -i ROLLING_WINDOW -i SOURCE_CHEM_PALETTE
+
+# SOURCE_CHEM_PALETTE imported from python as a named R vector (from pd.Series).
+source_chem_palette <- setNames(as.character(SOURCE_CHEM_PALETTE),
+                                names(SOURCE_CHEM_PALETTE))
+
+traj_R <- traj_df %>%
+    group_by(grn_name, dataset) %>%
+    mutate(value = (value - mean(value, na.rm = TRUE)) /
+                   sd(value,  na.rm = TRUE)) %>%
+    ungroup() %>%
+    mutate(grn_name = factor(grn_name, levels = GRN_ORDER),
+           dataset  = factor(dataset,  levels = DATASET_ORDER))
+
+# Age-binned smoothed line per (grn × dataset). Donors are binned into ~20
+# equal-width age intervals; the line connects per-bin means. Avoids the
+# stairstep look of donor-window rolling means when many donors share an age.
+roll_R <- traj_R %>%
+    group_by(grn_name, dataset) %>%
+    do(age_binned_mean(., n_bins = 20)) %>%
+    ungroup()
+
+p_traj <- ggplot(traj_R, aes(x = age_years, y = value)) +
+    facet_grid(grn_name ~ dataset, scales = 'free_y') +
+    geom_point(aes(color = source_chemistry), size = 0.6, alpha = 0.6) +
+    geom_line(data = roll_R, aes(x = age_years, y = value),
+              color = 'black', linewidth = 0.6) +
+    scale_color_manual(values = source_chem_palette,
+                       name = 'Source × chemistry',
+                       guide = guide_legend(override.aes = list(size = 2, alpha = 1))) +
+    scale_x_continuous(name = 'Donor age (years)',
+                       breaks = c(0, 5, 10, 20, 40, 80)) +
+    scale_y_continuous(name = 'Score (z-scored per panel)') +
+    coord_cartesian(ylim = c(-3, 3)) +
+    theme_classic() +
+    theme(text             = element_text(size = 9),
+          strip.text.x     = element_text(size = 9),
+          strip.text.y     = element_text(size = 9, angle = 0, hjust = 0),
+          strip.background = element_blank(),
+          axis.text        = element_text(size = 8),
+          axis.title       = element_text(size = 9),
+          plot.title       = element_text(size = 10),
+          plot.subtitle    = element_text(size = 8),
+          panel.spacing    = unit(0.3, 'lines'),
+          legend.position  = 'bottom') +
+    ggtitle('Developmental trajectory — AHBA C3+ vs PC1 across datasets',
+            subtitle = paste(
+              'Rows = GRN, cols = dataset. Z-scored per panel.',
+              'Black line = age-binned mean (20 equal-width age bins).',
+              'scANVI-normalised; donor-level (all_cells preferred).'))
+suppressMessages(suppressWarnings(print(p_traj)))
+```
+
+## 5. Childhood vs Adolescence boxplots with robustness annotation
+
+For each `(GRN × dataset)` cell, the 4D sensitivity grid is computed over
+`(child_start × gap_start × gap_length × adol_end)`. The strongest-result row
+(smallest p-value) gives the age window used for the boxplot. Above each
+facet, the **robustness %** is printed: the fraction of all grid cells
+where `p < 0.05` *and* the sign of Cohen's d matches the strongest-result
+sign. A sign flip means that cell does not count toward robustness.
+
+```{python}
+# Build per-(grn × dataset) donor-level frames for R's compute_sensitivity_4d.
+# Each row needs: condition, individual, age_years, value, C
+# (project_GRN was called with a fixed network name, so 'C' is constant per cell.)
+sens_input = (combined_df[combined_df['condition'] == 'scanvi_all']
+              .copy())
+# Use 'all_cells' rows where available, else mean across cell classes per donor.
+def _donor_for_sens(grp):
+    sub = grp[grp['pb_kind'] == 'all_cells']
+    if sub.empty:
+        sub = grp
+    return (sub.groupby(['individual', 'age_years'])['value']
+                .mean().reset_index())
+
+box_rows = []
+for (gname, dname), grp in sens_input.groupby(['grn_name', 'dataset']):
+    donor = _donor_for_sens(grp)
+    donor['grn_name'] = gname
+    donor['dataset']  = dname
+    box_rows.append(donor)
+box_df = pd.concat(box_rows, ignore_index=True)
+# compute_sensitivity_4d expects a 'condition' and 'C' column for filtering.
+box_df['condition'] = 'scanvi_all'
+box_df['C']         = 'C3+'
+# Attach source for the make_boxes_gap_df helper (uses source as a coloring key).
+_donor_src = (combined_df[['individual', 'source', 'source_chemistry']]
+              .drop_duplicates('individual')
+              .set_index('individual'))
+box_df = box_df.merge(_donor_src, left_on='individual', right_index=True, how='left')
+print(f"box_df: {box_df.shape}")
+```
+
+```{python}
+%%R -i box_df -i GRN_ORDER -i DATASET_ORDER -i CHILD_STARTS -i GAP_STARTS -i GAP_LENGTHS -i ADOL_ENDS
+
+# For each (grn × dataset) cell, run compute_sensitivity_4d to find the
+# strongest result, then compute robustness % = fraction of all grid cells
+# where p < 0.05 AND sign(cohens_d) matches the strongest-result sign.
+keys <- box_df %>% distinct(grn_name, dataset)
+robust_rows <- list()
+windows_per_cell <- list()
+for (i in seq_len(nrow(keys))) {
+    gname <- keys$grn_name[i]
+    dname <- keys$dataset[i]
+    sub <- box_df %>% filter(grn_name == gname, dataset == dname)
+    if (nrow(sub) == 0) next
+    sub_p <- prepare_r_data_single(sub, condition_order = c('scanvi_all'))
+    sens <- compute_sensitivity_4d(
+        sub_p, c('scanvi_all'),
+        child_starts = CHILD_STARTS, gap_starts = GAP_STARTS,
+        gap_lengths  = GAP_LENGTHS, adol_ends  = ADOL_ENDS)
+    best <- sens %>%
+        arrange(p_value) %>%
+        slice(1)
+    if (nrow(best) == 0 || is.na(best$cohens_d[1])) next
+    best_sign <- sign(best$cohens_d[1])
+    n_total   <- sum(!is.na(sens$p_value) & !is.na(sens$cohens_d))
+    n_robust  <- sum(sens$p_value < 0.05 &
+                     sign(sens$cohens_d) == best_sign, na.rm = TRUE)
+    pct_robust <- if (n_total > 0) 100 * n_robust / n_total else NA_real_
+    robust_rows[[i]] <- data.frame(
+        grn_name = gname, dataset = dname,
+        best_p   = best$p_value[1], best_d = best$cohens_d[1],
+        child_start = best$child_start[1], gap_start = best$gap_start[1],
+        adol_start  = best$adol_start[1],  adol_end  = best$adol_end[1],
+        n_robust = n_robust, n_total = n_total,
+        pct_robust = pct_robust)
+    windows_per_cell[[paste(gname, dname, sep = '__')]] <- best %>%
+        select(child_start, gap_start, adol_start, adol_end)
+}
+robust_df <- bind_rows(robust_rows)
+
+cat('\nRobustness summary (best window + % grid cells with p<0.05 in same direction):\n')
+print(robust_df, row.names = FALSE)
+```
+
+```{python}
+%%R -w 280 -h 280 -u mm -r 300 -i SOURCE_CHEM_PALETTE -i GRN_ORDER -i DATASET_ORDER
+
+age_range_levels <- c('Prenatal', 'Infancy', 'Childhood',
+                      'Gap', 'Adolescence', 'Adult')
+source_chem_palette <- setNames(as.character(SOURCE_CHEM_PALETTE),
+                                names(SOURCE_CHEM_PALETTE))
+
+boxes_all <- list()
+for (i in seq_len(nrow(robust_df))) {
+    r <- robust_df[i, ]
+    sub <- box_df %>% filter(grn_name == r$grn_name, dataset == r$dataset)
+    if (nrow(sub) == 0) next
+    boxes <- make_boxes_gap_df(sub, r$child_start, r$gap_start,
+                                r$adol_start, r$adol_end) %>%
+        filter(network == 'C3+') %>%
+        mutate(age_range = as.character(age_range),
+               age_range = ifelse(age_range %in% c('Early Adult', 'Late Adult'),
+                                  'Adult', age_range),
+               age_range = factor(age_range, levels = age_range_levels)) %>%
+        mutate(grn_name = r$grn_name, dataset = r$dataset,
+               value    = (value - mean(value)) / sd(value))
+    boxes_all[[i]] <- boxes
+}
+boxes_df_all <- bind_rows(boxes_all) %>%
+    mutate(grn_name = factor(grn_name, levels = GRN_ORDER),
+           dataset  = factor(dataset,  levels = DATASET_ORDER))
+
+# Build a per-facet annotation frame for the robustness label.
+robust_label <- robust_df %>%
+    mutate(label = sprintf('%.0f%% robust (n=%d/%d)',
+                            ifelse(is.na(pct_robust), 0, pct_robust),
+                            n_robust, n_total),
+           grn_name = factor(grn_name, levels = GRN_ORDER),
+           dataset  = factor(dataset,  levels = DATASET_ORDER))
+
+p_box <- ggplot(boxes_df_all, aes(x = age_range, y = value)) +
+    facet_grid(grn_name ~ dataset, scales = 'free_y') +
+    geom_boxplot(outlier.shape = NA, color = 'black', fill = NA,
+                 linewidth = 0.4) +
+    geom_jitter(aes(color = source_chemistry), width = 0.15,
+                size = 0.7, alpha = 0.7) +
+    geom_text(data = robust_label,
+              aes(label = label),
+              x = -Inf, y = Inf,
+              hjust = -0.05, vjust = 1.3, size = 2.5, color = 'firebrick4',
+              inherit.aes = FALSE) +
+    stat_compare_means(comparisons = list(c('Childhood', 'Adolescence')),
+                       label = 'p.signif', size = 3) +
+    scale_color_manual(values = source_chem_palette,
+                       name = 'Source × chemistry',
+                       guide = guide_legend(override.aes = list(size = 2, alpha = 1))) +
+    scale_y_continuous(name = 'Score (z-scored per panel)') +
+    coord_cartesian(clip = 'off') +
+    theme_classic() +
+    theme(text             = element_text(size = 9),
+          strip.text.x     = element_text(size = 9),
+          strip.text.y     = element_text(size = 9, angle = 0, hjust = 0),
+          strip.background = element_blank(),
+          axis.text.x      = element_text(angle = 45, hjust = 1, size = 8),
+          axis.text.y      = element_text(size = 8),
+          axis.title       = element_text(size = 9),
+          axis.title.x     = element_blank(),
+          plot.title       = element_text(size = 10),
+          plot.subtitle    = element_text(size = 8),
+          panel.spacing    = unit(0.3, 'lines'),
+          legend.position  = 'bottom') +
+    ggtitle('Childhood vs Adolescence — robustness across 4D age-window grid',
+            subtitle = paste(
+              'Each panel uses its own best window from the 4D grid (strongest p).',
+              'Annotation: % of grid cells with p<0.05 AND sign(d)==sign(best);',
+              'sign flips do not count.'))
+suppressMessages(suppressWarnings(print(p_box)))
+```
+
+## 6. Conclusions
+
+This notebook treats each PC1 (fit on the scANVI-normalised expression of a
+particular integrated dataset) as a "GRN" analogous to AHBA C3+, and projects
+all GRNs onto each dataset (column) to compare their developmental signals
+side by side.
+
+- **Section 3** (scatter matrix) shows where PC1s converge with AHBA C3+ and
+  with each other across datasets — high pairwise correlations mean the PC1
+  axes capture an axis that travels across datasets, supporting the
+  interpretation that PC1 ≈ AHBA C3+.
+- **Section 4** (rolling-mean trajectories) shows whether each GRN produces
+  the same developmental shape on each dataset, with no smoothing artefacts
+  at age extremes (rolling mean is robust where loess can over-extrapolate).
+- **Section 5** (robustness boxplots) quantifies how stable each
+  Childhood-vs-Adolescence drop is across age-window choices: a panel with
+  high `% robust` and a significant `p.signif` star is a reliable signal;
+  a panel with low `% robust` is fragile to age-window choice.

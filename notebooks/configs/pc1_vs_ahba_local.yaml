@@ -1,0 +1,47 @@
+# Template: grn_dev_pc1_vs_ahba
+# Local test config — compares AHBA C3+ vs PC1 of integrated snRNAseq data.
+#
+# DATASETS columns reuse the per-dataset and joint integrations already on
+# disk locally (Vel_prepost_noage_tuning5, PsychAD_noage_tuning5, and the
+# 200k joint allVel run).
+#
+# GRNS rows: AHBA-C3+ first, then one PC1 per integration. The PC1
+# loadings CSVs are produced by the updated scVI pipeline (see
+# code/scVI/visualize.py — pca_scanvi_loadings.csv is written next to
+# integrated.h5ad). The HPC pipeline must be re-run on each integration
+# to generate them; alternatively use scripts/pc1_vs_ahba/extract_loadings.py
+# to compute loadings post-hoc from an existing integrated.h5ad.
+EXPERIMENT_NAME: pc1_vs_ahba_local
+
+DATASETS:
+  - name: Velmeshev
+    by_cell_class:  ${RDS_ROOT}/Cam_snRNAseq/integrated/Vel_prepost_noage_tuning5/pseudobulk_output/by_cell_class.h5ad
+    all_cells:      null
+    cell_class_col: cell_class_original
+  - name: PsychAD
+    by_cell_class:  ${RDS_ROOT}/Cam_snRNAseq/integrated/PsychAD_noage_tuning5/pseudobulk_output/by_cell_class.h5ad
+    all_cells:      null
+    cell_class_col: cell_class
+  - name: Vel+PsychAD-joint
+    by_cell_class:  ${RDS_ROOT}/Cam_snRNAseq/integrated/VelWangPsychAD_200k_prepost_noage_tuning5_allVel/pseudobulk_output/by_cell_class.h5ad
+    all_cells:      null
+    cell_class_col: cell_class
+
+# Only one PC1 loadings file is currently available locally (the legacy joint
+# scvi_output run). Once you run extract_loadings.py on the integrated.h5ad
+# of each integration above — or re-run the scVI pipeline so it produces
+# pca_scanvi_loadings.csv natively — switch each PC1 row's loadings_csv to
+# the corresponding per-integration path.
+GRNS:
+  - {name: 'AHBA-C3+',  kind: 'ahba', network: 'C3+'}
+  - {name: 'PC1-joint',
+     kind: 'pc1',
+     loadings_csv: ${RDS_ROOT}/Cam_snRNAseq/integrated/scvi_output/pca_scanvi_loadings.csv,
+     pc: 'PC1'}
+
+CELL_CLASSES: [Excitatory, Inhibitory, Astrocytes, Microglia, OPC, Oligos]
+CHILD_STARTS: [1, 2, 3, 4, 5]
+GAP_STARTS:   [8, 9, 10, 11, 12, 13, 14]
+GAP_LENGTHS:  [0, 1, 2, 3, 4]
+ADOL_ENDS:    [18, 20, 22, 24, 26]
+ROLLING_WINDOW: 11
