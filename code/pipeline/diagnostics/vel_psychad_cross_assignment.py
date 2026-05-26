@@ -26,6 +26,7 @@ Output: text report printed to stdout + optionally written to out_dir/cross_assi
 import argparse
 import sys
 from pathlib import Path
+from typing import Optional
 
 import h5py
 import numpy as np
@@ -65,7 +66,7 @@ def section(title: str, width: int = 78) -> str:
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 
-def run(h5ad_path: str, out_dir: str | None = None):
+def run(h5ad_path: str, out_dir: Optional[str] = None):
     lines = []
 
     def p(s=""):

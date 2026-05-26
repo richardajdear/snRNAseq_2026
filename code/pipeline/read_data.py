@@ -14,6 +14,7 @@ VELMESHEV_META_DIR = os.path.join(_rds, 'Cam_snRNAseq/velmeshev/velmeshev_meta')
 WANG_PATH          = os.path.join(_rds, 'Cam_snRNAseq/wang/wang.h5ad')
 PSYCHAD_AGING_PATH = os.path.join(_rds, 'Cam_PsychAD/RNAseq/Aging_Cohort.h5ad')
 PSYCHAD_HBCC_PATH  = os.path.join(_rds, 'Cam_PsychAD/RNAseq/HBCC_Cohort.h5ad')
+ZHU_PATH           = os.path.join(_rds, 'Cam_snRNAseq/zhu/zhu.h5ad')
 # Legacy aliases (kept for any external scripts that import these names)
 AGING_PATH = PSYCHAD_AGING_PATH
 HBCC_PATH  = PSYCHAD_HBCC_PATH
@@ -247,6 +248,90 @@ def read_wang_backed(h5ad_path=WANG_PATH, cell_type_field='Type-updated'):
         meta_df['individual'] = obs['donor_id'].astype(str)
 
     print(f"  Wang backed: {adata_backed.shape[0]} cells")
+    return adata_backed, meta_df
+
+
+def extract_age_cellxgene(stage_str):
+    """Parse CellXGene HsapDv development_stage strings to age_years.
+
+    'Nth week post-fertilization stage' → prenatal (negative years using 268-day birth offset).
+    Named stages (infant/child/adolescent/adult) fall back to approximate midpoints
+    if no number is present.
+    """
+    s = str(stage_str).lower()
+    m = re.search(r'(\d+).*week.*post.fertiliz', s)
+    if m:
+        return (float(m.group(1)) * 7 - 268) / 365
+    m = re.search(r'(\d+).*year', s)
+    if m:
+        return float(m.group(1))
+    if 'infant' in s:   return 0.5
+    if 'child' in s:    return 7.0
+    if 'adolesc' in s:  return 15.0
+    if 'adult' in s:    return 30.0
+    return np.nan
+
+
+def read_zhu_backed(h5ad_path=ZHU_PATH, cell_type_field='author_cell_type'):
+    """Load Zhu et al. (2023) in backed mode and return computed metadata.
+
+    CellXGene standard schema: development_stage, donor_id, tissue, sex, assay,
+    cell_type (broad CL term), author_cell_type (author's finer labels).
+    cell_type_raw is taken from author_cell_type by default.
+    """
+    print(f"Reading Zhu (backed) from {h5ad_path}...")
+    if not os.path.exists(h5ad_path):
+        print(f"Error: {h5ad_path} not found.")
+        return None, None
+
+    adata_backed = sc.read_h5ad(h5ad_path, backed='r')
+    obs = adata_backed.obs
+
+    meta_df = pd.DataFrame(index=obs.index)
+
+    if 'development_stage' in obs.columns:
+        meta_df['age_years'] = obs['development_stage'].astype(str).apply(extract_age_cellxgene)
+
+    if 'sex' in obs.columns:
+        meta_df['sex'] = obs['sex'].astype(str)
+
+    _zhu_region_map = {
+        'dorsolateral prefrontal cortex': 'prefrontal cortex',
+        'cortical plate': 'neocortex',
+    }
+    if 'tissue' in obs.columns:
+        meta_df['region'] = obs['tissue'].replace(_zhu_region_map)
+
+    # Broad cell class from CellXGene cell_type (CL ontology terms, verified against data)
+    _zhu_class_map = {
+        'glutamatergic neuron': 'Excitatory',
+        'inhibitory interneuron': 'Inhibitory',
+        'medial ganglionic eminence derived interneuron': 'Inhibitory',
+        'caudal ganglionic eminence derived cortical interneuron': 'Inhibitory',
+        'astrocyte': 'Astrocytes',
+        'oligodendrocyte': 'Oligos',
+        'oligodendrocyte precursor cell': 'OPC',
+        'microglial cell': 'Microglia',
+        'endothelial cell': 'Endothelial',
+        'pericyte': 'Endothelial',
+        'vascular associated smooth muscle cell': 'Endothelial',
+        'neural progenitor cell': 'Glia',
+        'radial glial cell': 'Glia',
+    }
+    if 'cell_type' in obs.columns:
+        meta_df['cell_class'] = obs['cell_type'].str.lower().map(_zhu_class_map).fillna('Other')
+
+    raw_col = cell_type_field if cell_type_field in obs.columns else 'cell_type'
+    meta_df['cell_type_raw'] = obs[raw_col].astype(str)
+
+    if 'donor_id' in obs.columns:
+        meta_df['individual'] = obs['donor_id'].astype(str)
+
+    meta_df['source']    = 'ZHU'
+    meta_df['dataset']   = 'ZHU'
+    meta_df['chemistry'] = 'multiome'
+
+    print(f"  Zhu backed: {adata_backed.shape[0]} cells")
     return adata_backed, meta_df
 
 

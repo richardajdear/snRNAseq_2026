@@ -36,11 +36,12 @@ DATASET_COL = {
     'Wang':      'wang_type_updated',
     'Velmeshev': 'vel_cell_type',
     'PsychAD':   'psychad_subclass',
+    'Zhu':       'zhu_cell_type',
 }
 
 REQUIRED_COLUMNS = [
     'shared_label', 'broad_class',
-    'vel_cell_type', 'wang_type_updated', 'psychad_subclass',
+    'vel_cell_type', 'wang_type_updated', 'psychad_subclass', 'zhu_cell_type',
 ]
 
 
@@ -69,7 +70,7 @@ def load_shared_label_map(csv_path: str) -> pd.DataFrame:
             f'invalid broad_class values: {bad_broad}. '
             f'Allowed: {sorted(VALID_BROAD_CLASSES)}')
 
-    for col in ('vel_cell_type', 'wang_type_updated', 'psychad_subclass'):
+    for col in ('vel_cell_type', 'wang_type_updated', 'psychad_subclass', 'zhu_cell_type'):
         for i, entry in enumerate(df[col]):
             for frag in str(entry).split('|'):
                 if frag != frag.strip():

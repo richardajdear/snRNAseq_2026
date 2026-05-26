@@ -74,7 +74,7 @@ def main():
                         help="Paths to Aging_Cohort.h5ad and HBCC_Cohort.h5ad (PsychAD only).")
     parser.add_argument("--output", required=True, help="Path to output .h5ad file")
 
-    parser.add_argument("--dataset_type", choices=['Velmeshev', 'Wang', 'PsychAD', 'Generic'],
+    parser.add_argument("--dataset_type", choices=['Velmeshev', 'Wang', 'PsychAD', 'Zhu', 'Generic'],
                         default='Generic', help="Dataset type to determine reading logic.")
 
     parser.add_argument("--cell_type_field", default=None,
@@ -156,6 +156,9 @@ def main():
     elif args.dataset_type == 'Wang':
         kw = {'cell_type_field': ctf} if ctf else {}
         adata_backed, meta_df = read_data.read_wang_backed(h5ad_path=args.input, **kw)
+    elif args.dataset_type == 'Zhu':
+        kw = {'cell_type_field': ctf} if ctf else {}
+        adata_backed, meta_df = read_data.read_zhu_backed(h5ad_path=args.input, **kw)
     elif args.dataset_type == 'PsychAD':
         kw = {'cell_type_field': ctf} if ctf else {}
         aging_backed, hbcc_backed, hbcc_unique_mask, meta_df = \
@@ -370,7 +373,7 @@ def main():
         if args.dataset_type == 'Generic':
             raise ValueError(
                 "--use_shared_labels requires --dataset_type in "
-                "{Wang, Velmeshev, PsychAD}")
+                "{Wang, Velmeshev, PsychAD, Zhu}")
         labels, summary = apply_shared_labels(
             adata, args.dataset_type, 'cell_type_raw', mapping)
         adata.obs['cell_type_for_scanvi'] = labels.values
