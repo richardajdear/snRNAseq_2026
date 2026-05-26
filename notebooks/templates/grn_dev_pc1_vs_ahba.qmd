@@ -152,27 +152,25 @@ rolling_mean <- function(x, width) {
     out
 }
 
-# Age-binned smoothed line: bin donors by age, compute mean per bin, return
-# (bin_centre, mean) so geom_line plots a smooth curve across age. Avoids the
-# stairstep artefact a per-donor rolling mean produces when many donors share
-# the same age (e.g. neonates clustered at age 0).
-age_binned_mean <- function(df, n_bins = 20) {
-    if (nrow(df) == 0L) return(df[0, c('age_years', 'value')])
-    breaks <- seq(min(df$age_years, na.rm = TRUE),
-                  max(df$age_years, na.rm = TRUE),
-                  length.out = n_bins + 1L)
-    if (length(unique(breaks)) < 2L) {
-        return(data.frame(age_years = mean(breaks),
-                          value     = mean(df$value, na.rm = TRUE)))
-    }
-    df %>%
-        mutate(.bin = cut(age_years, breaks = breaks, include.lowest = TRUE)) %>%
-        group_by(.bin) %>%
-        summarize(age_years = mean(age_years, na.rm = TRUE),
-                  value     = mean(value,     na.rm = TRUE),
-                  n         = n(),
-                  .groups   = 'drop') %>%
-        select(age_years, value, n)
+# Continuous-age rolling mean: for each query age `t` on a fine grid, average
+# the donor values within ±half_window years of `t`. Smoothes evenly along the
+# age axis regardless of donor density (unlike a per-donor rolling window,
+# which is stretched/compressed by clusters of donors at the same age).
+rolling_mean_age <- function(df, half_window = 2.5,
+                              age_min = 0, age_max = 30, step = 0.25) {
+    if (nrow(df) == 0L) return(data.frame(age_years = numeric(),
+                                          value     = numeric(),
+                                          n         = integer()))
+    grid <- seq(age_min, age_max, by = step)
+    out <- lapply(grid, function(t) {
+        idx <- which(abs(df$age_years - t) <= half_window)
+        if (length(idx) == 0L)
+            return(data.frame(age_years = t, value = NA_real_, n = 0L))
+        data.frame(age_years = t,
+                   value     = mean(df$value[idx], na.rm = TRUE),
+                   n         = length(idx))
+    })
+    bind_rows(out)
 }
 ```
 
@@ -416,9 +414,19 @@ across all cell classes after pseudobulking by donor. The scatter matrix
 shows every pair of `(grn_name × dataset)` columns at donor level, with the
 Pearson correlation printed on each off-diagonal facet.
 
-`condition = scanvi_all` is used here (batch-corrected expression). The
-`all_cells` pb_kind is preferred when available; otherwise the mean across
-available cell-class pseudobulks per donor is used.
+Two versions are shown:
+
+- **CPM** — expression normalised per cell (raw counts → CPM) then averaged
+  per donor. The CPM matrix does *not* depend on which scVI integration the
+  donor's cells came through. So for the same GRN projected against the
+  same shared donors, two dataset columns should yield (nearly) identical
+  donor scores — differences come only from which cells were aggregated
+  into each pseudobulk (cell selection, cell-class label per integration).
+- **scANVI-normalised** — batch-corrected expression. This DOES depend on
+  the integration: the same donor's cells appear with different
+  scanvi_normalized values in the joint vs the per-dataset integration. So
+  the same GRN projected through different integrations may give
+  meaningfully different donor scores.
 
 ```{python}
 # Pivot to donor-level: one row per (dataset, individual), one column per grn_name.
@@ -430,151 +438,176 @@ def _donor_score(grp):
     return grp['value'].mean()
 
 
-pivot_cols = []
-_scan = combined_df[combined_df['condition'] == 'scanvi_all'].copy()
+def _build_scatter_long(combined_df, condition_value):
+    """Return a long-form donor-score table for a given normalisation condition."""
+    sub_all = combined_df[combined_df['condition'] == condition_value].copy()
+    pivot_cols = []
+    for d_name in DATASET_ORDER:
+        for gname in GRN_ORDER:
+            sub = sub_all[(sub_all['dataset'] == d_name) & (sub_all['grn_name'] == gname)]
+            if sub.empty:
+                continue
+            donor_scores = (sub.groupby('individual')
+                                .apply(_donor_score)
+                                .rename(f'{gname}__{d_name}'))
+            pivot_cols.append(donor_scores)
+    wide = pd.concat(pivot_cols, axis=1)
+    donor_meta = (sub_all[['individual', 'age_years', 'source_chemistry']]
+                  .drop_duplicates('individual')
+                  .set_index('individual'))
+    wide = wide.join(donor_meta, how='left').reset_index()
+    id_cols = ['individual', 'age_years', 'source_chemistry']
+    long = (wide.melt(id_vars=id_cols, var_name='grn_dataset', value_name='value')
+                 .dropna(subset=['value']))
+    long[['grn_name', 'dataset']] = long['grn_dataset'].str.split('__', expand=True)
+    return long
 
-for d_name in DATASET_ORDER:
-    for gname in GRN_ORDER:
-        sub = _scan[(_scan['dataset'] == d_name) & (_scan['grn_name'] == gname)]
-        if sub.empty:
-            continue
-        donor_scores = (sub.groupby('individual')
-                            .apply(_donor_score)
-                            .rename(f'{gname}__{d_name}'))
-        pivot_cols.append(donor_scores)
 
-scatter_df = pd.concat(pivot_cols, axis=1)
-# Donor-level metadata frame keyed by individual (age + source)
-_donor_meta = (_scan[['individual', 'age_years', 'source_chemistry']]
-               .drop_duplicates('individual')
-               .set_index('individual'))
-scatter_df = scatter_df.join(_donor_meta, how='left').reset_index()
-
-# Build a long-form table for R — each row is (donor, grn_name, dataset, value)
-_id_cols = ['individual', 'age_years', 'source_chemistry']
-scatter_long = (scatter_df.melt(id_vars=_id_cols, var_name='grn_dataset',
-                                value_name='value')
-                          .dropna(subset=['value']))
-scatter_long[['grn_name', 'dataset']] = scatter_long['grn_dataset'].str.split('__', expand=True)
-print(f"scatter_df: {scatter_df.shape} (donors × (grn × dataset) score columns + meta)")
-print(f"scatter_long: {scatter_long.shape}")
+scatter_long_cpm    = _build_scatter_long(combined_df, 'cpm_all')
+scatter_long_scanvi = _build_scatter_long(combined_df, 'scanvi_all')
+print(f"scatter_long_cpm    : {scatter_long_cpm.shape}")
+print(f"scatter_long_scanvi : {scatter_long_scanvi.shape}")
 ```
 
 ```{python}
-%%R -w 320 -h 320 -u mm -r 300 -i scatter_long -i GRN_ORDER -i DATASET_ORDER
+%%R -i GRN_ORDER -i DATASET_ORDER
 
-# Pairwise scatter matrix at donor level. Axis order = GRN × dataset.
-# Z-score each (grn, dataset) column so every panel uses the same scale.
-# Diagonal panels plot the column against itself (sanity y=x check).
-# Off-diagonal cells with no shared donors (e.g. Velmeshev × PsychAD —
-# disjoint cohorts) are flagged "no shared donors" rather than left empty.
+# Helper that builds the pairwise scatter-matrix plot from a long-form
+# scatter_long table (one row per (donor, grn_name, dataset, value)).
+# Used twice below — once with CPM scores, once with scANVI-normalised
+# scores — so the two normalisations can be compared at a glance.
+make_scatter_matrix <- function(scatter_long, condition_label) {
+    scatter_w <- scatter_long %>%
+        mutate(grn_dataset = paste(grn_name, dataset, sep = ' | ')) %>%
+        select(individual, grn_dataset, value) %>%
+        group_by(grn_dataset) %>%
+        mutate(value = (value - mean(value, na.rm = TRUE)) /
+                       sd(value,  na.rm = TRUE)) %>%
+        ungroup() %>%
+        tidyr::pivot_wider(names_from = grn_dataset, values_from = value)
 
-scatter_w <- scatter_long %>%
-    mutate(grn_dataset = paste(grn_name, dataset, sep = ' | ')) %>%
-    select(individual, grn_dataset, value) %>%
-    group_by(grn_dataset) %>%
-    mutate(value = (value - mean(value, na.rm = TRUE)) /
-                   sd(value,  na.rm = TRUE)) %>%
-    ungroup() %>%
-    tidyr::pivot_wider(names_from = grn_dataset, values_from = value)
+    axis_order <- as.vector(outer(GRN_ORDER, DATASET_ORDER,
+                                  FUN = function(g, d) paste(g, d, sep = ' | ')))
+    axis_order <- axis_order[axis_order %in% colnames(scatter_w)]
+    short_labels <- setNames(gsub(' \\| ', '\n', axis_order), axis_order)
 
-# Axis order = GRN-first (rows of original grid), then dataset, matching config.
-axis_order <- as.vector(outer(GRN_ORDER, DATASET_ORDER,
-                              FUN = function(g, d) paste(g, d, sep = ' | ')))
-axis_order <- axis_order[axis_order %in% colnames(scatter_w)]
-
-# Short labels for strip text — split GRN and dataset onto two lines.
-short_labels <- setNames(gsub(' \\| ', '\n', axis_order), axis_order)
-
-# Build scatter points for every pair (including diagonal).
-scatter_pts <- list()
-for (i in seq_along(axis_order)) {
-    for (j in seq_along(axis_order)) {
-        xn <- axis_order[i]; yn <- axis_order[j]
-        sub <- scatter_w[, c('individual', xn, yn), drop = FALSE] %>%
-            tidyr::drop_na()
-        if (nrow(sub) == 0L) next
-        scatter_pts[[paste(xn, yn, sep = '__')]] <- sub %>%
-            rename(xval = !!xn, yval = !!yn) %>%
-            mutate(x = xn, y = yn)
-    }
-}
-scatter_pts_df <- bind_rows(scatter_pts) %>%
-    mutate(x = factor(x, levels = axis_order),
-           y = factor(y, levels = rev(axis_order)))
-
-# Pairwise Pearson r on shared donors (any pair with ≥5 shared).
-pairs <- expand.grid(x = axis_order, y = axis_order, stringsAsFactors = FALSE)
-cor_df <- pairs %>%
-    rowwise() %>%
-    mutate(
-        n_shared = {
-            sub <- scatter_w[, c(x, y), drop = FALSE] %>% na.omit()
-            nrow(sub)
-        },
-        r = {
-            sub <- scatter_w[, c(x, y), drop = FALSE] %>% na.omit()
-            if (nrow(sub) < 5L) NA_real_
-            else suppressWarnings(cor(sub[[1]], sub[[2]], method = 'pearson'))
+    scatter_pts <- list()
+    for (i in seq_along(axis_order)) {
+        for (j in seq_along(axis_order)) {
+            xn <- axis_order[i]; yn <- axis_order[j]
+            sub <- scatter_w[, c('individual', xn, yn), drop = FALSE] %>%
+                tidyr::drop_na()
+            if (nrow(sub) == 0L) next
+            scatter_pts[[paste(xn, yn, sep = '__')]] <- sub %>%
+                rename(xval = !!xn, yval = !!yn) %>%
+                mutate(x = xn, y = yn)
         }
-    ) %>%
-    ungroup() %>%
-    mutate(x = factor(x, levels = axis_order),
-           y = factor(y, levels = rev(axis_order)))
+    }
+    scatter_pts_df <- bind_rows(scatter_pts) %>%
+        mutate(x = factor(x, levels = axis_order),
+               y = factor(y, levels = rev(axis_order)))
 
-# Empty cells (no shared donors) get a faint "no shared donors" placeholder.
-empty_df <- cor_df %>% filter(n_shared == 0L)
-# Off-diagonal cells with a real correlation get an |r| fill + bold r label.
-tile_df <- cor_df %>% filter(!is.na(r)) %>% mutate(abs_r = abs(r))
+    pairs <- expand.grid(x = axis_order, y = axis_order, stringsAsFactors = FALSE)
+    cor_df <- pairs %>%
+        rowwise() %>%
+        mutate(
+            n_shared = {
+                sub <- scatter_w[, c(x, y), drop = FALSE] %>% na.omit()
+                nrow(sub)
+            },
+            r = {
+                sub <- scatter_w[, c(x, y), drop = FALSE] %>% na.omit()
+                if (nrow(sub) < 5L) NA_real_
+                else suppressWarnings(cor(sub[[1]], sub[[2]], method = 'pearson'))
+            }
+        ) %>%
+        ungroup() %>%
+        mutate(x = factor(x, levels = axis_order),
+               y = factor(y, levels = rev(axis_order)))
 
-p_matrix <- ggplot() +
-    facet_grid(y ~ x, switch = 'y',
-               labeller = labeller(x = short_labels, y = short_labels)) +
-    geom_rect(data = tile_df,
-              aes(fill = abs_r),
-              xmin = -Inf, xmax = Inf, ymin = -Inf, ymax = Inf,
-              alpha = 0.30, inherit.aes = FALSE) +
-    geom_abline(slope = 1, intercept = 0,
-                linetype = 'dashed', color = 'grey60', linewidth = 0.25) +
-    geom_point(data = scatter_pts_df, aes(x = xval, y = yval),
-               size = 0.6, alpha = 0.55, color = 'steelblue4') +
-    geom_text(data = cor_df %>% filter(!is.na(r)),
-              aes(label = sprintf('r=%.2f\nn=%d', r, n_shared),
-                  color = ifelse(abs(r) >= 0.5, 'strong', 'weak')),
-              x = -Inf, y = Inf, hjust = -0.1, vjust = 1.2,
-              size = 2.4, fontface = 'bold', inherit.aes = FALSE,
-              lineheight = 0.9) +
-    geom_text(data = empty_df,
-              aes(label = 'no shared\ndonors'),
-              x = 0, y = 0, size = 2.4, color = 'grey55',
-              fontface = 'italic', inherit.aes = FALSE) +
-    scale_x_continuous(name = 'Donor score (z-scored within column)',
-                       limits = c(-3, 3), breaks = c(-2, 0, 2)) +
-    scale_y_continuous(name = 'Donor score (z-scored within column)',
-                       limits = c(-3, 3), breaks = c(-2, 0, 2)) +
-    scale_fill_gradient(low = 'white', high = 'firebrick',
-                        limits = c(0, 1), name = '|r|') +
-    scale_color_manual(values = c(strong = 'firebrick4', weak = 'grey40'),
-                       guide = 'none') +
-    theme_bw(base_size = 8) +
-    theme(strip.text.x      = element_text(size = 7, angle = 0, lineheight = 0.95),
-          strip.text.y.left = element_text(size = 7, angle = 0, hjust = 1,
-                                           lineheight = 0.95),
-          strip.background  = element_rect(fill = 'grey92', color = NA),
-          panel.grid        = element_blank(),
-          panel.border      = element_rect(color = 'grey60', linewidth = 0.3),
-          panel.spacing     = unit(0.15, 'lines'),
-          axis.text         = element_text(size = 6),
-          plot.title        = element_text(size = 10),
-          legend.position   = 'bottom') +
-    ggtitle('Donor-level scatter matrix — every (GRN × dataset) score vs every other',
-            subtitle = paste(
-              'Each dot = one shared donor (same individual on both axes).',
-              'Both axes z-scored within the (GRN × dataset) column.',
-              'Pearson r and shared-n printed top-left; tile shade = |r|;',
-              'dashed line y=x. Cross-dataset pairs of disjoint cohorts',
-              'share no donors — those cells are flagged.'))
-suppressMessages(suppressWarnings(print(p_matrix)))
+    empty_df <- cor_df %>% filter(n_shared == 0L)
+    tile_df  <- cor_df %>% filter(!is.na(r)) %>% mutate(abs_r = abs(r))
+
+    ggplot() +
+        facet_grid(y ~ x, switch = 'y',
+                   labeller = labeller(x = short_labels, y = short_labels)) +
+        geom_rect(data = tile_df,
+                  aes(fill = abs_r),
+                  xmin = -Inf, xmax = Inf, ymin = -Inf, ymax = Inf,
+                  alpha = 0.30, inherit.aes = FALSE) +
+        geom_abline(slope = 1, intercept = 0,
+                    linetype = 'dashed', color = 'grey60', linewidth = 0.25) +
+        geom_point(data = scatter_pts_df, aes(x = xval, y = yval),
+                   size = 0.6, alpha = 0.55, color = 'steelblue4') +
+        geom_text(data = cor_df %>% filter(!is.na(r)),
+                  aes(label = sprintf('r=%.2f\nn=%d', r, n_shared),
+                      color = ifelse(abs(r) >= 0.5, 'strong', 'weak')),
+                  x = -Inf, y = Inf, hjust = -0.1, vjust = 1.2,
+                  size = 3.5, fontface = 'bold', inherit.aes = FALSE,
+                  lineheight = 0.9) +
+        geom_text(data = empty_df,
+                  aes(label = 'no shared\ndonors'),
+                  x = 0, y = 0, size = 3.0, color = 'grey55',
+                  fontface = 'italic', inherit.aes = FALSE) +
+        scale_x_continuous(name = 'Donor score (z-scored within column)',
+                           limits = c(-3, 3), breaks = c(-2, 0, 2)) +
+        scale_y_continuous(name = 'Donor score (z-scored within column)',
+                           limits = c(-3, 3), breaks = c(-2, 0, 2)) +
+        scale_fill_gradient(low = 'white', high = 'firebrick',
+                            limits = c(0, 1), name = '|r|') +
+        scale_color_manual(values = c(strong = 'firebrick4', weak = 'grey40'),
+                           guide = 'none') +
+        theme_bw(base_size = 8) +
+        theme(strip.text.x      = element_text(size = 8, angle = 0, lineheight = 0.95),
+              strip.text.y.left = element_text(size = 8, angle = 0, hjust = 1,
+                                               lineheight = 0.95),
+              strip.background  = element_rect(fill = 'grey92', color = NA),
+              panel.grid        = element_blank(),
+              panel.border      = element_rect(color = 'grey60', linewidth = 0.3),
+              panel.spacing     = unit(0.15, 'lines'),
+              axis.text         = element_text(size = 6),
+              plot.title        = element_text(size = 11),
+              plot.subtitle     = element_text(size = 9),
+              legend.position   = 'bottom') +
+        ggtitle(sprintf('Donor-level scatter matrix — %s', condition_label),
+                subtitle = paste(
+                  'Each dot = one shared donor (same individual on both axes).',
+                  'Axes z-scored within each (GRN × dataset) column.',
+                  'Pearson r and shared-n top-left; tile shade = |r|;',
+                  'dashed line y=x.'))
+}
+```
+
+### 3.1 CPM normalisation (integration-independent)
+
+For shared donors, two `(GRN × dataset)` columns built on CPM should be
+nearly identical when the same GRN is projected, because CPM doesn't
+depend on which integration model produced the dataset. Any residual
+differences come from per-integration variation in *which cells* end up
+in the pseudobulk (cell selection, cell-class label after scANVI).
+
+```{python}
+%%R -w 320 -h 320 -u mm -r 300 -i scatter_long_cpm
+
+suppressMessages(suppressWarnings(
+    print(make_scatter_matrix(scatter_long_cpm, 'CPM (raw counts → 1e6)'))
+))
+```
+
+### 3.2 scANVI-normalised (integration-specific)
+
+Here the expression matrix DOES depend on the integration, so the same
+GRN projected through different integrations gives meaningfully
+different donor scores. Compare to 3.1 to see how much of the
+between-column variation is integration-driven (scANVI) vs.
+cell-selection driven (CPM).
+
+```{python}
+%%R -w 320 -h 320 -u mm -r 300 -i scatter_long_scanvi
+
+suppressMessages(suppressWarnings(
+    print(make_scatter_matrix(scatter_long_scanvi, 'scANVI-normalised'))
+))
 ```
 
 ## 4. Continuous developmental trajectories (rolling-mean)
@@ -630,20 +663,22 @@ traj_R <- traj_df %>%
     mutate(grn_name = factor(grn_name, levels = GRN_ORDER),
            dataset  = factor(dataset,  levels = DATASET_ORDER))
 
-# Donor-window rolling mean per (grn × dataset), age-sorted. Trajectory
-# capped at age 30 so the early-life signal is visible; older donors still
+# Continuous-age rolling mean per (grn × dataset). Window width is fixed in
+# *years* (not donors), so dense regions don't compress the line and sparse
+# regions don't stretch it. Trajectory capped at age 30 — older donors still
 # show as scatter points but don't dominate the curve.
+ROLLING_HALF_WINDOW_YEARS <- 2.5
 roll_R <- traj_R %>%
-    filter(age_years <= 30) %>%
-    arrange(grn_name, dataset, age_years) %>%
     group_by(grn_name, dataset) %>%
-    mutate(roll = rolling_mean(value, width = ROLLING_WINDOW)) %>%
-    ungroup()
+    do(rolling_mean_age(., half_window = ROLLING_HALF_WINDOW_YEARS,
+                           age_min = 0, age_max = 30, step = 0.25)) %>%
+    ungroup() %>%
+    filter(n >= 3)  # drop bins with <3 donors to avoid noisy boundary tails
 
 p_traj <- ggplot(traj_R, aes(x = age_years, y = value)) +
     facet_grid(grn_name ~ dataset, scales = 'free_y') +
     geom_point(aes(color = source_chemistry), size = 0.6, alpha = 0.6) +
-    geom_line(data = roll_R, aes(x = age_years, y = roll),
+    geom_line(data = roll_R, aes(x = age_years, y = value),
               color = 'black', linewidth = 0.6) +
     scale_color_manual(values = source_chem_palette,
                        name = 'Source × chemistry',
@@ -664,11 +699,10 @@ p_traj <- ggplot(traj_R, aes(x = age_years, y = value)) +
           panel.spacing    = unit(0.3, 'lines'),
           legend.position  = 'bottom') +
     ggtitle('Developmental trajectory — AHBA C3+ vs PC1 across datasets',
-            subtitle = sprintf(paste(
+            subtitle = paste(
               'Rows = GRN, cols = dataset. Z-scored per panel.',
-              'Black line = rolling mean of %d age-sorted donors, capped at age 30.',
-              'scANVI-normalised; donor-level (all_cells preferred).'),
-              ROLLING_WINDOW))
+              'Black line = rolling mean over ±2.5 years of donor age,',
+              'capped at age 30. scANVI-normalised; donor-level.'))
 suppressMessages(suppressWarnings(print(p_traj)))
 ```
 
