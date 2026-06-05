@@ -22,7 +22,7 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-CONFIGS_DIR="${REPO_ROOT}/notebooks/configs"
+TEMPLATES_DIR="${REPO_ROOT}/notebooks/templates"
 
 PATTERN="*"
 FORCE=""
@@ -35,10 +35,10 @@ for _arg in "$@"; do
     esac
 done
 
-mapfile -t CONFIGS < <(ls "${CONFIGS_DIR}"/${PATTERN}.yaml 2>/dev/null || true)
+mapfile -t CONFIGS < <(ls "${TEMPLATES_DIR}"/*/configs/${PATTERN}.yaml 2>/dev/null || true)
 
 if [[ ${#CONFIGS[@]} -eq 0 ]]; then
-    echo "No configs found matching: ${CONFIGS_DIR}/${PATTERN}.yaml" >&2
+    echo "No configs found matching: ${TEMPLATES_DIR}/*/configs/${PATTERN}.yaml" >&2
     exit 1
 fi
 

@@ -1,10 +1,4 @@
-# Template: grn_dev_compare_datasets
-# Same comparison as compare_Vel_PsychAD.yaml, but with the GRN restricted to
-# genes well-detected in both 10x V2 and V3 chemistries (from the gene-detection
-# diagnostic at scripts/outputs/gene_detection_v2_vs_v3/). This is the
-# "gene-set intersection" experiment from Round 3 of the analysis plan.
-EXPERIMENT_NAME: compare_Vel_PsychAD_genes
-GENE_FILTER_FILE: ${REPO_ROOT}/scripts/outputs/gene_detection_v2_vs_v3/well_detected_symbols.txt
+EXPERIMENT_NAME: compare_Vel_PsychAD
 DATASETS:
   - name: Velmeshev
     by_cell_class:  ${RDS_ROOT}/Cam_snRNAseq/integrated/Vel_prepost_noage_tuning5/pseudobulk_output/by_cell_class.h5ad

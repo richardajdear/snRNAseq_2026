@@ -88,7 +88,7 @@ pseudobulk:
         cell_class: Inhibitory
 
 notebook:
-  template: notebooks/templates/grn_dev.qmd
+  template: notebooks/templates/grn_dev/grn_dev.qmd
 
 steps:
   - downsample

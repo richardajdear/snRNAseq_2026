@@ -61,7 +61,7 @@ pseudobulk:
       cell_filter_file: /home/rajd2/rds/hpc-work/snRNAseq_2026/reference/cells_L23.csv
 
 notebook:
-  template: notebooks/templates/grn_dev_multi.qmd
+  template: notebooks/templates/grn_dev_multi/grn_dev_multi.qmd
   pseudobulk_inputs:
     - name: by_cell_class_L23
       group: by_cell_class_L23

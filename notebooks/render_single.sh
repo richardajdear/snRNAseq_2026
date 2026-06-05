@@ -9,10 +9,10 @@
 #   sensitivity_chemistry_scANVI
 #   pseudobulk_gap_excitatory_postnatal
 #
-# The template is inferred from a comment on the first line of the config YAML:
-#   # Template: <template_name>
-# where <template_name> matches a file in notebooks/templates/ (without .qmd).
-# Override with a second argument (pass "" to use the inferred template).
+# Configs live under notebooks/templates/<template>/configs/<config_name>.yaml.
+# The template is the parent directory of the config's configs/ folder, so no
+# first-line comment is needed. Override with a second argument (pass "" to use
+# the inferred template).
 #
 # --force  deletes the CACHE_DIR from the config before rendering, forcing a
 #          full re-run of the projection pipeline (overwrites the cache).
@@ -39,7 +39,6 @@
 set -euo pipefail
 
 REPO_ROOT="${RENDER_REPO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
-CONFIGS_DIR="${REPO_ROOT}/notebooks/configs"
 TEMPLATES_DIR="${REPO_ROOT}/notebooks/templates"
 RESULTS_DIR="${REPO_ROOT}/notebooks/results"
 LOGS_DIR="${REPO_ROOT}/logs"
@@ -66,17 +65,35 @@ done
 if [[ -z "$CONFIG_NAME" ]]; then
     echo "Usage: $0 <config_name> [template_override] [--force] [--local]" >&2
     echo ""
-    echo "Available configs:"
-    ls "${CONFIGS_DIR}"/*.yaml 2>/dev/null \
-        | xargs -n1 basename | sed 's/\.yaml$//'
+    echo "Available configs (grouped by template):"
+    for _td in "${TEMPLATES_DIR}"/*/configs; do
+        [[ -d "$_td" ]] || continue
+        _tpl=$(basename "$(dirname "$_td")")
+        for _cf in "$_td"/*.yaml; do
+            [[ -f "$_cf" ]] || continue
+            printf "  %s  (%s)\n" "$(basename "$_cf" .yaml)" "$_tpl"
+        done
+    done
     exit 1
 fi
 
-CONFIG_FILE="${CONFIGS_DIR}/${CONFIG_NAME}.yaml"
-if [[ ! -f "$CONFIG_FILE" ]]; then
-    echo "Error: config not found: ${CONFIG_FILE}" >&2
+# Locate the config under templates/*/configs/<name>.yaml.  Error on no match
+# or on collisions (same config name under multiple templates).
+_MATCHES=()
+for _c in "${TEMPLATES_DIR}"/*/configs/"${CONFIG_NAME}.yaml"; do
+    [[ -f "$_c" ]] && _MATCHES+=("$_c")
+done
+if [[ ${#_MATCHES[@]} -eq 0 ]]; then
+    echo "Error: config not found: ${CONFIG_NAME}.yaml" >&2
+    echo "  Searched: ${TEMPLATES_DIR}/*/configs/${CONFIG_NAME}.yaml" >&2
+    exit 1
+elif [[ ${#_MATCHES[@]} -gt 1 ]]; then
+    echo "Error: config name '${CONFIG_NAME}' is ambiguous; found in multiple templates:" >&2
+    printf '  %s\n' "${_MATCHES[@]}" >&2
+    echo "  Rename one of them to make it unique." >&2
     exit 1
 fi
+CONFIG_FILE="${_MATCHES[0]}"
 
 # If not already inside a SLURM job and --local was not requested, submit via
 # sbatch (HPC default).  On a local workstation with no sbatch this block is
@@ -98,24 +115,24 @@ if [[ -z "${SLURM_JOB_ID:-}" && -z "$LOCAL" ]]; then
     # No sbatch available (local workstation): fall through and run directly.
 fi
 
-# Infer template from first-line comment "# Template: <name>"
+# Template is the parent of the config's configs/ folder
+# (notebooks/templates/<template>/configs/<config>.yaml).
+_INFERRED_TEMPLATE=$(basename "$(dirname "$(dirname "$CONFIG_FILE")")")
 if [[ -n "$TEMPLATE_OVERRIDE" ]]; then
+    if [[ "$TEMPLATE_OVERRIDE" != "$_INFERRED_TEMPLATE" ]]; then
+        echo "Warning: template override '${TEMPLATE_OVERRIDE}' disagrees with config location" >&2
+        echo "  (config is under template '${_INFERRED_TEMPLATE}'). Using override." >&2
+    fi
     TEMPLATE_NAME="$TEMPLATE_OVERRIDE"
 else
-    TEMPLATE_NAME=$(head -1 "$CONFIG_FILE" | sed -n 's/^# Template: *//p')
-    if [[ -z "$TEMPLATE_NAME" ]]; then
-        echo "Error: no template found in ${CONFIG_FILE}." >&2
-        echo "  Add a first-line comment: # Template: <template_name>" >&2
-        echo "  Or pass a template as second argument." >&2
-        exit 1
-    fi
+    TEMPLATE_NAME="$_INFERRED_TEMPLATE"
 fi
 
-TEMPLATE="${TEMPLATES_DIR}/${TEMPLATE_NAME}.qmd"
+TEMPLATE="${TEMPLATES_DIR}/${TEMPLATE_NAME}/${TEMPLATE_NAME}.qmd"
 if [[ ! -f "$TEMPLATE" ]]; then
     echo "Error: template not found: ${TEMPLATE}" >&2
     echo "  Available templates:"
-    ls "${TEMPLATES_DIR}"/*.qmd 2>/dev/null | xargs -n1 basename || echo "  (none)"
+    ls -d "${TEMPLATES_DIR}"/*/ 2>/dev/null | xargs -n1 basename || echo "  (none)"
     exit 1
 fi
 

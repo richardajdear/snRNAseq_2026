@@ -1,4 +1,3 @@
-# Template: grn_dev_pc1_vs_ahba
 # Local test config — compares AHBA C3+ vs PC1 of integrated snRNAseq data.
 #
 # DATASETS columns reuse the per-dataset and joint integrations already on

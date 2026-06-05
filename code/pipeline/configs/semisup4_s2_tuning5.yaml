@@ -107,7 +107,7 @@ pseudobulk:
       group_cols: [individual, cell_class]
 
 notebook:
-  template: notebooks/templates/grn_dev_multi.qmd
+  template: notebooks/templates/grn_dev_multi/grn_dev_multi.qmd
   pseudobulk_inputs:
     - name: by_cell_class_Excitatory
       group: by_cell_class

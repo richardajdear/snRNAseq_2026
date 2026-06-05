@@ -15,7 +15,7 @@ CONFIG="${CONFIG:-code/pipeline/configs/source_hpc_config.yaml}"
 # Track whether NOTEBOOK_TEMPLATE was explicitly set by the caller (env var takes
 # priority over the config value; config takes priority over the default below).
 _NOTEBOOK_TEMPLATE_ENVSET="${NOTEBOOK_TEMPLATE+set}"
-NOTEBOOK_TEMPLATE="${NOTEBOOK_TEMPLATE:-notebooks/templates/grn_dev_v2.qmd}"
+NOTEBOOK_TEMPLATE="${NOTEBOOK_TEMPLATE:-notebooks/templates/grn_dev_v2/grn_dev_v2.qmd}"
 PSEUDOBULK_GROUP="${PSEUDOBULK_GROUP:-by_cell_class}"
 # PSEUDOBULK_FILE and EXPERIMENT_NAME can be set directly to bypass CONFIG
 # parsing (used by util_retransform.sh when submitting a dependency notebook).

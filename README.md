@@ -197,10 +197,9 @@ bash notebooks/render_all.sh '*scANVI*'
 bash notebooks/render_all.sh
 ```
 
-**Adding a new experiment** — create one YAML in `notebooks/configs/`:
+**Adding a new experiment** — drop one YAML next to the template that should render it, at `notebooks/templates/<template>/configs/<config_name>.yaml`. The template is inferred from the directory, so no `# Template:` comment is needed.
 
 ```yaml
-# Template: sensitivity_gap_analysis        ← required: tells render_single.sh which template
 EXPERIMENT_NAME: my_new_experiment
 DATA_FILE: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/...path/to/integrated.h5ad
 SCVI_LAYER: scanvi_normalized              # "" = raw, "scvi_normalized", "scanvi_normalized"
@@ -210,11 +209,16 @@ FILTER_CELL_TYPES: null                    # or list of cell_type_aligned values
 CACHE_DIR: ""                              # leave "" to auto-create under results/
 ```
 
-Output goes to `notebooks/results/<EXPERIMENT_NAME>/`.
+Output goes to `notebooks/results/<EXPERIMENT_NAME>/`. `render_single.sh <config_name>` finds the config by walking `notebooks/templates/*/configs/`; if the same `<config_name>` is used under two templates it errors out, so keep names unique.
 
-**Available templates:**
-- `sensitivity_gap_analysis` — Gap model sensitivity (most analyses). Use for chemistry/dataset batch variants.
-- `sensitivity_analysis` — Standard sensitivity model. Set `INCLUDE_DIAGNOSTICS: true` for HVG investigation notebooks.
+**Available templates** (each in its own dir under `notebooks/templates/`):
+- `grn_dev_v2` — current pseudobulk GRN-projection notebook (post-tuning5 datasets).
+- `grn_dev` — older pseudobulk GRN-projection (tuning2 datasets).
+- `grn_dev_compare_datasets` — side-by-side comparison of two pseudobulk datasets.
+- `grn_dev_multi` — multi-input GRN-projection (used by HPC pipeline configs).
+- `grn_dev_pc1_vs_ahba` — PC1 vs AHBA C3 comparison.
+- `grn_projection` — GRN projection on cell-level (non-pseudobulk) data.
+- `psychad_diagnostic_report` — PsychAD relabelling diagnostics.
 
 **How parameters work:** `render_single.sh` sets `$NOTEBOOK_PARAMS` to the config YAML path. The template reads it via `os.environ.get('NOTEBOOK_PARAMS')`. No papermill required.
 

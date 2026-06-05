@@ -46,7 +46,7 @@ SIF="${SIF:-/home/rajd2/rds/hpc-work/shortcake_scvi.sif}"
 # Notebook dependency options (set SUBMIT_NOTEBOOK=false to skip):
 SUBMIT_NOTEBOOK="${SUBMIT_NOTEBOOK:-true}"
 PSEUDOBULK_GROUP="${PSEUDOBULK_GROUP:-by_cell_class}"
-NOTEBOOK_TEMPLATE="${NOTEBOOK_TEMPLATE:-notebooks/templates/grn_dev.qmd}"
+NOTEBOOK_TEMPLATE="${NOTEBOOK_TEMPLATE:-notebooks/templates/grn_dev/grn_dev.qmd}"
 DATA_DIR="/home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc"
 
 for var in SCVI_CONFIG PB_OUTPUT PB_CONFIG; do

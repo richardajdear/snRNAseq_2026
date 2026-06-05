@@ -56,7 +56,7 @@ pseudobulk:
       group_cols: [individual, cell_class_original]
 
 notebook:
-  template: notebooks/templates/grn_dev_v2.qmd
+  template: notebooks/templates/grn_dev_v2/grn_dev_v2.qmd
   pseudobulk_group: by_cell_class
   cell_class_col: cell_class_original
   cell_class_value: Excitatory

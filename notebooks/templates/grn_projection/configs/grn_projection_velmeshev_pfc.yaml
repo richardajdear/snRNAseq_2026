@@ -1,4 +1,3 @@
-# Template: grn_projection
 EXPERIMENT_NAME: grn_projection_velmeshev_pfc
 # DATA_FILE defaults to rds_dir/Cam_snRNAseq/velmeshev/velmeshev_100k_PFC_lessOld.h5ad
 # Override here only if the path differs from the template default:

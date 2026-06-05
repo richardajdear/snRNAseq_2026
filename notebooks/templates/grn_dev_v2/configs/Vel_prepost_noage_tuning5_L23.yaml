@@ -1,4 +1,3 @@
-# Template: grn_dev_v2
 EXPERIMENT_NAME: Vel_prepost_noage_tuning5_L23
 PSEUDOBULK_FILE: ${RDS_ROOT}/Cam_snRNAseq/integrated/Vel_prepost_noage_tuning5/pseudobulk_output/by_cell_class_L23.h5ad
 CELL_CLASS_COL: 'cell_class_original'
