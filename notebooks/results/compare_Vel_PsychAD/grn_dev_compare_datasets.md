@@ -5,10 +5,10 @@
 
 ### 1.1 Environment
 
-    Environment : hpc
-      rds_dir  : /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc
-      code_dir : /home/rajd2/rds/hpc-work/snRNAseq_2026/code
-      ref_dir  : /home/rajd2/rds/hpc-work/snRNAseq_2026/reference
+    Environment : local
+      rds_dir  : /Users/richard/Git/snRNAseq_2026/rds-cam-psych-transc-Pb9UGUlrwWc
+      code_dir : /Users/richard/Git/snRNAseq_2026/code
+      ref_dir  : /Users/richard/Git/snRNAseq_2026/reference
 
 ### 1.2 Parameters
 
@@ -17,17 +17,17 @@ cross-dataset comparison of cell-class composition and per-cell-class
 C3+ developmental trends. The 4D sensitivity grid is shared across
 datasets.
 
-    Loading params from: /rds/user/rajd2/hpc-work/snRNAseq_2026/notebooks/results/compare_Vel_PsychAD/grn_dev_compare_datasets_params.yaml
+    Loading params from: /Users/richard/git/snRNAseq_2026/notebooks/results/compare_Vel_PsychAD/grn_dev_compare_datasets_params.yaml
 
     EXPERIMENT_NAME : compare_Vel_PsychAD
     N datasets       : 2
       [Velmeshev]
-        by_cell_class : /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/Vel_prepost_noage_tuning5/pseudobulk_output/by_cell_class.h5ad
-        all_cells     : /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/Vel_prepost_noage_tuning5/pseudobulk_output/all_cells_by_donor.h5ad
+        by_cell_class : /Users/richard/git/snRNAseq_2026/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/Vel_prepost_noage_tuning5/pseudobulk_output/by_cell_class.h5ad
+        all_cells     : None
         cell_class_col: cell_class_original
       [PsychAD]
-        by_cell_class : /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/PsychAD_noage_tuning5/pseudobulk_output/by_cell_class.h5ad
-        all_cells     : /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/PsychAD_noage_tuning5/pseudobulk_output/all_cells_by_donor.h5ad
+        by_cell_class : /Users/richard/git/snRNAseq_2026/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/PsychAD_noage_tuning5/pseudobulk_output/by_cell_class.h5ad
+        all_cells     : None
         cell_class_col: cell_class
     CELL_CLASSES     : ['Excitatory', 'Inhibitory', 'Astrocytes', 'Microglia', 'OPC', 'Oligos']
     CHILD_STARTS     : [1, 2, 3, 4, 5]
@@ -35,7 +35,6 @@ datasets.
     GAP_LENGTHS      : [0, 1, 2, 3, 4]
     ADOL_ENDS        : [18, 20, 22, 24, 26]
     GENE_FILTER_FILE : (none — using full GRN)
-    JOINT_PSEUDOBULK : (none — separately-integrated only)
     ZSCORE_PER_SOURCE: False
 
 ### 1.3 Libraries
@@ -51,19 +50,19 @@ all-cells.
     134 input query terms found dup hits:   [('ACTG1P4', 2), ('ADAM20P1', 2), ('AKR7A2P1', 3), ('AMZ2P1', 2), ('ANKRD18CP', 2), ('ANKRD19P', 2),
     338 input query terms found no hit: ['AAED1', 'AARS', 'ADPRHL2', 'ADSSL1', 'ALS2CR12', 'APOPT1', 'ARMT1', 'ARNTL', 'ARNTL2', 'AZIN1-AS1'
 
-    [Velmeshev] GRN genes=6650 | by_cell_class=(428, 17663); per-class n_donors={'Excitatory': 76, 'Inhibitory': 75, 'Astrocytes': 67, 'Microglia': 67, 'OPC': 73, 'Oligos': 34}; all_cells n_donors=76
+    [Velmeshev] GRN genes=6650 | by_cell_class=(428, 17663); per-class n_donors={'Excitatory': 76, 'Inhibitory': 75, 'Astrocytes': 67, 'Microglia': 67, 'OPC': 73, 'Oligos': 34}; all_cells n_donors=N/A
 
     Input sequence provided is already in string format. No operation performed
     Input sequence provided is already in string format. No operation performed
     152 input query terms found dup hits:   [('ACTG1P4', 2), ('ADAM20P1', 2), ('AKR7A2P1', 3), ('AMZ2P1', 2), ('ANKRD18CP', 2), ('ANKRD19P', 2),
     389 input query terms found no hit: ['AAED1', 'AARS', 'ADAL', 'ADPRHL2', 'ADSSL1', 'ALS2CR12', 'APOPT1', 'ARMT1', 'ARNTL', 'ARNTL2', 'AZ
 
-    [PsychAD] GRN genes=6955 | by_cell_class=(1265, 34176); per-class n_donors={'Excitatory': 187, 'Inhibitory': 190, 'Astrocytes': 181, 'Microglia': 176, 'OPC': 191, 'Oligos': 176}; all_cells n_donors=201
+    [PsychAD] GRN genes=6955 | by_cell_class=(1265, 34176); per-class n_donors={'Excitatory': 187, 'Inhibitory': 190, 'Astrocytes': 181, 'Microglia': 176, 'OPC': 191, 'Oligos': 176}; all_cells n_donors=N/A
 
-    Combined projection df: (7080, 13)
-      pb_kind values   : ['Astrocytes', 'Excitatory', 'Inhibitory', 'Microglia', 'OPC', 'Oligos', 'all_cells']
+    Combined projection df: (5972, 13)
+      pb_kind values   : ['Astrocytes', 'Excitatory', 'Inhibitory', 'Microglia', 'OPC', 'Oligos']
       datasets         : ['PsychAD', 'Velmeshev']
-      source_chem split: {'PsychAD-V3': 201, 'Velmeshev-V2': 37, 'Velmeshev-V3': 39}
+      source_chem split: {'PsychAD-V3': np.int64(200), 'Velmeshev-V2': np.int64(37), 'Velmeshev-V3': np.int64(39)}
     Combined composition df: (1693, 7)
 
 ## 3. Cell-class composition split by chemistry
@@ -191,9 +190,9 @@ best-Excitatory scANVI window — so each column compares childhood vs
 adolescence at the boundaries that are most discriminative for that
 subset’s excitatory neurons.
 
-    V3-pooled n_donors: 240
-    subset_df: (15144, 14)
-      subset n_donors: {'PsychAD-V3': 201, 'V3-pooled': 240, 'Velmeshev-V2': 37, 'Velmeshev-V3': 39, 'Velmeshev-all': 76}
+    V3-pooled n_donors: 239
+    subset_df: (12772, 14)
+      subset n_donors: {'PsychAD-V3': np.int64(200), 'V3-pooled': np.int64(239), 'Velmeshev-V2': np.int64(37), 'Velmeshev-V3': np.int64(39), 'Velmeshev-all': np.int64(76)}
 
 
     Per-(subset × pb_kind) best scANVI sensitivity:
@@ -204,35 +203,30 @@ subset’s excitatory neurons.
      Velmeshev-all  Microglia       67 0.0045751634  1.4516488   363    1750
      Velmeshev-all        OPC       73 0.0366902444  0.7596610    67    1750
      Velmeshev-all     Oligos       34 0.0039960040  1.4244253   369    1750
-     Velmeshev-all  all_cells       76 0.0002756877  1.6503381   531    1750
       Velmeshev-V2 Excitatory       37 0.0359640360  1.3976406   441    1750
       Velmeshev-V2 Inhibitory       36 0.0003108003  2.7826228   964    1750
       Velmeshev-V2 Astrocytes       31 0.0009872480  1.7901682   884    1750
       Velmeshev-V2  Microglia       29 0.0013320013  1.5522982   637    1750
       Velmeshev-V2        OPC       34 0.0023310023  1.6933954   669    1750
       Velmeshev-V2     Oligos       18 0.0026640027  2.4093556   756    1750
-      Velmeshev-V2  all_cells       37 0.0003996004  2.8897588   852    1750
       Velmeshev-V3 Excitatory       39 0.0714285714 -2.7655955     0    1750
       Velmeshev-V3 Inhibitory       39 0.0121212121 -2.1552784   174    1750
       Velmeshev-V3 Astrocytes       36 0.1078921079  0.2527063     0    1750
       Velmeshev-V3  Microglia       38 0.1454545455  0.5908961     0    1750
       Velmeshev-V3        OPC       39 0.0303030303 -1.5779463    16    1750
       Velmeshev-V3     Oligos       16 0.0952380952  1.0188409     0    1750
-      Velmeshev-V3  all_cells       39 0.0293040293  1.4262794    27    1750
         PsychAD-V3 Excitatory      187 0.0266927650  0.9238366    37    1750
         PsychAD-V3 Inhibitory      190 0.0406893981  0.9194390     8    1750
         PsychAD-V3 Astrocytes      181 0.0507936508 -1.5002028     0    1750
         PsychAD-V3  Microglia      176 0.0028449502 -1.4616123   149    1750
         PsychAD-V3        OPC      191 0.0222016651 -1.8282489    67    1750
         PsychAD-V3     Oligos      176 0.0317207956  0.8220859    12    1750
-        PsychAD-V3  all_cells      201 0.1197436431  0.5496166     0    1750
          V3-pooled Excitatory      226 0.0107508747  0.7708062   309    1750
          V3-pooled Inhibitory      229 0.0385728372  0.7022524   322    1750
          V3-pooled Astrocytes      217 0.0178999348  0.4954618    83    1750
          V3-pooled  Microglia      214 0.0163068245  0.7902518    62    1750
          V3-pooled        OPC      230 0.0358318756  0.5213041    10    1750
          V3-pooled     Oligos      192 0.0005106425  0.6823358   530    1750
-         V3-pooled  all_cells      240 0.0545278754  0.5199442     0    1750
      child_start gap_start adol_start adol_end p_label signed_log10p
                1        14         17       20       *     1.6107288
                1         8          8       22       *     1.9907875
@@ -240,35 +234,30 @@ subset’s excitatory neurons.
                3         9         12       26      **     2.3395934
                1         8          8       20       *     1.4354494
                3        13         17       20      **     2.3983741
-               1         8          8       20     ***     3.5595825
                2        14         14       20       *     1.4441316
                1         8          8       20     ***     3.5075186
                1        12         12       22     ***     3.0055737
                1        12         12       22      **     2.8754953
                1         8          8       20      **     2.6324573
                1        12         12       22      **     2.5744653
-               1        12         12       20     ***     3.3983741
                3        14         14       18      ns    -1.1461280
                3        10         10       26       *    -1.9164539
                1         8          8       20      ns     0.9670103
                3         8          8       26      ns     0.8372727
                3        12         12       26       *    -1.5185139
                3        13         17       20      ns     1.0211893
-               1         8          8       20       *     1.5330727
                5        14         14       18       *     1.5736064
                1        13         15       18       *     1.3905187
                5         8          9       20      ns    -1.2941906
                5         8          8       20      **    -2.5459253
                5         8          8       22       *    -1.6536145
                1        13         16       22       *     1.4986559
-               1        14         14       18      ns     0.9217475
                1        13         14       18       *     1.9685562
                1        13         14       18       *     1.4137184
                1        12         14       24       *     1.7471486
                1        12         16       24       *     1.7876306
                1        12         12       18       *     1.4457305
                1        13         13       22     ***     3.2918830
-               1         8          8       20      ns     1.2633814
 
     Anchor window (Velmeshev-V2 Excitatory best scANVI): child[2,14), adol[14,20)
 
@@ -279,23 +268,23 @@ Comparing across the five columns in the heatmap (Section 4.1) suggests
 the following layered story, with the **V3-pooled column being the key
 new finding**:
 
--   **Velmeshev-V2** shows a uniformly *positive* Cohen’s d across every
-    cell class (every box bold red) — a strong childhood → adolescence
-    drop.
--   **Velmeshev-V3** and **PsychAD-V3** in isolation show mixed signs
-    and mostly non-significant or weakly significant results.
--   **V3-pooled** (pooling Velmeshev-V3 + PsychAD-V3 donors within V2’s
-    age window, n ≈ 180 donors) **also shows a positive Cohen’s d in
-    every cell class**, with several columns significant at p \< 0.05.
-    The effect size is smaller than Velmeshev-V2 (~0.7 vs ~1.5) but the
-    direction is consistent and the n is much larger.
--   This implies the per-cohort V3 nulls were driven primarily by **age
-    coverage / power limitations within each cohort**, not by chemistry.
-    Once V3 donors are pooled within V2’s developmental age window, the
-    developmental drop replicates.
--   **Velmeshev-all** combines V2 + V3 with V2 doing most of the heavy
-    lifting in the developmental age window — that’s why the headline
-    view was dominated by V2.
+- **Velmeshev-V2** shows a uniformly *positive* Cohen’s d across every
+  cell class (every box bold red) — a strong childhood → adolescence
+  drop.
+- **Velmeshev-V3** and **PsychAD-V3** in isolation show mixed signs and
+  mostly non-significant or weakly significant results.
+- **V3-pooled** (pooling Velmeshev-V3 + PsychAD-V3 donors within V2’s
+  age window, n ≈ 180 donors) **also shows a positive Cohen’s d in every
+  cell class**, with several columns significant at p \< 0.05. The
+  effect size is smaller than Velmeshev-V2 (~0.7 vs ~1.5) but the
+  direction is consistent and the n is much larger.
+- This implies the per-cohort V3 nulls were driven primarily by **age
+  coverage / power limitations within each cohort**, not by chemistry.
+  Once V3 donors are pooled within V2’s developmental age window, the
+  developmental drop replicates.
+- **Velmeshev-all** combines V2 + V3 with V2 doing most of the heavy
+  lifting in the developmental age window — that’s why the headline view
+  was dominated by V2.
 
 **With the gene-set filter** (`compare_Vel_PsychAD_genes` render: GRN
 restricted to genes well-detected in *both* V2 and V3 chemistries), the
@@ -402,19 +391,19 @@ mix of positive and negative cells depending on window choice.
 
 For each (subset × pb_kind × condition):
 
--   `n_pos_sig` = \# grid cells with `signif & d > 0` (positive
-    significant — supports hypothesis)
--   `n_neg_sig` = \# grid cells with `signif & d < 0` (negative
-    significant — contradicts)
--   `pct_pos_of_sig` = `n_pos_sig / (n_pos_sig + n_neg_sig)` — fraction
-    of significant cells in the positive direction
--   `median_d`, `iqr_d` — distribution of `d` across the grid
+- `n_pos_sig` = \# grid cells with `signif & d > 0` (positive
+  significant — supports hypothesis)
+- `n_neg_sig` = \# grid cells with `signif & d < 0` (negative
+  significant — contradicts)
+- `pct_pos_of_sig` = `n_pos_sig / (n_pos_sig + n_neg_sig)` — fraction of
+  significant cells in the positive direction
+- `median_d`, `iqr_d` — distribution of `d` across the grid
 
 <!-- -->
 
 
     Sign-aware robustness summary (one row per subset × pb_kind × condition):
-    # A tibble: 70 × 11
+    # A tibble: 60 × 11
        subset        pb_kind    condition  n_total n_pos n_neg n_pos_sig n_neg_sig
        <chr>         <chr>      <chr>        <int> <int> <int>     <int>     <int>
      1 PsychAD-V3    Astrocytes cpm_all        875   170   700         0         0
@@ -429,64 +418,54 @@ For each (subset × pb_kind × condition):
     10 PsychAD-V3    OPC        scanvi_all     875    64   806         0        25
     11 PsychAD-V3    Oligos     cpm_all        875   746   124         2         0
     12 PsychAD-V3    Oligos     scanvi_all     875   788    82        10         0
-    13 PsychAD-V3    all_cells  cpm_all        875   149   721         0         0
-    14 PsychAD-V3    all_cells  scanvi_all     875   474   396         0         0
-    15 V3-pooled     Astrocytes cpm_all        875   740   130        35         0
-    16 V3-pooled     Astrocytes scanvi_all     875   709   161        48         0
-    17 V3-pooled     Excitatory cpm_all        875   867     3       291         0
-    18 V3-pooled     Excitatory scanvi_all     875   711   159        18         0
-    19 V3-pooled     Inhibitory cpm_all        875   768   102       318         0
-    20 V3-pooled     Inhibitory scanvi_all     875   555   315         4         0
-    21 V3-pooled     Microglia  cpm_all        875   766   104        27         0
-    22 V3-pooled     Microglia  scanvi_all     875   743   127        35         0
-    23 V3-pooled     OPC        cpm_all        875   558   312         0         0
-    24 V3-pooled     OPC        scanvi_all     875   557   313        10         0
-    25 V3-pooled     Oligos     cpm_all        875   789    81       134         0
-    26 V3-pooled     Oligos     scanvi_all     875   866     4       396         0
-    27 V3-pooled     all_cells  cpm_all        875   731   139         0         0
-    28 V3-pooled     all_cells  scanvi_all     875   599   271         0         0
-    29 Velmeshev-V2  Astrocytes cpm_all        875   825     0       388         0
-    30 Velmeshev-V2  Astrocytes scanvi_all     875   825     0       496         0
-    31 Velmeshev-V2  Excitatory cpm_all        875   825     0       434         0
-    32 Velmeshev-V2  Excitatory scanvi_all     875   825     0         7         0
-    33 Velmeshev-V2  Inhibitory cpm_all        875   825     0       503         0
-    34 Velmeshev-V2  Inhibitory scanvi_all     875   825     0       461         0
-    35 Velmeshev-V2  Microglia  cpm_all        875   825     0       329         0
-    36 Velmeshev-V2  Microglia  scanvi_all     875   825     0       308         0
-    37 Velmeshev-V2  OPC        cpm_all        875   825     0       278         0
-    38 Velmeshev-V2  OPC        scanvi_all     875   825     0       391         0
-    39 Velmeshev-V2  Oligos     cpm_all        875   825     0       404         0
-    40 Velmeshev-V2  Oligos     scanvi_all     875   825     0       352         0
-    41 Velmeshev-V2  all_cells  cpm_all        875   825     0       424         0
-    42 Velmeshev-V2  all_cells  scanvi_all     875   825     0       428         0
-    43 Velmeshev-V3  Astrocytes cpm_all        875   166   579         0         0
-    44 Velmeshev-V3  Astrocytes scanvi_all     875   177   568         0         0
-    45 Velmeshev-V3  Excitatory cpm_all        875   180   565         0         0
-    46 Velmeshev-V3  Excitatory scanvi_all     875   135   610         0         0
-    47 Velmeshev-V3  Inhibitory cpm_all        875    30   715         0       105
-    48 Velmeshev-V3  Inhibitory scanvi_all     875    27   718         0        69
-    49 Velmeshev-V3  Microglia  cpm_all        875   257   488         0         0
-    50 Velmeshev-V3  Microglia  scanvi_all     875   222   523         0         0
-    51 Velmeshev-V3  OPC        cpm_all        875    74   671         0         3
-    52 Velmeshev-V3  OPC        scanvi_all     875    33   712         0        13
-    53 Velmeshev-V3  Oligos     cpm_all        875   160   585         0         0
-    54 Velmeshev-V3  Oligos     scanvi_all     875   195   550         0         0
-    55 Velmeshev-V3  all_cells  cpm_all        875   504   241         3         0
-    56 Velmeshev-V3  all_cells  scanvi_all     875   504   241        24         0
-    57 Velmeshev-all Astrocytes cpm_all        875   811    34       309         0
-    58 Velmeshev-all Astrocytes scanvi_all     875   789    56       363         0
-    59 Velmeshev-all Excitatory cpm_all        875   825    20       237         0
-    60 Velmeshev-all Excitatory scanvi_all     875   750    95         6         0
-    61 Velmeshev-all Inhibitory cpm_all        875   828    17       202         0
-    62 Velmeshev-all Inhibitory scanvi_all     875   828    17        71         0
-    63 Velmeshev-all Microglia  cpm_all        875   845     0       129         0
-    64 Velmeshev-all Microglia  scanvi_all     875   830    15       234         0
-    65 Velmeshev-all OPC        cpm_all        875   804    41        56         0
-    66 Velmeshev-all OPC        scanvi_all     875   727   118        11         0
-    67 Velmeshev-all Oligos     cpm_all        875   787    58       131         0
-    68 Velmeshev-all Oligos     scanvi_all     875   778    67       238         0
-    69 Velmeshev-all all_cells  cpm_all        875   810    35       286         0
-    70 Velmeshev-all all_cells  scanvi_all     875   823    22       245         0
+    13 V3-pooled     Astrocytes cpm_all        875   740   130        35         0
+    14 V3-pooled     Astrocytes scanvi_all     875   709   161        48         0
+    15 V3-pooled     Excitatory cpm_all        875   867     3       291         0
+    16 V3-pooled     Excitatory scanvi_all     875   711   159        18         0
+    17 V3-pooled     Inhibitory cpm_all        875   768   102       318         0
+    18 V3-pooled     Inhibitory scanvi_all     875   555   315         4         0
+    19 V3-pooled     Microglia  cpm_all        875   766   104        27         0
+    20 V3-pooled     Microglia  scanvi_all     875   743   127        35         0
+    21 V3-pooled     OPC        cpm_all        875   558   312         0         0
+    22 V3-pooled     OPC        scanvi_all     875   557   313        10         0
+    23 V3-pooled     Oligos     cpm_all        875   789    81       134         0
+    24 V3-pooled     Oligos     scanvi_all     875   866     4       396         0
+    25 Velmeshev-V2  Astrocytes cpm_all        875   825     0       388         0
+    26 Velmeshev-V2  Astrocytes scanvi_all     875   825     0       496         0
+    27 Velmeshev-V2  Excitatory cpm_all        875   825     0       434         0
+    28 Velmeshev-V2  Excitatory scanvi_all     875   825     0         7         0
+    29 Velmeshev-V2  Inhibitory cpm_all        875   825     0       503         0
+    30 Velmeshev-V2  Inhibitory scanvi_all     875   825     0       461         0
+    31 Velmeshev-V2  Microglia  cpm_all        875   825     0       329         0
+    32 Velmeshev-V2  Microglia  scanvi_all     875   825     0       308         0
+    33 Velmeshev-V2  OPC        cpm_all        875   825     0       278         0
+    34 Velmeshev-V2  OPC        scanvi_all     875   825     0       391         0
+    35 Velmeshev-V2  Oligos     cpm_all        875   825     0       404         0
+    36 Velmeshev-V2  Oligos     scanvi_all     875   825     0       352         0
+    37 Velmeshev-V3  Astrocytes cpm_all        875   166   579         0         0
+    38 Velmeshev-V3  Astrocytes scanvi_all     875   177   568         0         0
+    39 Velmeshev-V3  Excitatory cpm_all        875   180   565         0         0
+    40 Velmeshev-V3  Excitatory scanvi_all     875   135   610         0         0
+    41 Velmeshev-V3  Inhibitory cpm_all        875    30   715         0       105
+    42 Velmeshev-V3  Inhibitory scanvi_all     875    27   718         0        69
+    43 Velmeshev-V3  Microglia  cpm_all        875   257   488         0         0
+    44 Velmeshev-V3  Microglia  scanvi_all     875   222   523         0         0
+    45 Velmeshev-V3  OPC        cpm_all        875    74   671         0         3
+    46 Velmeshev-V3  OPC        scanvi_all     875    33   712         0        13
+    47 Velmeshev-V3  Oligos     cpm_all        875   160   585         0         0
+    48 Velmeshev-V3  Oligos     scanvi_all     875   195   550         0         0
+    49 Velmeshev-all Astrocytes cpm_all        875   811    34       309         0
+    50 Velmeshev-all Astrocytes scanvi_all     875   789    56       363         0
+    51 Velmeshev-all Excitatory cpm_all        875   825    20       237         0
+    52 Velmeshev-all Excitatory scanvi_all     875   750    95         6         0
+    53 Velmeshev-all Inhibitory cpm_all        875   828    17       202         0
+    54 Velmeshev-all Inhibitory scanvi_all     875   828    17        71         0
+    55 Velmeshev-all Microglia  cpm_all        875   845     0       129         0
+    56 Velmeshev-all Microglia  scanvi_all     875   830    15       234         0
+    57 Velmeshev-all OPC        cpm_all        875   804    41        56         0
+    58 Velmeshev-all OPC        scanvi_all     875   727   118        11         0
+    59 Velmeshev-all Oligos     cpm_all        875   787    58       131         0
+    60 Velmeshev-all Oligos     scanvi_all     875   778    67       238         0
        median_d iqr_d pct_pos_of_sig
           <dbl> <dbl>          <dbl>
      1  -0.184  0.246             NA
@@ -501,64 +480,54 @@ For each (subset × pb_kind × condition):
     10  -0.319  0.399              0
     11   0.318  0.297              1
     12   0.391  0.294              1
-    13  -0.152  0.190             NA
-    14   0.0342 0.287             NA
-    15   0.186  0.247              1
-    16   0.187  0.277              1
-    17   0.526  0.246              1
-    18   0.180  0.257              1
-    19   0.360  0.476              1
-    20   0.120  0.472              1
-    21   0.253  0.275              1
-    22   0.259  0.258              1
-    23   0.0686 0.381             NA
-    24   0.0977 0.354              1
-    25   0.282  0.310              1
-    26   0.451  0.262              1
-    27   0.117  0.183             NA
-    28   0.101  0.322             NA
-    29   1.76   0.619              1
-    30   1.89   0.996              1
-    31   1.90   0.540              1
-    32   0.611  0.285              1
-    33   2.26   0.797              1
-    34   2.23   1.18               1
-    35   1.93   1.27               1
-    36   1.48   1.17               1
-    37   1.31   0.345              1
-    38   1.48   0.934              1
-    39   1.69   1.11               1
-    40   1.68   1.30               1
-    41   1.91   0.728              1
-    42   2.06   0.517              1
-    43  -0.389  0.535             NA
-    44  -0.463  0.529             NA
-    45  -0.315  0.700             NA
-    46  -0.445  0.560             NA
-    47  -0.663  1.36               0
-    48  -0.738  1.40               0
-    49  -0.209  0.624             NA
-    50  -0.278  0.542             NA
-    51  -0.786  0.717              0
-    52  -1.04   0.757              0
-    53  -0.387  0.593             NA
-    54  -0.279  0.522             NA
-    55   0.212  0.709              1
-    56   0.290  0.883              1
-    57   0.844  0.372              1
-    58   0.566  0.548              1
-    59   0.816  0.311              1
-    60   0.256  0.261              1
-    61   0.863  0.420              1
-    62   0.626  0.416              1
-    63   0.721  0.343              1
-    64   0.674  0.351              1
-    65   0.571  0.425              1
-    66   0.311  0.450              1
-    67   0.514  0.407              1
-    68   0.371  0.440              1
-    69   0.793  0.693              1
-    70   0.812  0.860              1
+    13   0.186  0.247              1
+    14   0.187  0.277              1
+    15   0.526  0.246              1
+    16   0.180  0.257              1
+    17   0.360  0.476              1
+    18   0.120  0.472              1
+    19   0.253  0.275              1
+    20   0.259  0.258              1
+    21   0.0686 0.381             NA
+    22   0.0977 0.354              1
+    23   0.282  0.310              1
+    24   0.451  0.262              1
+    25   1.76   0.619              1
+    26   1.89   0.996              1
+    27   1.90   0.540              1
+    28   0.611  0.285              1
+    29   2.26   0.797              1
+    30   2.23   1.18               1
+    31   1.93   1.27               1
+    32   1.48   1.17               1
+    33   1.31   0.345              1
+    34   1.48   0.934              1
+    35   1.69   1.11               1
+    36   1.68   1.30               1
+    37  -0.389  0.535             NA
+    38  -0.463  0.529             NA
+    39  -0.315  0.700             NA
+    40  -0.445  0.560             NA
+    41  -0.663  1.36               0
+    42  -0.738  1.40               0
+    43  -0.209  0.624             NA
+    44  -0.278  0.542             NA
+    45  -0.786  0.717              0
+    46  -1.04   0.757              0
+    47  -0.387  0.593             NA
+    48  -0.279  0.522             NA
+    49   0.844  0.372              1
+    50   0.566  0.548              1
+    51   0.816  0.311              1
+    52   0.256  0.261              1
+    53   0.863  0.420              1
+    54   0.626  0.416              1
+    55   0.721  0.343              1
+    56   0.674  0.351              1
+    57   0.571  0.425              1
+    58   0.311  0.450              1
+    59   0.514  0.407              1
+    60   0.371  0.440              1
 
 ### 5.2 Robustness heatmap
 
