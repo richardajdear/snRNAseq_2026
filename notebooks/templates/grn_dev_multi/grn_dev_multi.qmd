@@ -782,7 +782,125 @@ if (length(version_names) >= 4) {
 }
 ```
 
-### 4.3 V2 vs V3 C3+ sanity check (CPM, age 5–25)
+### 4.3 Cross-dataset overlay (when 2+ inputs)
+
+When two or more inputs are provided, this section overlays all datasets on the
+same trajectory plot so the developmental pattern can be compared directly.
+Each dataset is z-scored independently (within-dataset mean/SD removed) so the
+*shape* of the trajectory is comparable regardless of absolute expression level.
+
+```{python}
+if len(version_names) >= 2:
+    display(Markdown("\n**scANVI cross-dataset overlay** — points and loess per dataset\n"))
+else:
+    display(Markdown("\n*Cross-dataset overlay requires ≥ 2 inputs — skipped.*\n"))
+```
+
+```{python}
+%%R -w 280 -h 120 -u mm -r 300
+
+if (length(version_names) >= 2) {
+    overlay_df <- combined_df %>%
+        filter(C == 'C3+', condition == 'scanvi_all') %>%
+        group_by(pb_version, individual, age_years, source, source_chemistry) %>%
+        summarize(value = mean(value), .groups = 'drop') %>%
+        group_by(pb_version) %>%
+        mutate(value_z = (value - mean(value, na.rm = TRUE)) /
+                          sd(value,   na.rm = TRUE)) %>%
+        ungroup() %>%
+        mutate(age_years = as.numeric(age_years))
+
+    p_ov <- ggplot(overlay_df, aes(x = age_years, y = value_z, color = pb_version)) +
+        geom_point(alpha = 0.4, size = 1.2) +
+        geom_smooth(method = 'loess', span = 0.7, se = TRUE,
+                    linewidth = 0.8, alpha = 0.15) +
+        scale_x_continuous(name = 'Donor age (years)',
+                           limits = c(0, 30), breaks = seq(0, 30, 5)) +
+        scale_y_continuous(name = 'C3+ scANVI (z-scored per dataset)') +
+        scale_color_brewer(palette = 'Set1', name = 'Dataset') +
+        theme_classic() +
+        theme(text = element_text(size = 9),
+              legend.position = 'bottom') +
+        ggtitle('Cross-dataset C3+ trajectory — scANVI',
+                subtitle = 'Each dataset z-scored independently; shape is comparable across datasets')
+    suppressMessages(suppressWarnings(print(p_ov)))
+}
+```
+
+```{python}
+%%R -w 280 -h 120 -u mm -r 300
+
+if (length(version_names) >= 2) {
+    overlay_cpm <- combined_df %>%
+        filter(C == 'C3+', condition == 'cpm_all') %>%
+        group_by(pb_version, individual, age_years, source, source_chemistry) %>%
+        summarize(value = mean(value), .groups = 'drop') %>%
+        group_by(pb_version) %>%
+        mutate(value_z = (value - mean(value, na.rm = TRUE)) /
+                          sd(value,   na.rm = TRUE)) %>%
+        ungroup() %>%
+        mutate(age_years = as.numeric(age_years))
+
+    p_ov_cpm <- ggplot(overlay_cpm, aes(x = age_years, y = value_z, color = pb_version)) +
+        geom_point(alpha = 0.4, size = 1.2) +
+        geom_smooth(method = 'loess', span = 0.7, se = TRUE,
+                    linewidth = 0.8, alpha = 0.15) +
+        scale_x_continuous(name = 'Donor age (years)',
+                           limits = c(0, 30), breaks = seq(0, 30, 5)) +
+        scale_y_continuous(name = 'C3+ CPM (z-scored per dataset)') +
+        scale_color_brewer(palette = 'Set1', name = 'Dataset') +
+        theme_classic() +
+        theme(text = element_text(size = 9),
+              legend.position = 'bottom') +
+        ggtitle('Cross-dataset C3+ trajectory — CPM',
+                subtitle = 'Raw CPM (no batch correction); shape is comparable across datasets')
+    suppressMessages(suppressWarnings(print(p_ov_cpm)))
+}
+```
+
+```{python}
+%%R -w 200 -h 100 -u mm -r 300
+
+# Box comparison: childhood vs adolescence, side-by-side by dataset
+if (length(version_names) >= 2) {
+    FIX_CS <- 1L; FIX_CE <- 9L; FIX_AS <- 9L; FIX_AE <- 25L
+    box_rows <- list()
+    for (vname in version_names) {
+        df_b <- make_boxes_gap_df(
+                    combined_df %>% filter(pb_version == vname),
+                    FIX_CS, FIX_CE, FIX_AS, FIX_AE
+                ) %>%
+            filter(network == 'C3+', condition == 'scanvi_all') %>%
+            mutate(pb_version = vname,
+                   value_z = (value - mean(value, na.rm=TRUE)) /
+                               sd(value,   na.rm=TRUE))
+        box_rows[[vname]] <- df_b
+    }
+    all_boxes <- bind_rows(box_rows)
+
+    p_boxes <- ggplot(all_boxes,
+                      aes(x = age_range, y = value_z, fill = pb_version)) +
+        geom_boxplot(outlier.shape = NA, alpha = 0.5,
+                     position = position_dodge(width = 0.7)) +
+        geom_jitter(aes(color = pb_version),
+                    position = position_jitterdodge(jitter.width = 0.1, dodge.width = 0.7),
+                    size = 1.0, alpha = 0.5) +
+        scale_fill_brewer(palette = 'Set1', name = 'Dataset') +
+        scale_color_brewer(palette = 'Set1', guide = 'none') +
+        scale_y_continuous(name = 'C3+ scANVI (z-scored per dataset)') +
+        coord_cartesian(clip = 'off') +
+        theme_classic() +
+        theme(text = element_text(size = 9),
+              axis.text.x = element_text(angle = 30, hjust = 1, size = 8),
+              axis.title.x = element_blank(),
+              legend.position = 'bottom') +
+        ggtitle(sprintf('Cross-dataset: Childhood [%d,%d) vs Adolescence [%d,%d)',
+                        FIX_CS, FIX_CE, FIX_AS, FIX_AE))
+    suppressMessages(suppressWarnings(print(p_boxes)))
+}
+```
+
+### 4.5 V2 vs V3 C3+ sanity check (CPM, age 5–25)
 
 ```{python}
 for _vname, _res in all_results.items():
