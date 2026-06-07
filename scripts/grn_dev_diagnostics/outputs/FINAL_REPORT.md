@@ -756,9 +756,21 @@ up-weight exactly the genes where PsychAD has the technical bias (F2).
 
 1. **Pseudotime on the scVI latent** (§6) — the route to a single fully-
    integrated maturity axis and one combined number. Highest value.
-2. **Run a third pediatric DLPFC cohort** (Wang+Lu, ABCA pediatric, Hodge
-   MTG) through the same maturity-stratified pipeline. Arbiter of the
-   residual Vel-V2 magnitude and any PsychAD-vs-Vel gap.
+2. **A truly independent third pediatric-DLPFC cohort does not appear to
+   exist** — see `THIRD_COHORT_FEASIBILITY.md`. The on-disk candidates fail
+   (Wang is a fetal atlas with **zero** 1–12 y PFC donors; Zhu has only ~5
+   PFC donors across 1–25 y); the large new lifespan DLPFC atlas (284
+   donors) is itself a **PsychAD-consortium / HBCC** subset, so it shares
+   our pediatric donors rather than replicating them. Herring et al. 2022
+   is the only different-lab developmental dlPFC atlas but is small (~two
+   dozen lifespan donors) and likely overlaps the same NIH NeuroBioBank
+   pediatric pool. Realistic options: (a) use Herring purely as a
+   **direction tie-breaker** on the q0/immature drop (after checking donor
+   overlap with HBCC); (b) **enlarge the PsychAD pediatric sample** via the
+   284-donor atlas — a power gain within the same source, not independent
+   replication; (c) accept that pediatric postmortem PFC is intrinsically
+   scarce and donor-recycled across studies, so this question is near the
+   ceiling of what human snRNA-seq can currently arbitrate.
 3. **Direct FANS test:** split PsychAD upper-layer cells by FANS
    forward-scatter (or by depth within layer) and confirm the anti-drop
    concentrates in the FANS-favoured (deep/mature) subset. Confirms §4.3.

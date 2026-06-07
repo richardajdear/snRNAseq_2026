@@ -1,0 +1,40 @@
+bin,n_cells,n_donors,scope,dataset
+"(-2, 0]",436878,44,ALL regions,VELMESHEV
+"(0, 1]",61342,10,ALL regions,VELMESHEV
+"(1, 3]",48112,13,ALL regions,VELMESHEV
+"(3, 5]",13813,4,ALL regions,VELMESHEV
+"(5, 8]",22975,5,ALL regions,VELMESHEV
+"(8, 12]",16986,4,ALL regions,VELMESHEV
+"(12, 18]",37554,11,ALL regions,VELMESHEV
+"(18, 25]",35136,7,ALL regions,VELMESHEV
+"(25, 40]",12523,4,ALL regions,VELMESHEV
+"(40, 120]",7888,4,ALL regions,VELMESHEV
+"(-2, 0]",273867,32,PFC-like,VELMESHEV
+"(0, 1]",43305,8,PFC-like,VELMESHEV
+"(1, 3]",30427,8,PFC-like,VELMESHEV
+"(3, 5]",7036,3,PFC-like,VELMESHEV
+"(5, 8]",17706,3,PFC-like,VELMESHEV
+"(8, 12]",16986,4,PFC-like,VELMESHEV
+"(12, 18]",24924,7,PFC-like,VELMESHEV
+"(18, 25]",30301,7,PFC-like,VELMESHEV
+"(25, 40]",9346,3,PFC-like,VELMESHEV
+"(40, 120]",2806,2,PFC-like,VELMESHEV
+"(-2, 0]",118112,18,ALL regions,WANG
+"(0, 1]",55703,5,ALL regions,WANG
+"(12, 18]",58513,4,ALL regions,WANG
+"(-2, 0]",52104,8,PFC-like,WANG
+"(0, 1]",31914,5,PFC-like,WANG
+"(12, 18]",27734,4,PFC-like,WANG
+"(-2, 0]",14336,4,ALL regions,ZHU
+"(0, 1]",6406,2,ALL regions,ZHU
+"(3, 5]",5418,1,ALL regions,ZHU
+"(5, 8]",3693,1,ALL regions,ZHU
+"(12, 18]",8300,2,ALL regions,ZHU
+"(18, 25]",1541,1,ALL regions,ZHU
+"(25, 40]",5855,1,ALL regions,ZHU
+"(0, 1]",6406,2,PFC-like,ZHU
+"(3, 5]",5418,1,PFC-like,ZHU
+"(5, 8]",3693,1,PFC-like,ZHU
+"(12, 18]",8300,2,PFC-like,ZHU
+"(18, 25]",1541,1,PFC-like,ZHU
+"(25, 40]",5855,1,PFC-like,ZHU
