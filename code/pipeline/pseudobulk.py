@@ -22,7 +22,7 @@ import logging
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 import anndata as ad
 import numpy as np
@@ -373,8 +373,19 @@ def run(
     pb_cfg: dict,
     logger: logging.Logger,
     overwrite: bool = False,
+    cell_annotator: Optional[Callable[[str], pd.Series]] = None,
 ) -> None:
-    """Run pseudobulk aggregation for all groups defined in pb_cfg."""
+    """
+    Run pseudobulk aggregation for all groups defined in pb_cfg.
+
+    Parameters
+    ----------
+    cell_annotator : optional callable(h5ad_path) -> pd.Series
+        If provided, called with input_path before any grouping.  The returned
+        Series must be indexed by obs_names; it is attached as
+        obs["marker_annotation"] and can then be referenced in group_cols or
+        filter dicts inside pb_cfg["groups"].
+    """
     out_dir = Path(output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -399,6 +410,29 @@ def run(
     )
     logger.info(f"  Available layers: {list(adata_backed.layers.keys())}")
     logger.info(f"  obs columns: {sorted(adata_backed.obs.columns.tolist())}")
+
+    # Optional marker-based annotation
+    if cell_annotator is not None:
+        logger.info("\nRunning cell_annotator …")
+        annotation = cell_annotator(input_path)
+        # Align by obs_names in case the annotator returns a subset
+        aligned = annotation.reindex(adata_backed.obs_names)
+        n_annotated = (aligned != "skipped").sum()
+        n_missing   = aligned.isna().sum()
+        if n_missing:
+            logger.warning(
+                f"  {n_missing:,} cells in adata have no annotation entry; "
+                "filling with 'Unknown'"
+            )
+            aligned = aligned.fillna("Unknown")
+        adata_backed.obs["marker_annotation"] = aligned.values
+        logger.info(
+            f"  marker_annotation added: {n_annotated:,} cells annotated, "
+            f"{(aligned == 'skipped').sum():,} skipped"
+        )
+        logger.info(
+            f"  Value counts:\n{aligned.value_counts().to_string()}"
+        )
 
     # Pre-flight: fail loudly if any required layer is absent so the error
     # surfaces here rather than silently producing layerless pseudobulk files.
@@ -457,6 +491,13 @@ def main():
                         help="Pipeline config YAML (reads pseudobulk: section)")
     parser.add_argument("--overwrite", action="store_true",
                         help="Overwrite existing output files")
+    parser.add_argument(
+        "--annotation-file",
+        help="Parquet file of pre-computed marker annotations "
+             "(index=obs_names, column='marker_annotation'). "
+             "Adds obs['marker_annotation'] to the adata before grouping, "
+             "allowing group_cols to reference 'marker_annotation'.",
+    )
     args = parser.parse_args()
 
     with open(args.config) as f:
@@ -468,7 +509,20 @@ def main():
     out_dir.mkdir(parents=True, exist_ok=True)
     logger = _setup_logger(str(out_dir / "pseudobulk.log"))
 
-    run(args.input, args.output, pb_cfg, logger, overwrite=args.overwrite)
+    cell_annotator: Optional[Callable[[str], pd.Series]] = None
+    if args.annotation_file:
+        annot_path = args.annotation_file
+        logger.info(f"Loading pre-computed annotations from {annot_path}")
+        annot_df = pd.read_parquet(annot_path)
+        if "marker_annotation" in annot_df.columns:
+            preloaded: pd.Series = annot_df["marker_annotation"]
+        else:
+            preloaded = annot_df.iloc[:, 0]
+        logger.info(f"  {len(preloaded):,} cells in annotation file")
+        cell_annotator = lambda _path, _s=preloaded: _s
+
+    run(args.input, args.output, pb_cfg, logger,
+        overwrite=args.overwrite, cell_annotator=cell_annotator)
 
 
 if __name__ == "__main__":

@@ -59,6 +59,12 @@ pseudobulk:
       group_cols: [individual]
     - name: by_cell_class
       group_cols: [individual, cell_class]
+    - name: by_cell_class_manual
+      group_cols: [individual, marker_annotation]
+    - name: ExN_manual_by_donor
+      group_cols: [individual]
+      filter:
+        marker_annotation: [ExN_mature, ExN_immature, ExN_weak]
 
 notebook:
   template: notebooks/templates/grn_dev_multi/grn_dev_multi.qmd

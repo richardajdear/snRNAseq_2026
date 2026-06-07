@@ -59,6 +59,12 @@ pseudobulk:
     - name: by_cell_class_L23
       group_cols: [individual, cell_class_original]
       cell_filter_file: /home/rajd2/rds/hpc-work/snRNAseq_2026/reference/cells_L23.csv
+    - name: by_cell_class_manual
+      group_cols: [individual, marker_annotation]
+    - name: ExN_manual_by_donor
+      group_cols: [individual]
+      filter:
+        marker_annotation: [ExN_mature, ExN_immature, ExN_weak]
 
 notebook:
   template: notebooks/templates/grn_dev_multi/grn_dev_multi.qmd
