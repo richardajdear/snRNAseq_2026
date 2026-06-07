@@ -1,0 +1,7 @@
+dataset_name,stage,chemistry,n_donors,median_n_cells,median_total_counts,median_n_genes
+PsychAD,adol,V3,60,478.5,9049722.0,30937.5
+PsychAD,child,V3,11,259.0,4025741.0,27946.0
+Velmeshev,adol,V2,9,1395.0,12831355.0,15598.0
+Velmeshev,adol,V3,9,1286.0,19405288.0,15507.0
+Velmeshev,child,V2,8,2184.0,8771592.0,14964.0
+Velmeshev,child,V3,6,2491.0,28452968.0,15594.0

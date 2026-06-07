@@ -1,0 +1,4 @@
+marker_annotation,n_cells,mean_score,median_score,sd_score,mean_RBFOX3_cp10k,mean_DCX_cp10k
+ExN_immature,3452,-1.0264,-0.9815,0.3835,0.0,1.0264
+ExN_mature,27132,1.1751,1.1925,0.6923,1.4972,0.3221
+ExN_weak,1711,0.0,0.0,0.0,0.0,0.0

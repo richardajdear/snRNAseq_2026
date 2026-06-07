@@ -1,0 +1,8 @@
+estimate,n_donors,fuzzy_d,se
+per_cohort: PsychAD-V3,70,0.4884570214503846,
+per_cohort: Velmeshev-V2,17,2.562188709843602,
+per_cohort: Velmeshev-V3,15,0.48981972683819414,
+"COMBINED V3-pair (PsychAD-V3 + Vel-V3), cohort-centred",85,0.46360594665266464,
+"COMBINED all-3, z-scored within cohort",102,0.6976631339465484,
+COMBINED meta fixed-effect (b=10),3,0.7497282649266842,0.2626284616590518
+"COMBINED meta random-effect (b=10, tau2=0.88)",3,0.9978093076617973,0.6152145044972127

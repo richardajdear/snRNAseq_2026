@@ -1,0 +1,13 @@
+group,definition,n_cells,n_donors,fuzzy_d
+PsychAD-V3,all_ExN_no_depth,32057,70,-0.1765289115899719
+PsychAD-V3,binary_ExN_immature,3361,67,0.45072025466517474
+PsychAD-V3,module_q0,6412,70,0.4884570214503846
+PsychAD-V3,detect_n==0,315,26,
+Velmeshev-V2,all_ExN_no_depth,33901,17,2.464983291528405
+Velmeshev-V2,binary_ExN_immature,2801,17,2.667380949982964
+Velmeshev-V2,module_q0,6781,17,2.562188709843602
+Velmeshev-V2,detect_n==0,386,17,2.119360959602725
+Velmeshev-V3,all_ExN_no_depth,29647,15,0.5828068692151261
+Velmeshev-V3,binary_ExN_immature,2677,15,0.7151172757954433
+Velmeshev-V3,module_q0,5930,15,0.48981972683819414
+Velmeshev-V3,detect_n==0,594,15,0.6522547801767733

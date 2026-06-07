@@ -1,0 +1,4 @@
+# Regenerable data caches — skip from git (rebuilt by the scripts here).
+*.parquet
+*.h5ad
+*.npy

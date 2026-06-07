@@ -1,0 +1,7 @@
+bucket,n_genes,frac,mean_weight,mean_weight_pct,weight_pct_of_full,total_contrib_psy,total_contrib_vel
+All genes,3331,1.0,0.2121,0.5,0.5,-4943.32,6943.06
+|d_psy|<0.3 & |d_vel|<0.3 (flat),523,0.157,0.1873,0.501,0.459,-18.7,-101.12
+Both drop (d>+0.3 in both),283,0.085,0.1885,0.502,0.462,1933.19,2627.01
+Both rise (d<-0.3 in both),559,0.1678,0.2435,0.501,0.551,-2732.96,-2624.6
+"Vel drops, PsychAD rises",242,0.0727,0.2834,0.502,0.626,-1932.66,2909.33
+"Vel rises, PsychAD drops",167,0.0501,0.1624,0.503,0.41,312.23,-238.25
