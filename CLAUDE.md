@@ -139,6 +139,11 @@ Active investigations:
   - **Depth was a proxy for maturity** (Spearman ρ(UMI,maturity)=+0.65);
     the earlier depth-window result (+0.32) is superseded. Use maturity,
     not a depth window.
+  - Nuance (report §3.5): the drop is a WITHIN-state age decline, not
+    compositional — cross-sectionally C3+ RISES with maturity (ρ≈+0.4..+0.8),
+    so maturation opposes the drop; stratifying by maturity reveals it.
+    Childhood elevation is cohort-robust only in the least-mature decile
+    (mature deciles are depth-confounded), which is why q0 is used.
   - Pitfall: a *two-gene* normalised maturity ratio (RBFOX3−DCX) is
     depth-confounded and gave a false-null; use a multi-marker MEAN module
     or a low-detection count. Take the EXTREME q0, not an above/below-median

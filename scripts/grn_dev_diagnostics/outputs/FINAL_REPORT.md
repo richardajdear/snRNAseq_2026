@@ -15,6 +15,22 @@ When we restrict to the least-mature quintile of ExN cells (the
 9-marker mature-module q0, defined below), the C3+ child→adolescent drop
 appears in **every cohort and chemistry, with no depth filtering at all**:
 
+![Maturity-quintile C3+ trajectories vs age](t1_headline_trajectories.png)
+
+*Raw donor-mean C3+ vs donor age; fuzzy child/adolescent boundary band
+(8–12 y) shaded. **Left** — all five maturity quintiles (cohorts
+equal-weighted per age bin to avoid a cohort×age artefact). The quintiles
+are stacked by the cross-sectional maturity gradient (mature cells carry
+**more** C3+); the least-mature quintile (q0, purple) shows the clearest
+childhood→adolescence decline while higher quintiles are flatter.
+**Right** — q0 only, per cohort, raw: each cohort declines across the
+boundary band. The effect is statistically clear but **modest in raw
+magnitude** — the large Cohen's d comes from low donor-level variance, not
+a large raw difference. §3.5 unpacks what this means (compositional vs
+within-state) and why q0 is the right stratum.*
+
+The combined effect size across cohorts:
+
 ![Combined maturity result with split-cohort robustness](s2_combined_forest.png)
 
 | estimate (maturity-q0 cells, no depth filter) | fuzzy d | n donors |
@@ -330,6 +346,68 @@ showed was dominated by small-n variance among the 11 children — the
 maturity-conditioned result is uniformly supported across all 19 child
 donors and all 70 donors.
 
+### 3.5 What stratifying by maturity means: compositional vs within-state
+
+A natural objection: if the C3+ drop is *because* neurons mature (a q0
+child cell becomes a q3 adolescent cell), then conditioning on maturity
+might **remove** the very effect we want — and using only q0 ignores 80 %
+of the cells. We tested this directly by plotting C3+ against the maturity
+module, split by age stage, in each cohort:
+
+![C3+ vs neuronal maturity, split by age](t2_c3_vs_maturity.png)
+
+Two **orthogonal** axes emerge, and separating them resolves the objection:
+
+1. **A cross-sectional maturity gradient.** Within any age, C3+ *rises*
+   with maturity (Spearman ρ(maturity, C3+) = +0.8 / +0.4 / +0.7 in
+   PsychAD-V3 / Vel-V2 / Vel-V3). Mature neurons carry **more** C3+ — they
+   have more synapses (and, partly, more depth/detection). This is the
+   opposite of "immature = high C3+"; the immature framing is only about
+   the *developmental* axis, not the maturity axis.
+
+2. **A developmental within-state decline.** At matched maturity, childhood
+   neurons have higher C3+ than adolescent neurons. In the **clean,
+   unsorted, shallow Velmeshev-V2 cohort this holds at every maturity
+   decile** (child − adol C3+ = +25 k at the least-mature decile, tapering
+   to +4 k at the most-mature). A Kitagawa decomposition of its child→adol
+   drop is **+116 % within-state, −16 % composition** — i.e. the drop is
+   essentially *entirely* a same-maturity age decline, and maturation
+   composition slightly **opposes** it (because, by axis 1, the more-mature
+   adolescent cells individually carry *more* C3+).
+
+**This reverses the objection.** The C3+ drop is **not** produced by cells
+maturing into lower-C3+ states — maturation works against the drop.
+Stratifying by maturity therefore **reveals** the developmental decline by
+removing the opposing cross-sectional gradient, rather than removing the
+signal. C3+ (a synaptogenesis programme) is elevated in childhood neurons
+across the board and falls with age at fixed maturity — the childhood
+synaptic peak, independent of single-cell maturation state.
+
+**Why q0 specifically (and not "wasting" 80 % of cells).** The childhood
+elevation is **robust and cohort-consistent only in the least-mature
+decile** (child − adol C3+ = +5.1 k / +25 k / +5.5 k in
+PsychAD-V3 / Vel-V2 / Vel-V3 — positive in all three). In the *mature*
+deciles the cohorts **disagree**: Vel-V2 stays positive, but the two deep
+cohorts (PsychAD-V3, Vel-V3) go negative. That disagreement is the residual
+depth confound — a maturity decile does not fully control depth (ρ = 0.65),
+childhood cells remain shallower *within* a decile, and C3+ detection rises
+with depth, dragging childhood C3+ down in the deep cohorts' mature bins.
+So q0 is not discarded signal: it is the **one maturity stratum where the
+developmental effect is measurable without the depth/FANS contamination
+that corrupts the mature majority**. (Correspondingly, the frequency-
+weighted Kitagawa "within-state" term is only trustworthy for the unsorted
+shallow Vel-V2; in the deep cohorts it is itself depth-contaminated in the
+mature bins, which is exactly why we report q0 rather than an all-bin
+within-state estimate.)
+
+**On raw magnitude.** The raw child→adol C3+ difference is modest (a few
+percent of the ~100 k CPM baseline; the PsychAD all-cell *raw* aggregate is
+even slightly anti-drop, −2.1 k, because its FANS-shifted composition drags
+childhood down). The statistical clarity (Cohen's d ≈ +0.5) comes from
+**low donor-level variance within the q0 stratum**, not from a large raw
+shift — consistent with a real but quantitatively gentle developmental
+decline. See `t2_decomposition.csv` and `t2_c3_vs_maturity_binned.csv`.
+
 ---
 
 ## 4. Our initial hypothesis was depth — and why maturity supersedes it
@@ -622,6 +700,8 @@ All in `scripts/grn_dev_diagnostics/outputs/`.
 
 | Figure | File | Section |
 |---|---|---|
+| Maturity-quintile trajectories (all-q \| q0) | `t1_headline_trajectories.png` | Headline |
+| C3+ vs maturity, child/adol split (3 cohorts) | `t2_c3_vs_maturity.png` | §3.5 |
 | Combined maturity result (forest) | `s2_combined_forest.png` | Headline, §5 |
 | Combined maturity-q0 trajectory | `s2_combined_trajectory.png` | §5 |
 | Maturity-index cascade (3 cohorts) | `r2_maturity_cascade.png` | §3.2 |
@@ -642,6 +722,9 @@ All in `scripts/grn_dev_diagnostics/outputs/`.
 | Depth↔maturity Spearman ρ per cohort | `s1_spearman.csv` |
 | Depth & maturity by age stage | `s1_stage_shift.csv` |
 | Maturity-index cascade (all definitions) | `r2_maturity_cascade.csv` |
+| C3+ vs maturity decile, child/adol | `t2_c3_vs_maturity_binned.csv` |
+| Kitagawa composition/within-state decomposition | `t2_decomposition.csv` |
+| Per-quintile donor trajectories | `t1_quintile_donor_trajectories.csv` |
 | Detection vs CP10k head-to-head | `r3_detection_vs_cp10k.csv` |
 | Depth × maturity 2D d | `r4_depth_x_module.csv` |
 | Layer × maturity 2D d | `r5_layer_x_module.csv` |
