@@ -1,4 +1,10 @@
-# Does AHBA C3+ track childhood→adolescent synaptic maturation in human DLPFC? — PsychAD vs Velmeshev
+# Does AHBA C3+ track childhood→adolescent synaptic maturation in human DLPFC? — PsychAD vs Velmeshev/Herring
+
+*Revised answer (2026-06-08): C3+ robustly indexes neuronal **maturation state**
+(mature cells carry more C3+); evidence that it encodes a developmental **time**
+signal across childhood/adolescence is **weak** once the Velmeshev-V2 technical
+artefact and immature-interneuron contamination of the ExN pool are removed. See
+§0 (framing) and §0.5 (revision).*
 
 ## 0. The question
 
@@ -29,38 +35,128 @@ adult levels — are **much less well defined**. The hypothesis under test is
 that C3+, an adult spatial programme enriched for synaptic genes, may
 capture part of that under-described late-maturation circuitry.
 
-This report answers the question in three strands, each with its own
-strength of evidence:
+**Framing (first principles).** An earlier version of this work set out to
+*confirm* a childhood→adolescent C3+ **decline**. That hypothesis was
+motivated mainly by a large apparent drop in Velmeshev-V2 — which we have
+since shown is a **technical artefact** (a depth×age confound moving most of
+the transcriptome; Appendix C.1). With that motivation removed, this report
+takes the question **open**: given the newer snRNA-seq data, *how does the
+AHBA-derived C3+ programme relate to childhood and adolescent development?* —
+with no prior commitment to a drop. **"No developmental change" is an
+admissible and, as it turns out, largely correct answer.** Two foundational
+corrections from the 2026-06-08 revision (see §0.5) shape the reading:
 
-1. **C3+ is a single-cell synaptic-maturation programme** (strong). Within
-   every cohort, C3+ rises with a neuron's maturity state — mature neurons
-   carry more C3+ (§2).
-2. **C3+ shows a childhood→adolescent decline at matched maturity** (moderate,
-   cohort-consistent in direction). A childhood C3+ peak that falls toward
-   adolescence, recoverable as a combined V3 fuzzy d ≈ +0.46 once the
-   single-cell maturity confound is removed (§3).
-3. **The childhood-elevated gene set is enriched for C3+ membership** (suggestive,
-   clean in Velmeshev-V3, absent in PsychAD). The genes that distinguish
-   childhood from adolescent neurons in the embedding are over-represented
-   among C3+ genes — consistent with C3+ carrying late-maturation signal the
-   9 canonical early-differentiation markers miss — but not yet conclusive (§4).
+1. **What C3+ robustly *is*: a single-cell maturation-state programme.** Within
+   any age, C3+ rises with a neuron's maturity (ρ +0.3–0.6 under the principled
+   ExN set; §2). An adult-derived spatial programme cleanly tracks the
+   single-cell maturation *state* of developing neurons. This is the strongest,
+   most reproducible finding.
+2. **What C3+ is *not* (or only weakly): a childhood→adolescent developmental
+   *time* signal.** Once the Velmeshev-V2 artefact is excluded *and* the ExN
+   definition is corrected (the old marker rule swept immature inhibitory
+   neurons into the least-mature stratum), the per-donor maturity-q0 child→adol
+   effect is small (combined V3-pair fuzzy d **+0.22**, vs +0.46 before) and
+   **weak in the one genuinely independent cohort** (Herring +0.12). At the
+   single-cell level, C3+ does not track the data-driven age axis monotonically
+   (U-shaped, weak; §4). So the evidence that C3+ encodes development *beyond*
+   the cross-sectional maturation state is **weak**.
+3. **The gene-level alignment (§4)** — childhood-elevated genes enriched for
+   C3+ membership — was computed under the old ExN definition and awaits
+   re-test; treat as provisional.
 
-The honest bottom line (§5): there is real, multi-pronged evidence that C3+
-indexes childhood→adolescent synaptic maturation, but the strongest single
-number (Velmeshev-V2's large drop) is partly a technical artefact, and the
-gene-level alignment is membership-level rather than weight-level. **Settling
-the question requires a data-driven *late*-maturation index** — the 9-gene
-module measures only early differentiation, which is flat across our window —
-and that is the recommended next experiment.
+**Bottom line.** C3+ is best read as a marker of neuronal **maturation state**,
+not of developmental **time** across childhood/adolescence. The previously
+reported developmental "drop" was largely (a) the Velmeshev-V2 technical
+artefact and (b) immature-interneuron contamination of the ExN pool. A small
+PsychAD-only residual remains, but it is not corroborated by the independent
+cohort. The methodological scaffolding (cell-class relabelling, aggregation
+fix, depth confound, maturity index) is **in the Appendix**; **the ExN
+definition (Appendix A.1) is the central methods point of this revision.**
 
-The methodological work that makes the cohorts comparable at all (cell-class
-relabelling, aggregation fix, the depth/FANS confound, the maturity index
-construction and robustness) is real and load-bearing but is **moved to the
-Appendix** so the biological argument can lead.
+---
+
+## 0.5. Major revision (2026-06-08): a principled ExN definition halves the effect
+
+**What changed and why.** Every C3+ number in the original report was computed
+on excitatory neurons selected by a **marker rule** (`annotation_by_markers.py`:
+GAD1/2/SLC32A1 ≥ 10 UMI → InN; else RBFOX3≥1 / DCX≥1 / RBFOX1≥1 → ExN). The
+GAD≥10 threshold is arbitrary, and in developing cortex it **mis-assigns
+immature inhibitory neurons to ExN**: migrating interneurons are DCX⁺/RBFOX3⁺
+and express inhibitory-lineage TFs (DLX1/2, LHX6) but have not yet ramped GAD
+above 10. A new joint-embedding analysis (Appendix A.1) confirms this directly:
+of the young-PsychAD (<10 y) cells the marker rule calls ExN, a large fraction
+sit next to **InN** anchors in the batch-corrected scVI latent and carry
+**inhibitory**-lineage TFs (exc-lineage 0.08 ≪ inh-lineage 0.46). They are
+immature InN, not ExN.
+
+**The principled definition** (Appendix A.1, `y4_lineage_exn.py`): confident
+anchors — ExN (SLC17A7/6⁺), InN (GAD≥10) — then every ambiguous immature
+neuron is assigned ExN/InN by a **kNN vote in the scVI latent** (are its
+neighbours ExN- or InN-anchors?), a threshold-free, data-driven call that
+**agrees with excitatory-vs-inhibitory lineage TFs**. This yields biologically
+sensible, age-stable ExN fractions (PsychAD ~25–32 % across ages, vs the
+marker rule's implausible 44–52 % and the native labels' 6–25 %).
+
+**Effect on the headline** (`z_principled_c3.py`; maturity-q0 child→adol fuzzy
+d, both definitions on the *same* joint V3 cells, Donor_1400 excluded):
+
+| | PsychAD-V3 | Velmeshev-V3 (= **Herring**) | Combined V3-pair |
+|---|---:|---:|---:|
+| marker rule (old) | +0.46 | +0.49 | **+0.44** |
+| **principled (new)** | **+0.28** | **+0.12** | **+0.22** |
+
+The marker rule reproduces the originally published +0.46/+0.49/+0.46 (validating
+the comparison); the principled definition **roughly halves** it, the effect
+**nearly vanishes in the independent Herring cohort** (+0.12, 15 donors), and the
+cross-sectional maturity gradient also shrinks (ρ(module,C3+) PsychAD 0.79→0.59,
+Herring 0.48→0.32). A meaningful share of the original "childhood C3+ peak" in q0
+was carried by immature interneurons.
+
+**Residual uncertainty, both directions.** The true ExN-specific effect is
+bracketed ~**+0.22 to +0.44**: the principled set could *over*-exclude if young
+PsychAD ExN genuinely under-detect excitatory TFs (the Appendix-A.1 deficit),
+making +0.22 a floor; the marker rule *over*-includes immature InN, making +0.44
+a ceiling. Either way the effect is smaller and less certain than first reported,
+and weak in the one genuinely independent cohort.
+
+**A second correction: "Velmeshev" is a composite atlas.** `velmeshev.h5ad`
+bundles four datasets (`y3_diagnose.py`): V2 ≈ **U01** (the original Velmeshev
+data); V3 = **Ramos + Herring**. In the developmental PFC window Ramos is
+**entirely prenatal**, so the postnatal "Velmeshev-V3" series **is Herring**
+(Herring et al. 2022, *Cell*). Consequences that propagate through the report:
+- The repeated claim "Velmeshev-V2 and V3 are the same study (chemistry split)"
+  is **wrong** — they are different studies (U01 vs Ramos+Herring). The
+  Appendix-C.1 "V2 confound" is the **U01** study, shallow-sequenced.
+- **PsychAD-V3 vs Velmeshev-V3 is genuinely independent** (PsychAD vs Herring,
+  different labs) — so the V3-pair *is* cross-cohort replication, and Herring is
+  **on disk**, contradicting `THIRD_COHORT_FEASIBILITY.md` (to be corrected).
+
+**A note on the data-driven embedding (Stage 4, `y2_*`).** We built a fresh
+joint PsychAD-V3 + Velmeshev-V3 scVI embedding (prenatal→30 y) and an ExN-only
+re-embedding. Child-vs-adolescent separability is **strong** (grouped-CV AUC
+PsychAD 0.85, Herring 0.96) — much higher than the old shipped latent
+(0.62/0.67) — but a controlled test shows this gain comes from the **better
+integration + cleaner principled cells, not** the ExN-only restriction
+(all-cell latent 0.85/0.96 ≈ ExN-only 0.83/0.94 on the same cells). External
+C3+ projected onto this data-driven age axis is **U-shaped** — elevated at both
+the childhood end (the developmental signal) and the adult end (the
+cross-sectional maturity gradient) — with a weak net per-cell ρ ≈ +0.13. So at
+the single-cell level C3+ is **not** a clean monotone marker of the late-
+maturation axis; the developmental signal is a donor-level effect partly
+cancelled by the maturity gradient per cell.
 
 ---
 
 ## 1. Headline figures
+
+> **⚠ Superseded by §0.5.** All figures and numbers in §§1–5 below were
+> generated under the **marker-rule ExN definition** and **include
+> Velmeshev-V2**. They are retained for provenance and detail, but the
+> magnitudes are the **over-permissive upper bound**: the principled
+> ExN definition (Appendix A.1) roughly halves the maturity-q0 effect
+> (combined +0.46 → **+0.22**, Herring +0.49 → **+0.12**), and Velmeshev-V2
+> is a technical artefact. Read the per-cohort *direction* here, not the
+> magnitude. "Velmeshev-V3" below = **Herring** in the developmental window.
 
 ### 1.1 The childhood→adolescent decline, per cohort
 
@@ -411,24 +507,56 @@ artefact. (Conversely, 96 % of Velmeshev cells labelled "Interneurons" are
 transcriptionally excitatory under cross-classification — both datasets'
 native labels are unreliable, motivating a marker-only annotation.)
 
-**The fix — marker-based annotation** (`code/annotation_by_markers.py`), using
-only direct marker UMI counts:
+**The ExN definition evolved in three steps. The third is the one to use.**
 
+**Step 1 — native labels (rejected).** As above, the reference-trained
+`cell_class` under-recovers ExN in young PsychAD (~6 % at 0–1 y).
+
+**Step 2 — marker rule (intermediate; *over*-corrects).**
+`code/annotation_by_markers.py` classifies on direct marker UMI counts:
 ```
 if max(GAD1, GAD2, SLC32A1) ≥ 10:     InN
 elif RBFOX3 ≥ 1:                       ExN_mature
 elif DCX ≥ 1:                          ExN_immature
 elif (no glial marker) and RBFOX1 ≥ 1: ExN_weak
 ```
+This rescues many young neurons (PsychAD ExN rises to ~44–52 %), and **all C3+
+numbers in §§1–5 use it.** But the `GAD≥10` cut is arbitrary, and in developing
+cortex it **mis-assigns immature inhibitory neurons to ExN**: migrating
+interneurons are DCX⁺/RBFOX3⁺ and express inhibitory-lineage TFs (DLX1/2, LHX6)
+but have not yet raised GAD above 10, so they default to ExN. Diagnostics
+(`y3_diagnose.py`): of young-PsychAD (<10 y) cells the rule calls ExN, the
+"gained" set carries RBFOX3 (64 %) and DCX (67 %) but almost no SLC17A7 (7 %) /
+SATB2 (13 %) — and, decisively, high **inhibitory**-lineage TFs.
 
-ExN analysis uses the union of the three ExN sub-classes. Each marker is a
->30-year canonical label: GAD1/GAD2 (GABA synthesis; Erlander 1991),
-SLC32A1/VGAT (Chaudhry 1998), RBFOX3/NeuN (Mullen 1992), DCX (immature
-migrating neurons; Brown 2003, Couillard-Despres 2005), RBFOX1 (Lee 2016) —
-the marker-rule logic of canonical isocortex taxonomies (Tasic 2018, Yao
-2021). After this fix the ExN pool is ~25–30 % of pediatric cells in every
-cohort, but the aggregate C3+ score still disagreed in direction (stage A:
-PsychAD-V3 −0.30, Vel-V3 +0.24) — confounds 2 and 3 explain the rest.
+**Step 3 — principled lineage + embedding vote (the believed definition).**
+`y4_lineage_exn.py`. The excitatory vs inhibitory *lineage* is separable in
+immature cells by lineage TFs even before SLC17A7 turns on
+(excitatory: NEUROD2/6, TBR1, EOMES, SATB2, BCL11B, FEZF2;
+inhibitory: GAD1/2, DLX1/2/5, LHX6, ADARB2, SP8). We:
+1. set confident anchors — ExN (SLC17A7/6 ≥ 1), InN (GAD ≥ 10);
+2. for every **ambiguous** immature neuron (RBFOX3/DCX⁺ but neither anchor),
+   take a **kNN vote in the batch-corrected scVI latent** — are its neighbours
+   ExN- or InN-anchors? — a threshold-free, data-driven call;
+3. verify the vote **agrees with the lineage TFs** (voted-ExN: exc 0.30 > inh
+   0.24; voted-InN: inh 0.49 ≫ exc 0.12).
+
+The vote reveals that young-PsychAD ambiguous cells are **mostly inhibitory**
+(only 45.7 % vote ExN; exc-lineage 0.08 ≪ inh-lineage 0.46) — the marker rule's
+GAD-threshold default was wrong for them. The principled ExN fraction is
+biologically sensible and age-stable (PsychAD ~25–32 % across ages; Velmeshev
+declining with age, high in prenatal/infant). **Effect on the result: the
+maturity-q0 child→adol C3+ fuzzy d roughly halves** (combined +0.44 → +0.22;
+Herring +0.49 → +0.12; PsychAD +0.46 → +0.28; `z_principled_c3.py`, §0.5).
+
+**Caveat (acknowledged):** the same young-PsychAD excitatory under-detection
+(4–11× deficit in SATB2/SLC17A7/NEUROD2 vs Wang/Herring at comparable depth,
+fig. above) could bias the lineage-TF scores downward, so the principled set may
+*under*-recover some genuine young ExN. Two independent signals (lineage TFs and
+the transcriptome-wide embedding neighbours) agree, and immature postnatal
+interneurons are a real population — so this is the most defensible definition —
+but the true ExN-specific effect is bracketed +0.22 (principled) … +0.44
+(marker rule). A RBFOX3⁺-strict variant is available as a further check.
 
 ### A.2 Confound 2: sum-then-CPM aggregation bias
 
