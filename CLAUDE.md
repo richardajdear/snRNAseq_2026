@@ -144,6 +144,18 @@ Active investigations:
     (background age_d −0.34) → its big drop is partly technical; DEMOTED from
     "the big lead". Decisive next step = a DATA-DRIVEN late-maturation axis
     (supervised age direction from the §4.1 classifier, then pseudotime).
+  - V2 CONFOUND PROVEN (x_v2_confound.py, Appendix C.1): V2 children seq'd
+    2.4x shallower than V2 adolescents (3.6k vs 8.8k UMI/cell, MWU p=0.02) →
+    GENOME-WIDE child→adol shift (background d −0.34; 66% of ALL genes
+    |d|>0.5 = impossible biologically), expression-dependent (low-expr genes
+    carry it = log1p-CPM Poisson-floor distortion). PsychAD has similar
+    depth-age ratio (0.72) but tiny shift (−0.06) bc deep enough to escape the
+    distortion regime; V2 is BOTH imbalanced AND shallow. ACTION: V2 EXCLUDED
+    from all quantitative estimates (headline=V3-pair +0.46 only; drop all-3
+    +0.70 & RE +1.00; cite Vel-V3 p=3e-12 not V2 p=3e-24); kept only as a
+    direction check — costs no replication (same study as V3). AUC analysis
+    used shipped X_scVI (ALL-cell integration, not ExN-only) = conservative
+    lower bound; re-embed ExN-only for the proper test.
   - Crucial resolved results (2026-06-07):
   - The AHBA C3+ network's child→adolescent **drop is a neuronal-MATURITY
     effect**: it lives in immature ExN and fades as they mature. The naive

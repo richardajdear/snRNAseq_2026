@@ -107,9 +107,10 @@ samples) is the primary per-cohort statistic; the **combined** estimate
 (d > 0 means C3+ drops with age.) **The headline is the V3-pair +0.46** —
 two independent studies, comparable chemistry/depth, agreeing to 0.001 d
 (PsychAD-V3 +0.49 vs Velmeshev-V3 +0.49). Velmeshev-V2's +2.56 agrees in
-*direction* but is inflated by shallow-library effects and a global
-technical child-shift (§3.4, §5); it is **not** the load-bearing evidence,
-contrary to how an earlier draft of this work read it.
+*direction* but is **excluded from quantitative estimates** as technically
+confounded (a depth×age artefact moving 66 % of the transcriptome — Appendix
+C.1); it is **not** load-bearing evidence, contrary to how an earlier draft
+of this work read it.
 
 ### 1.3 The biology in one sentence
 
@@ -221,14 +222,16 @@ See `t2_decomposition.csv`, `t2_c3_vs_maturity_binned.csv`.
 
 ### 3.4 Honest caveat on Velmeshev-V2
 
-Velmeshev-V2's +2.56 is **not** strong independent evidence. Its median
-child depth is ~1.8 k UMI (vs 6–8 k for V3 cohorts), and — as strand 3 will
-show — V2 has a genome-wide child→adol shift (background Cohen's d = −0.34;
-i.e. *most* genes look elevated in V2 children, a global technical effect).
-The V2 "drop" is therefore partly a non-specific shallow-library artefact
-riding on top of the real signal. The trustworthy developmental evidence is
-the **V3-pair agreement** (PsychAD-V3 +0.49, Velmeshev-V3 +0.49), where
-depth is comparable and the genome-wide background is near zero.
+Velmeshev-V2's +2.56 is **not** strong independent evidence — it is
+technically confounded and is **excluded from all quantitative estimates**
+in this report (kept only as a direction check). Its children are sequenced
+2.4× shallower than its adolescents (3.6 k vs 8.8 k UMI/cell), producing a
+*genome-wide* child→adol shift — 66 % of all genes move by |d| > 0.5,
+impossible biologically. Appendix C.1 demonstrates this in full. The
+trustworthy developmental evidence is the **V3-pair agreement** (PsychAD-V3
++0.49, Velmeshev-V3 +0.49), where depth is comparable and the genome-wide
+background is near zero. Because V2 and V3 are the *same study*
+(chemistry-split), dropping V2 costs no independent replication.
 
 ---
 
@@ -259,11 +262,18 @@ cohort-dependent strength:
 There **is** a data-driven age axis in the ExN latent space — at least one
 latent dimension correlates with donor age at ρ = 0.5–0.8. It is strongest
 in Velmeshev and **weak in PsychAD** (AUC 0.62), echoing the weak cell-level
-age signal seen for the deep FANS cohort throughout this project. *Caveat:*
-with 15–17 donors and donor-grouped CV, the AUC partly reflects donor-level
-clustering, and V2's high AUC coincides with its shallow/technical profile —
-so the V2 number is the least trustworthy. But the existence of a real
-age axis (notably in the clean V3 cohort, AUC 0.67, ρ 0.77) is solid.
+age signal seen for the deep FANS cohort throughout this project. *Caveats:*
+(i) with 15–17 donors and donor-grouped CV, the AUC partly reflects donor-level
+clustering, and V2's high AUC coincides with its shallow/technical profile
+(Appendix C.1) — so the V2 number is the least trustworthy. (ii) **This used
+the shipped `X_scVI`, an integration trained on *all* cell types** (then
+subset to ExN), so most of the latent's capacity encodes between-class
+structure and the within-ExN age axis is under-resolved — and because maturity
+is partly confounded with batch, the `batch_key` correction may have regressed
+*out* part of it. These AUCs are therefore a **conservative lower bound**; an
+**ExN-only re-embedding** (Appendix D) is the proper test and is the natural
+first step of the §5 data-driven-axis recommendation. But the existence of a
+real age axis (notably in the clean V3 cohort, AUC 0.67, ρ 0.77) is solid.
 
 ### 4.2 The childhood-elevated genes are enriched for C3+ membership
 
@@ -332,9 +342,11 @@ differentiation complete at birth.**
 - The alignment and the embedding age axis are **clean in Velmeshev, weak or
   absent in PsychAD** — the two independent studies only partly agree at the
   gene level.
-- The largest single effect (**Velmeshev-V2**) is partly **technical** (global
-  child-shift, shallow libraries); it was over-weighted as "a big lead" in
-  earlier drafts and should be demoted.
+- The largest single effect (**Velmeshev-V2**) is **technically confounded**
+  (a depth×age artefact moving 66 % of the transcriptome, Appendix C.1) and is
+  **excluded from quantitative estimates** here — it was over-weighted as "a
+  big lead" in earlier drafts. It survives only as a direction check, at no
+  cost to evidence since it is the same study as V3.
 - The 9-gene module is an **early-differentiation** index that saturates
   before our window — useful for *removing* the maturity confound (§3) but
   the wrong tool for *measuring* late maturation.
@@ -566,11 +578,75 @@ erasing the all-cell drop. Velmeshev's unsorted prep imposes no such filter.
 This is interpretation, not proof; a direct test (split PsychAD upper-layer
 cells by FANS forward-scatter) is in Appendix F.
 
-**The residual Vel-V2 magnitude** (+2.56): its median child depth ~1.8 k UMI
-(vs 6–8 k V3); shallow libraries amplify any real synaptic-transcript loss
-and carry a genome-wide child-shift (§3.4, §4.2). Layer composition at matched
-depth is near-identical to V3, so the V2 magnitude is chemistry/depth, not
-biology.
+**The residual Vel-V2 magnitude** (+2.56) is technically confounded — deep
+dive in C.1.
+
+### C.1 Deep dive: why Velmeshev-V2 specifically is confounded
+
+(`x_v2_confound.py`, fig `x_v2_confound.png`, `x_v2_confound_summary.csv`.)
+V2's child→adol numbers (q0 d +2.56; gene-enrichment p = 3e-24) are inflated
+by a **depth × age confound that produces a non-biological, transcriptome-wide
+shift**. Three facts, one figure:
+
+![Why Velmeshev-V2 is technically confounded](x_v2_confound.png)
+
+**(A) V2 children are sequenced far shallower than V2 adolescents.** Per-donor
+mean per-cell depth:
+
+| cohort | child median UMI | adol median UMI | child/adol ratio | depth~age MWU p |
+|---|---:|---:|---:|---:|
+| PsychAD-V3 | 14,231 | 19,805 | 0.72 | 0.025 |
+| **Velmeshev-V2** | **3,582** | **8,773** | **0.41** | **0.021** |
+| Velmeshev-V3 | 11,889 | 14,590 | 0.82 | 0.96 |
+
+V2 children are **2.4× shallower** than V2 adolescents — and ~3–6× shallower
+than any other group in absolute terms. V3 has *no* depth–age imbalance
+(p = 0.96).
+
+**(B) The result is a whole-transcriptome shift, which cannot be biological.**
+A real developmental signal moves a specific gene programme and leaves the
+rest of the transcriptome near zero (background mean d ≈ 0). In V2 the per-gene
+child→adol Cohen's d is shifted across the *entire* transcriptome (background
+mean d = **−0.34**, vs −0.12 in V3, −0.06 in PsychAD), and **66 % of all genes
+show |d| > 0.5** (vs 46 % V3, 24 % PsychAD). Two-thirds of the genome cannot
+change by half a standard deviation between childhood and adolescence for
+biological reasons — this is the signature of a global technical offset
+(panel B: clean cohorts peak at 0, V2's whole distribution is shifted left).
+
+**(C) The shift is expression-dependent, pinpointing the mechanism.** Per-cell
+CPM + log1p does **not** make per-gene means depth-invariant: for a
+low-abundance gene a single count in a shallow cell maps to a large CPM
+(1e6 / N), so the log1p-CPM of rare genes is dominated by a depth-sensitive
+Poisson / zero-inflation floor. When childhood and adolescent donors differ in
+depth, that floor shifts differentially — most for low-expression genes. Panel
+C shows exactly this: in V2 the child→adol d dips strongly negative in the
+low-expression deciles and flattens toward high expression, while V3 and
+PsychAD stay flat. **C3+ is a large, low-to-moderate-expression synaptic gene
+set — squarely in the genes this artefact hits hardest.**
+
+**Why V2 and not PsychAD, which also has a depth–age gap?** Two factors
+compound: the *ratio* imbalance (V2's 0.41 is the worst) and, crucially, the
+*absolute* shallowness. PsychAD's gap (ratio 0.72, p = 0.025) is comparable to
+V2's, but PsychAD children at 14 k UMI are well clear of the steep part of the
+normalization-distortion curve, so its background shift is tiny (−0.06). V2
+children at 3.6 k UMI sit deep in the distortion regime, where the same
+relative depth gap becomes a large per-gene offset. **Shallow absolute depth
+*plus* a depth–age imbalance is what makes V2 uniquely confounded: V3 has
+neither, PsychAD has only the imbalance at safe depth.**
+
+**Recommendation — exclude V2 from all quantitative estimates; retain only as
+a sign-level corroboration.** (1) Headline stays the V3-pair fuzzy d = +0.46.
+(2) Drop V2 from the combined/meta estimates — the all-3 z-scored +0.70 and
+random-effects +1.00 import V2's inflation and must not be quoted as effect
+sizes. (3) In the gene-enrichment test (§4.2) cite Velmeshev-V3 (p = 3e-12,
+clean background); treat V2's p = 3e-24 as confounded. This costs **no
+independent evidence**, because V2 and V3 are the *same study* (Velmeshev
+2023, chemistry-split) — V3 already carries Velmeshev. V2 survives only for the
+weak statement "even the shallow unsorted chemistry agrees on the *direction*
+of the drop."
+
+Layer composition at matched depth is near-identical between V2 and V3,
+confirming the anomaly is chemistry/depth, not which cells were captured:
 
 ![Layer composition at matched depth](m5_layer_composition.png)
 
@@ -663,6 +739,7 @@ All in `scripts/grn_dev_diagnostics/outputs/`.
 | Depth ↔ maturity scatter | `s1_depth_maturity_scatter.png` | Appendix C |
 | Depth×maturity \| layer×maturity | `s3_psychad_depth_x_layer_maturity.png` | Appendix C |
 | Depth & maturity by age stage | `s1_stage_shift.png` | Appendix C |
+| **Why Velmeshev-V2 is technically confounded (NEW)** | `x_v2_confound.png` | C.1 |
 | Cell-class confound (<1 y markers) | `m1_cell_class_problem.png` | A.1 |
 | Per-cell UMI distributions | `m3_depth_distributions.png` | Appendix C |
 | Per-layer d before/after depth | `m4_per_layer_d.png` | Appendix C |
@@ -675,6 +752,7 @@ All in `scripts/grn_dev_diagnostics/outputs/`.
 | **Embedding separability (AUC, latent-age ρ) (NEW)** | `w1_latent_separability.csv` |
 | **Age-DE vs C3+ enrichment summary (NEW)** | `w2_age_vs_c3_summary.csv` |
 | **Per-gene child→adol d + C3+ weight (NEW)** | `w2_per_gene_age_d.csv` |
+| **V2 confound: depth/background/expr-dependence (NEW)** | `x_v2_confound_summary.csv`, `x_v2_donor_depth.csv` |
 | Combined estimates | `s2_combined_estimate.csv` |
 | Depth↔maturity Spearman ρ | `s1_spearman.csv` |
 | Depth & maturity by age stage | `s1_stage_shift.csv` |
@@ -706,7 +784,8 @@ Scripts: `a_`…`n_` (audit trail), `r_immature_investigation.py` (maturity +
 v4 cache), `s_combined_maturity.py` (combined estimate), `t_trajectories_and_scatter.py`
 (§1–3 figures), `u_pairwise_scatter.py` (PAIRWISE_RELATIONS), `v_cohort_audit.py`
 (third-cohort feasibility), **`w_age_axis.py` (§4 embedding separability +
-age-DE-vs-C3+ enrichment)**.
+age-DE-vs-C3+ enrichment), `x_v2_confound.py` (Appendix C.1 V2 depth×age
+confound)**.
 
 ### Reading order
 
