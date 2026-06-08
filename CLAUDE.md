@@ -124,7 +124,27 @@ Active investigations:
 - `scripts/grn_dev_diagnostics/` — diagnostic battery for the
   PsychAD-vs-Velmeshev AHBA C3+ developmental disagreement.
   **Read `outputs/FINAL_REPORT.md` in full before touching this analysis.**
-  Crucial resolved results (2026-06-07):
+  Report reframed 2026-06-08 around the biological question: "does C3+
+  (externally derived = positive tail of AHBA 3rd spatial component, Dear et
+  al. 2024 NatNeuro; NOT data-driven, so aligning it with a cell-maturity
+  axis is cross-modal validation, NOT circular) represent childhood+adolescent
+  synaptic maturation beyond birth differentiation?" Three evidence strands:
+  (1) STRONG — C3+ rises with single-cell maturity (ρ+0.4..0.8); (2) MODERATE
+  — childhood→adol within-state decline, V3-pair fuzzy d +0.46; (3) SUGGESTIVE
+  — childhood-elevated genes enriched for C3+ membership (w_age_axis.py: Vel-V3
+  hypergeom p=3e-12 clean, Vel-V2 p=3e-24 but confounded, PsychAD p=0.47 ABSENT;
+  enrichment is membership-not-weight, ρ(C3+weight,age_d)≈0).
+  - W findings (job 30241257): child vs adol ExN ARE separable in scVI latent
+    (grouped-CV AUC 0.93 Vel-V2 / 0.67 Vel-V3 / 0.62 PsychAD; max|ρ(latent,age)|
+    0.5–0.83) — a real data-driven age axis, strong in Velmeshev, WEAK in
+    PsychAD. The 9-gene module's own child→adol d is FLAT in deep cohorts
+    (PsychAD −0.10, V3 −0.05) = it's an EARLY-differentiation index saturated
+    before our window; right tool to REMOVE the maturity confound, WRONG tool
+    to MEASURE late maturation. Vel-V2 has a genome-wide child-shift
+    (background age_d −0.34) → its big drop is partly technical; DEMOTED from
+    "the big lead". Decisive next step = a DATA-DRIVEN late-maturation axis
+    (supervised age direction from the §4.1 classifier, then pseudotime).
+  - Crucial resolved results (2026-06-07):
   - The AHBA C3+ network's child→adolescent **drop is a neuronal-MATURITY
     effect**: it lives in immature ExN and fades as they mature. The naive
     all-ExN aggregate disagreed across cohorts (PsychAD-V3 −0.18 vs Vel-V3
@@ -148,9 +168,11 @@ Active investigations:
     depth-confounded and gave a false-null; use a multi-marker MEAN module
     or a low-detection count. Take the EXTREME q0, not an above/below-median
     split (median dilutes to +0.19).
-  - Next step scoped in §6: a scVI-latent **pseudotime** maturity axis for a
-    single fully-integrated score (watch for scVI over-correcting maturity
-    into "batch"; re-embed ExN-only; marker-anchored DPT root).
+  - Next step scoped in §5/Appendix D: a DATA-DRIVEN late-maturation axis —
+    first the supervised age direction from the §4.1 classifier (project C3+
+    onto it), then a scVI-latent **pseudotime** maturity axis (watch for scVI
+    over-correcting maturity into "batch"; re-embed ExN-only; marker-anchored
+    DPT root). The 9-gene module is early-diff and the WRONG axis for this.
   - Join key: `outputs/r_per_cell_cache_v4.parquet` carries `cell_key`,
     markers, `mature_module`, `layer`, `per_cell_c3` for all 95,605 cells.
   - Companion derivations: `R_REPORT.md` (maturity), `J/K/L/F2_REPORT.md`.

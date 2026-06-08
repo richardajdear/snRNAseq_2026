@@ -1,31 +1,76 @@
-# AHBA C3+ developmental disagreement: PsychAD vs Velmeshev — final report
+# Does AHBA C3+ track childhood→adolescent synaptic maturation in human DLPFC? — PsychAD vs Velmeshev
 
-## Headline result
+## 0. The question
 
-The cross-cohort disagreement about whether the AHBA **C3+** gene-regulatory
-network drops between childhood and adolescence in human DLPFC excitatory
-neurons (ExN) is resolved by recognising that **the developmental signal
-lives in immature neurons**. After two upstream fixes (a marker-based
-cell-class relabelling, §1; and a per-cell-CPM aggregation fix, §2), the
-remaining disagreement is removed not by an arbitrary sequencing-depth
-window (our initial hypothesis, §4) but by conditioning on a direct,
-literature-grounded **neuronal-maturity index** (§3).
+**C3+ is externally derived.** It is the positive tail of the **third
+spatial component (C3)** of the Allen Human Brain Atlas bulk-microarray
+expression gradient (Dear et al. 2024 *Nature Neuroscience*) — a pattern
+learned from *adult* post-mortem cortex, with **no developmental or
+single-cell information used in its construction**. That externality is the
+whole point of this analysis: aligning an adult-derived spatial gene
+programme with a data-driven cell-maturation axis is **cross-validation
+across independent data modalities**, not a circular re-discovery of the
+same signal.
 
-When we restrict to the least-mature quintile of ExN cells (the
-9-marker mature-module q0, defined below), the C3+ child→adolescent drop
-appears in **every cohort and chemistry, with no depth filtering at all**:
+The biological question is:
+
+> **How does C3+ relate to brain development — and is there evidence that it
+> represents childhood + adolescent maturation of synaptic circuits, beyond
+> the cell differentiation that is already complete at birth?**
+
+This sits at the frontier of what is known. The field has well-characterised
+transcriptional programmes for **early** cortical excitatory-neuron
+differentiation (the fate/identity TFs — NEUROD2, SATB2, BCL11B — and the
+first wave of synaptic genes), and these are largely complete by early
+childhood. The genes that drive **later** circuit maturation across
+childhood and adolescence — synaptic pruning, refinement, the protracted
+rise-and-fall of synapse density that peaks in childhood and declines toward
+adult levels — are **much less well defined**. The hypothesis under test is
+that C3+, an adult spatial programme enriched for synaptic genes, may
+capture part of that under-described late-maturation circuitry.
+
+This report answers the question in three strands, each with its own
+strength of evidence:
+
+1. **C3+ is a single-cell synaptic-maturation programme** (strong). Within
+   every cohort, C3+ rises with a neuron's maturity state — mature neurons
+   carry more C3+ (§2).
+2. **C3+ shows a childhood→adolescent decline at matched maturity** (moderate,
+   cohort-consistent in direction). A childhood C3+ peak that falls toward
+   adolescence, recoverable as a combined V3 fuzzy d ≈ +0.46 once the
+   single-cell maturity confound is removed (§3).
+3. **The childhood-elevated gene set is enriched for C3+ membership** (suggestive,
+   clean in Velmeshev-V3, absent in PsychAD). The genes that distinguish
+   childhood from adolescent neurons in the embedding are over-represented
+   among C3+ genes — consistent with C3+ carrying late-maturation signal the
+   9 canonical early-differentiation markers miss — but not yet conclusive (§4).
+
+The honest bottom line (§5): there is real, multi-pronged evidence that C3+
+indexes childhood→adolescent synaptic maturation, but the strongest single
+number (Velmeshev-V2's large drop) is partly a technical artefact, and the
+gene-level alignment is membership-level rather than weight-level. **Settling
+the question requires a data-driven *late*-maturation index** — the 9-gene
+module measures only early differentiation, which is flat across our window —
+and that is the recommended next experiment.
+
+The methodological work that makes the cohorts comparable at all (cell-class
+relabelling, aggregation fix, the depth/FANS confound, the maturity index
+construction and robustness) is real and load-bearing but is **moved to the
+Appendix** so the biological argument can lead.
+
+---
+
+## 1. Headline figures
+
+### 1.1 The childhood→adolescent decline, per cohort
 
 ![Per-cohort C3+ trajectories with linear trend](t1_headline_trajectories.png)
 
-*Raw donor-mean C3+ vs donor age, **per cohort** (not pooled), with a
-per-cohort OLS linear fit; fuzzy child/adolescent boundary band (8–12 y)
-shaded. **Left** — all ExN cells (no maturity filter): PsychAD-V3 (red) is
-flat-to-rising — the FANS masking — while both Velmeshev cohorts decline.
-**Right** — least-mature quintile (q0): all three cohorts now decline. β is
-the OLS slope expressed as % of the cohort mean per year.*
-
-Continuous linear trend (β) reported alongside the child-vs-adolescent
-fuzzy d:
+*Raw donor-mean C3+ vs donor age, **per cohort** (not pooled), per-cohort
+OLS fit; fuzzy child/adolescent boundary band (8–12 y) shaded. **Left** —
+all ExN cells (no maturity filter): PsychAD-V3 (red) is flat-to-rising
+(the FANS masking, Appendix C) while both Velmeshev cohorts decline.
+**Right** — least-mature quintile (q0): all three cohorts decline.*
 
 | cohort | stratum | fuzzy d | β (%/yr) | p (slope) |
 |---|---|---:|---:|---:|
@@ -36,18 +81,17 @@ fuzzy d:
 | Velmeshev-V3 | all ExN | +0.58 | −0.34 | 0.33 |
 | Velmeshev-V3 | **q0** | **+0.49** | **−0.58** | 0.23 |
 
-The continuous β **agrees in sign with the fuzzy d in every q0 stratum**
-(all negative = C3+ declines with age) and the q0 slope is steeper than the
-all-ExN slope in every cohort. As a *linear* trend over the full 1–25 y
-range it reaches significance only in Velmeshev-V2; PsychAD-V3 and
-Velmeshev-V3 q0 are directionally consistent but individually underpowered
-(only 19 and ~6 child donors) and the trajectory is not purely linear (most
-of the decline sits near the childhood end). This is why the child-vs-adol
-fuzzy d (a contrast test, more sensitive with small child samples) is the
-primary per-cohort statistic, and why the **combined** estimate (§5) —
-pooling the donors — is the robust result. Full table: `t1_linear_trends.csv`.
+The continuous β agrees in sign with the fuzzy d in every q0 stratum (all
+negative = C3+ declines with age) and the q0 slope is steeper than all-ExN
+in every cohort. As a *linear* trend over 1–25 y it reaches significance
+only in Velmeshev-V2; PsychAD-V3 and Velmeshev-V3 q0 are directionally
+consistent but individually underpowered (19 and ~6 child donors) and the
+trajectory is front-loaded (most decline near the childhood end). The
+child-vs-adolescent fuzzy d (a contrast, more sensitive with small child
+samples) is the primary per-cohort statistic; the **combined** estimate
+(§3.3) is the robust one. Full table: `t1_linear_trends.csv`.
 
-The combined effect size across cohorts:
+### 1.2 The combined effect
 
 ![Combined maturity result with split-cohort robustness](s2_combined_forest.png)
 
@@ -60,140 +104,303 @@ The combined effect size across cohorts:
 | per-cohort: Velmeshev-V3 | +0.49 | 15 |
 | per-cohort: Velmeshev-V2 | +2.56 | 17 |
 
-(d > 0 means C3+ drops with age, the expected biology.)
+(d > 0 means C3+ drops with age.) **The headline is the V3-pair +0.46** —
+two independent studies, comparable chemistry/depth, agreeing to 0.001 d
+(PsychAD-V3 +0.49 vs Velmeshev-V3 +0.49). Velmeshev-V2's +2.56 agrees in
+*direction* but is inflated by shallow-library effects and a global
+technical child-shift (§3.4, §5); it is **not** the load-bearing evidence,
+contrary to how an earlier draft of this work read it.
 
-**The single combined result is a child→adolescent C3+ drop of d ≈ +0.46
-to +0.70**, depending on how the three cohorts are pooled, with the
-cleanest V3-pair estimate at **+0.46**. The split-cohort numbers are
-mutually consistent in direction and — for the two directly-comparable
-V3-chemistry cohorts — in magnitude (**PsychAD-V3 +0.49 vs Velmeshev-V3
-+0.49, agreement to 0.001 d**). Velmeshev-V2's much larger +2.56 is a
-shallow-library amplification (§5); it agrees in direction and inflates
-the random-effects interval but not the V3-based headline.
+### 1.3 The biology in one sentence
 
-This is a **stronger and more principled** result than the depth-window
-version of this report (which reached only +0.32 for PsychAD-V3 and
-required a hand-chosen 3–12 k UMI window). The maturity index needs no
-window, is donor-robust, is pan-layer, and makes the cohorts agree
-because it targets the biological axis the depth window was only an
-indirect proxy for.
-
-### The biology in one sentence
-
-C3+ is a synapse-formation / neuronal-maturation gene programme; it peaks
-in **immature** excitatory neurons in childhood and **declines as those
-neurons mature**. PsychAD's FANS NeuN+ nuclear-sorting prep selectively
-recovers larger, deeper, more-mature nuclei and under-samples shallow
-immature nuclei; in the all-cell aggregate this **masks** the childhood
-peak (all-ExN PsychAD-V3 d = −0.18), which is why the naive analysis
-disagreed with the unsorted Velmeshev atlas (all-ExN Vel-V3 d = +0.58).
-Conditioning on maturity removes the masking and the cohorts agree.
-
-### Correction-stage progression
-
-| stage | PsychAD-V3 | Vel-V2 | Vel-V3 | n donors (Psy/V2/V3) |
-|---|---:|---:|---:|---|
-| 0. native cell-class label, sum-then-CPM | +0.09 | +2.03 | +0.01 | 64 / 17 / 15 |
-| A. marker-based annotation, sum-then-CPM | −0.30 | +2.09 | +0.24 | 70 / 17 / 15 |
-| B. + per-cell-CPM mean (**all ExN** — the disagreement) | **−0.18** | +2.46 | +0.58 | 70 / 17 / 15 |
-| **C. + maturity-q0 (least-mature quintile)** | **+0.49** | **+2.56** | **+0.49** | 70 / 17 / 15 |
-
-Stage B is where the disagreement is starkest — PsychAD-V3 (−0.18) and
-Vel-V3 (+0.58) differ in *sign*. Stage C (maturity stratification) is the
-fix: both V3 cohorts converge to +0.49.
-
-> **Note on this revision.** An earlier version of this report used a
-> 3–12 k UMI **depth window** as stage C (PsychAD-V3 +0.32). That analysis
-> was correct but incomplete: depth was a *proxy* for maturity. §4
-> documents the depth analysis as our initial hypothesis and shows the
-> depth↔maturity correlation that supersedes it. All depth-window CSVs and
-> figures are retained in the file index for provenance.
-
-### Excluded donor: Donor_1400
-
-One PsychAD pediatric donor (`Donor_1400`, age 3 y) is excluded from all
-numbers in this report:
-
-- **Composition outlier on ExN_immature %.** 38 % of Donor_1400's cells
-  are classified ExN_immature (marker_annotation), z = +2.51 vs the
-  PsychAD-V3 donor pool (median ~6 %, mean ~12 %). At age 3 y almost all
-  cortical excitatory neurons should already be postmitotic and RBFOX3+
-  (mature), so a 38 % DCX-only fraction is biologically implausible and
-  most likely a per-cell QC issue (degraded mature transcript profile
-  preventing RBFOX3 detection, forcing the DCX-only classifier tier).
-- **Previously flagged as a C3+ outlier** (F3 donor audit): most negative
-  C3+ outlier under sum-then-CPM (z = −3.4).
-- Removal is principled (criterion set before recomputing d) and small in
-  effect on the maturity result. Leave-one-out across all 70 maturity-q0
-  donors keeps PsychAD-V3 in +0.36 … +0.64 regardless (§3.4), so the
-  exclusion is not load-bearing for the maturity headline.
-
-A second donor (`Donor_28`, 4 y; 45 % immature, n = 71 cells; z = +3.22)
-is even more extreme on composition but has only 71 cells; we keep it
-(mentioned for any reviewer re-running). See `n_psychad_per_donor.csv`
-and `n_leave_one_out_d.csv`.
-
-### Why all d values use a fuzzy childhood/adolescence boundary
-
-There is no biologically sharp child→adolescent transition. Every Cohen's
-d here is the **mean of d at five candidate boundary ages 8, 9, 10, 11,
-12 y**: for each boundary b, donors with age ∈ [1, b) are "child" and
-[b, 25) "adolescent". Per-boundary d's are saved with every result
-(`m_window_bounds_d.csv`, `m2_correction_progression_data.csv`). The
-qualitative story is identical at every individual boundary.
+C3+ is a synapse-formation / neuronal-maturation gene programme that **rises
+with a neuron's maturity** (cross-sectional axis, §2) yet is **elevated in
+childhood and declines toward adolescence at matched maturity** (developmental
+axis, §3) — a childhood synaptic peak. PsychAD's FANS NeuN+ sort under-samples
+shallow immature nuclei and so **masks** this peak in the naive all-cell
+aggregate (Appendix C), which is why the unsorted Velmeshev atlas and
+FANS-sorted PsychAD first appeared to disagree.
 
 ---
 
-## 1. The first confound — native cell-class labels are unreliable
+## 2. C3+ is a single-cell synaptic-maturation programme (strand 1)
 
-### 1.1 The native PsychAD labels were derived from an aging-brain reference
+Within any age, C3+ **rises** with a neuron's maturity. Scoring each ExN
+cell on a 9-marker mature module (Appendix B) and correlating with its C3+
+score:
 
-PsychAD's per-cell `cell_class` labels were assigned by an upstream
-classifier trained on the original PsychAD adult/aging reference (the
-~50 k-donor Mathys-lab aging cortex atlas, median donor age ~80 y,
-heavily enriched for late-life dementia controls). That reference defines
-its "Excitatory neuron" type by the transcriptional state of *postmitotic,
-mature, aged* pyramidal neurons — high RBFOX3 / SLC17A7 / NEUROD2 and
-absence of immature-neuron markers.
+![C3+ vs neuronal maturity, split by age](t2_c3_vs_maturity.png)
 
-Applied to PsychAD pediatric donors, whose cells do *not* yet match the
-adult mature state, it systematically under-recovers excitatory neurons in
-the youngest donors — in the strictest case (<1 y) only ~5 % of cells are
-called Excitatory, vs ~25–30 % in the comparator developmental atlases
-(Wang, Velmeshev).
+| cohort | ρ(maturity, C3+) within-age |
+|---|---:|
+| PsychAD-V3 | +0.8 |
+| Velmeshev-V2 | +0.4 |
+| Velmeshev-V3 | +0.7 |
 
-### 1.2 scANVI re-mapping does not solve this
+Mature neurons carry **more** C3+ — they have more synapses (and, partly,
+more depth/detection). This establishes the first half of the biological
+claim directly and externally: an **adult-derived** spatial programme tracks
+the **single-cell maturation state** of developing neurons. The relationship
+is positive in all three cohorts and is the cleanest, most robust strand of
+evidence.
 
-The integration pipeline applies scANVI label transfer, but scANVI is a
-*supervised* classifier anchored on the reference labels: when those are
-biased toward adult definitions, scANVI propagates the bias. In a
-cross-supervision experiment (`scripts/relabel_comparison/`),
-PsychAD-supervised scANVI compressed Vel pediatric EN into IN, and
-Vel-supervised scANVI failed to recover PsychAD's missing pediatric EN.
-No choice of reference makes the label set internally consistent across
-developmental and aging cohorts.
+Note this is the *opposite* sign to the developmental decline (§3): mature
+cells carry more C3+, but childhood (across all maturities) carries more C3+
+than adolescence. These two orthogonal axes are the key to the whole
+analysis and are disentangled in §3.
 
-### 1.3 Direct marker-gene evidence of the misclassification
+---
+
+## 3. A childhood→adolescent decline beyond birth differentiation (strand 2)
+
+### 3.1 The decline lives at matched maturity, not in composition
+
+A natural objection: if C3+ falls *because* neurons mature (a less-mature
+child cell becomes a more-mature adolescent cell), then the "decline" is
+just the §2 maturity gradient seen through changing composition, and tells
+us nothing new about development. We tested this with a Kitagawa
+decomposition of the child→adolescent drop, splitting it into a
+**within-state** term (same-maturity cells losing C3+ with age) and a
+**composition** term (cells shifting maturity with age).
+
+In the clean, unsorted Velmeshev-V2 cohort, childhood neurons carry more
+C3+ than adolescents **at every maturity decile** (+25 k CPM at the
+least-mature decile, tapering to +4 k at the most-mature). The decomposition
+is **+116 % within-state, −16 % composition**: the drop is essentially
+*entirely* a same-maturity age decline, and the maturation composition
+slightly **opposes** it (because, by §2, more-mature adolescent cells
+individually carry *more* C3+).
+
+**This reverses the objection.** The C3+ decline is **not** produced by
+cells maturing into lower-C3+ states — maturation works against the drop.
+It is a genuine within-state developmental decline: at fixed single-cell
+maturity, childhood neurons carry more C3+ than adolescent neurons. That is
+the signature of a childhood synaptic peak that exceeds, and then recedes
+toward, the adult level — i.e. **a process beyond the differentiation
+already complete at birth.**
+
+### 3.2 Why this can't be early-differentiation composition: maturity is near-static
+
+Independently, across the postnatal 1–25 y window the **maturity
+distribution barely moves with age**:
+
+![Distribution of cell maturity vs age, per cohort](t3_maturity_vs_age.png)
+
+| cohort | ρ(age, maturity) | slope (/yr) | median maturity child → adol |
+|---|---:|---:|---|
+| PsychAD-V3 | +0.06 | +0.003 | 1.084 → 1.144 |
+| Velmeshev-V2 | +0.12 | +0.005 | 1.293 → 1.412 |
+| Velmeshev-V3 | −0.07 | −0.004 | 1.216 → 1.143 |
+
+By these canonical post-mitotic markers (NEUROD2/SATB2/BCL11B/…), cortical
+excitatory neurons are **already mature by early childhood** — the bulk of
+this maturation is prenatal/infancy, complete before our 1 y lower bound.
+A compositional mechanism therefore has almost nothing to work with, and the
+least-mature quintile is a comparable ~20 % slice at every age (q0
+adolescents are the same kind of cell as q0 children, one age-bin later).
+**Crucially, this also means the 9-gene module is the *wrong* axis for the
+developmental question** — it saturated before our window opens. The decline
+we see is orthogonal to it, which is exactly what motivates strand 3.
+
+### 3.3 The combined estimate and why q0
+
+Conditioning on the least-mature quintile (q0) removes the opposing
+cross-sectional gradient (§2) and reveals the developmental decline in
+**every cohort**, recoverable as the combined V3-pair fuzzy d = **+0.46**
+(§1.2). The childhood elevation is robust and cohort-consistent only in the
+least-mature decile (child − adol C3+ = +5.1 k / +25 k / +5.5 k in
+PsychAD-V3 / Vel-V2 / Vel-V3 — positive in all three). In *mature* deciles
+the cohorts disagree (the residual depth/FANS confound, Appendix C), which
+is why q0 is the one stratum where the effect is measurable without that
+contamination — not discarded signal.
+
+The raw child→adol C3+ difference is modest (a few percent of the ~100 k CPM
+baseline); the d ≈ +0.5 comes from low donor-level variance within q0, not a
+large raw shift — a real but quantitatively gentle developmental decline.
+See `t2_decomposition.csv`, `t2_c3_vs_maturity_binned.csv`.
+
+### 3.4 Honest caveat on Velmeshev-V2
+
+Velmeshev-V2's +2.56 is **not** strong independent evidence. Its median
+child depth is ~1.8 k UMI (vs 6–8 k for V3 cohorts), and — as strand 3 will
+show — V2 has a genome-wide child→adol shift (background Cohen's d = −0.34;
+i.e. *most* genes look elevated in V2 children, a global technical effect).
+The V2 "drop" is therefore partly a non-specific shallow-library artefact
+riding on top of the real signal. The trustworthy developmental evidence is
+the **V3-pair agreement** (PsychAD-V3 +0.49, Velmeshev-V3 +0.49), where
+depth is comparable and the genome-wide background is near zero.
+
+---
+
+## 4. Is C3+ the missing *late*-maturation programme? (strand 3)
+
+Strand 2 shows C3+ declines child→adolescent, but does not show *which
+genes* carry that decline or whether they are specifically a C3+ programme.
+The user's hypothesis is sharper: **the genes that distinguish childhood
+from adolescent neurons — the under-described late circuit-maturation
+genes — are captured by C3+**, in a way the 9 early-differentiation markers
+are not. We tested this in two steps (`w_age_axis.py`, job 30241257).
+
+### 4.1 Childhood and adolescent neurons occupy different embedding regions
+
+First: do childhood and adolescent ExN cells actually differ in the
+batch-corrected (scVI) latent space? A donor-grouped cross-validated
+classifier (LogisticRegression, GroupKFold by donor) says **yes**, with
+cohort-dependent strength:
+
+![Childhood vs adolescent ExN in the scVI embedding](w1_latent_separability.png)
+
+| cohort | grouped-CV AUC (child vs adol) | max \|ρ(latent dim, age)\| | donors (child) |
+|---|---:|---:|---:|
+| PsychAD-V3 | 0.62 | 0.51 | 70 (10) |
+| Velmeshev-V2 | **0.93** | **0.83** | 17 (8) |
+| Velmeshev-V3 | 0.67 | 0.77 | 15 (8) |
+
+There **is** a data-driven age axis in the ExN latent space — at least one
+latent dimension correlates with donor age at ρ = 0.5–0.8. It is strongest
+in Velmeshev and **weak in PsychAD** (AUC 0.62), echoing the weak cell-level
+age signal seen for the deep FANS cohort throughout this project. *Caveat:*
+with 15–17 donors and donor-grouped CV, the AUC partly reflects donor-level
+clustering, and V2's high AUC coincides with its shallow/technical profile —
+so the V2 number is the least trustworthy. But the existence of a real
+age axis (notably in the clean V3 cohort, AUC 0.67, ρ 0.77) is solid.
+
+### 4.2 The childhood-elevated genes are enriched for C3+ membership
+
+Second, and decisively: are the genes that drive that childhood→adolescent
+difference enriched in C3+? For each gene we computed the donor-level
+child→adol Cohen's d (CPM log1p, child < 10 vs adol ≥ 10), then asked
+whether C3+ genes are over-represented among the most childhood-elevated:
+
+![Per-gene child→adol effect vs C3+ weight](w2_age_vs_c3_scatter.png)
+
+| cohort | C3+ in top-300 child-elevated (expected) | hypergeom p | ρ(C3+ weight, age d) | background mean age d |
+|---|---:|---:|---:|---:|
+| PsychAD-V3 | 30 (29) | 0.47 — **none** | −0.14 | −0.06 |
+| Velmeshev-V2 | 141 (63) | 2.9e-24 | +0.07 | **−0.34** |
+| Velmeshev-V3 | 115 (63) | **2.9e-12** | +0.00 | −0.12 |
+
+Two findings, pulling in opposite directions:
+
+- **Support.** In **both** Velmeshev chemistries the childhood-elevated genes
+  are strongly enriched for C3+ membership. The cleanest is **Velmeshev-V3**
+  (115 vs 63 expected, p = 3e-12) where the genome-wide background is near
+  zero (−0.12) — so this is a *specific* enrichment, not a global shift. This
+  is direct support for the hypothesis: an adult spatial programme is
+  over-represented among the genes that separate childhood from adolescent
+  neurons in an independent developmental atlas.
+- **Qualification.** The enrichment is for C3+ **membership**, not C3+
+  **weight** — within C3+ genes, the weight does not track the age effect
+  (ρ ≈ 0 in V3; the binned mean in the figure is flat across weight). And the
+  enrichment is **absent in PsychAD** (p = 0.47), the cohort with the weak
+  embedding age axis. And the **Velmeshev-V2** enrichment is partly inflated
+  by its genome-wide child-shift (background −0.34) — the same V2 technical
+  confound flagged in §3.4.
+
+### 4.3 The 9-gene module confirms it is the wrong (early) axis
+
+The 9-gene early-differentiation module's own child→adol d is **flat in the
+deep cohorts** (PsychAD −0.10, Velmeshev-V3 −0.05) — exactly as expected for
+fate markers that saturated before childhood — and only spuriously elevated
+in the technically-shifted V2 (+0.38). So the module is *not* the programme
+that changes across our window; C3+ partly is. This is consistent, mutually
+reinforcing evidence that **C3+ reaches into a later maturation phase the
+canonical early markers cannot see** — but "partly," "in Velmeshev,"
+"membership not weight" are the honest qualifiers.
+
+---
+
+## 5. Synthesis and what would settle it
+
+**What the evidence supports.** C3+ — an adult, spatially-derived,
+synapse-enriched gene programme — is connected to human cortical development
+in three independent ways: (1) it rises with single-cell neuronal maturity
+in every cohort (ρ +0.4–0.8); (2) it is elevated in childhood and declines
+toward adolescence at matched maturity (V3-pair fuzzy d +0.46, a genuine
+within-state decline, not composition); and (3) the genes that separate
+childhood from adolescent neurons in the embedding are enriched for C3+
+membership in the clean Velmeshev-V3 cohort (p = 3e-12), while the canonical
+early-differentiation markers are flat. Together these are consistent with
+the hypothesis that **C3+ captures part of the under-described
+childhood→adolescent synaptic-maturation programme, beyond the cell
+differentiation complete at birth.**
+
+**What it does not yet establish.** The case is suggestive, not closed:
+- The gene-level alignment is **membership-level, not weight-level** — C3+'s
+  *high-weight* genes are not preferentially the age-changing ones, so C3+ is
+  not cleanly "a late-maturation axis."
+- The alignment and the embedding age axis are **clean in Velmeshev, weak or
+  absent in PsychAD** — the two independent studies only partly agree at the
+  gene level.
+- The largest single effect (**Velmeshev-V2**) is partly **technical** (global
+  child-shift, shallow libraries); it was over-weighted as "a big lead" in
+  earlier drafts and should be demoted.
+- The 9-gene module is an **early-differentiation** index that saturates
+  before our window — useful for *removing* the maturity confound (§3) but
+  the wrong tool for *measuring* late maturation.
+
+**The decisive next experiment: a data-driven late-maturation index.** The
+clean way to settle the hypothesis is to build a maturity/age axis that is
+relevant to childhood and adolescence specifically — not the early-diff
+module — and ask directly how C3+ projects onto it. Two routes:
+
+1. **Supervised age axis (recommended first).** The §4.1 classifier already
+   finds a latent direction separating childhood from adolescent cells.
+   Project C3+ onto that direction, pooled across cohorts, and test whether
+   high-C3+ cells sit at the childhood end. This is the most direct test of
+   "C3+ = late-maturation programme" and avoids DPT's root sensitivity.
+2. **Diffusion pseudotime on the scVI latent** (Appendix D gives the full
+   recipe and pitfalls). A batch-corrected immature→mature ordering would let
+   the §3 analysis run once, pooled, on a single common axis — *if* scVI has
+   not regressed maturity out as batch (the mandatory check). Because the
+   §4.1 axis is weak in PsychAD, expect this to be cohort-limited too.
+
+Both should be cross-checked against the gene-level enrichment (§4.2): if the
+data-driven late-maturation axis is built from genes that overlap C3+, that
+closes the loop — and because C3+ is **externally** derived from the adult
+AHBA, that overlap is a genuine cross-modal validation, not circularity.
+
+**On replication.** A truly independent third pediatric-DLPFC cohort does not
+appear to exist (Appendix E / `THIRD_COHORT_FEASIBILITY.md`): the on-disk
+candidates fail (Wang is fetal with zero 1–12 y PFC donors; Zhu has ~5), and
+the large new 284-donor lifespan DLPFC atlas is itself a PsychAD/HBCC subset.
+Pediatric post-mortem PFC is intrinsically scarce and donor-recycled across
+studies, so this question is near the ceiling of what human snRNA-seq can
+currently arbitrate. The strongest remaining evidence is internal: the
+V3-pair maturity agreement, the within-state decomposition, and the
+data-driven late-maturation axis above.
+
+---
+
+# Appendix
+
+The methodological machinery below makes the cohorts comparable and the
+maturity index trustworthy. It is the evidence base for the main text but is
+not itself the biological result.
+
+## Appendix A — How the cohorts were made comparable
+
+### A.1 Confound 1: native cell-class labels are unreliable
+
+PsychAD's per-cell `cell_class` labels were assigned by a classifier trained
+on the adult/aging PsychAD reference (median donor ~80 y), which defines
+"Excitatory neuron" by the state of *mature, aged* pyramidal neurons. Applied
+to pediatric donors it under-recovers ExN in the youngest (<1 y: ~5 % called
+Excitatory vs ~25–30 % in Wang/Velmeshev). scANVI label transfer does not fix
+this — it is supervised on the same biased labels and propagates them
+(cross-supervision experiment, `scripts/relabel_comparison/`).
 
 ![Native cell-class labels are unreliable for PsychAD <1y](m1_cell_class_problem.png)
 
-In <1 y donors PsychAD shows a **4–11× deficit** in established excitatory
-markers (SATB2, SLC17A7, NEUROD2, RBFOX3) and a **~5× elevation** in
-inhibitory markers (GAD1, GAD2) vs Wang and Vel-V3 cells from the same age
-window. Library depth is comparable or higher in PsychAD, so this is not a
-CPM artefact. HVG selection, ambient RNA, and chemistry were separately
-ruled out (`notebooks/results/psychad_diagnostic_report/`).
+In <1 y donors PsychAD shows a 4–11× deficit in excitatory markers (SATB2,
+SLC17A7, NEUROD2, RBFOX3) and ~5× elevation in inhibitory markers (GAD1/2)
+vs same-age Wang/Vel-V3 cells, at comparable or higher depth — not a CPM
+artefact. (Conversely, 96 % of Velmeshev cells labelled "Interneurons" are
+transcriptionally excitatory under cross-classification — both datasets'
+native labels are unreliable, motivating a marker-only annotation.)
 
-> **Aside — Velmeshev's "Interneurons" label is also misleading.** Under
-> PsychAD-supervised scANVI cross-classification, 96 % of Velmeshev cells
-> labelled "Interneurons" are transcriptionally excitatory (EN_L2_3_IT —
-> immature upper-layer IT). This is a second motivation for a marker-only
-> annotation that bypasses both datasets' labels.
-
-### 1.4 The fix — marker-based annotation
-
-A per-cell marker-rule classifier (`code/annotation_by_markers.py`) uses
-only direct marker-gene UMI counts and consults neither reference's labels:
+**The fix — marker-based annotation** (`code/annotation_by_markers.py`), using
+only direct marker UMI counts:
 
 ```
 if max(GAD1, GAD2, SLC32A1) ≥ 10:     InN
@@ -202,360 +409,152 @@ elif DCX ≥ 1:                          ExN_immature
 elif (no glial marker) and RBFOX1 ≥ 1: ExN_weak
 ```
 
-For excitatory analysis we take the union of the three ExN sub-classes.
+ExN analysis uses the union of the three ExN sub-classes. Each marker is a
+>30-year canonical label: GAD1/GAD2 (GABA synthesis; Erlander 1991),
+SLC32A1/VGAT (Chaudhry 1998), RBFOX3/NeuN (Mullen 1992), DCX (immature
+migrating neurons; Brown 2003, Couillard-Despres 2005), RBFOX1 (Lee 2016) —
+the marker-rule logic of canonical isocortex taxonomies (Tasic 2018, Yao
+2021). After this fix the ExN pool is ~25–30 % of pediatric cells in every
+cohort, but the aggregate C3+ score still disagreed in direction (stage A:
+PsychAD-V3 −0.30, Vel-V3 +0.24) — confounds 2 and 3 explain the rest.
 
-**Why this is biologically reasonable.** Each marker is a >30-year
-canonical class label:
+### A.2 Confound 2: sum-then-CPM aggregation bias
 
-- **GAD1/GAD2** — the only enzymes synthesising GABA; transcript ⇒
-  GABAergic interneuron (Erlander et al. 1991 *Neuron*). The ≥ 10 UMI
-  threshold gives InN priority because GAD is abundant in true
-  interneurons and ambient leakage is bounded well below 10 UMI/cell.
-- **SLC32A1 (VGAT)** — vesicular GABA transporter; supports GAD-based
-  assignment (Chaudhry et al. 1998 *J Neurosci*).
-- **RBFOX3 (NeuN)** — pan-neuronal nuclear antigen distinguishing neurons
-  from glia for three decades (Mullen et al. 1992 *Development*);
-  essentially exclusive to postmitotic neurons in maturing cortex.
-- **DCX (doublecortin)** — transient marker of postmitotic *immature*
-  migrating neurons (Brown et al. 2003 *J Comp Neurol*; Couillard-Despres
-  et al. 2005). Rescues immature pediatric ExN that have not yet
-  upregulated RBFOX3.
-- **RBFOX1** — broad neuronal RNA-binding protein, present in almost all
-  postmitotic neurons, absent from glia (Lee et al. 2016 *Cell Rep*) — the
-  weakest ExN rescue tier.
+`sum raw counts → CPM` is mathematically a **UMI-weighted** mean of per-cell
+CPM (deep cells dominate). PsychAD-V3 adolescent cells average 21.5 k UMI vs
+children's 17.7 k, so adolescent bulks over-weight their deep cells — a
+systematic anti-drop bias for C3+. **Fix:** per-cell CPM, then per-donor
+*mean* (equal weight per cell); equivalent to a fixed-UMI downsample to
+within 0.02 d. Effect: PsychAD-V3 −0.30 → −0.18; Vel-V2 +2.09 → +2.46;
+Vel-V3 +0.24 → +0.58. This leaves stage B: PsychAD-V3 −0.18 vs Vel-V3 +0.58,
+still a sign disagreement on the all-cell aggregate — resolved by maturity
+stratification (§3) once the depth/FANS confound (Appendix C) is understood.
 
-This is the marker-rule logic the canonical isocortex taxonomies use
-(Tasic et al. 2018 *Nature*; Yao et al. 2021 *Cell*).
+### A.3 Correction-stage progression
 
-### 1.5 What this fix accomplishes (and what it doesn't)
+| stage | PsychAD-V3 | Vel-V2 | Vel-V3 | n donors (Psy/V2/V3) |
+|---|---:|---:|---:|---|
+| 0. native cell-class label, sum-then-CPM | +0.09 | +2.03 | +0.01 | 64 / 17 / 15 |
+| A. marker-based annotation, sum-then-CPM | −0.30 | +2.09 | +0.24 | 70 / 17 / 15 |
+| B. + per-cell-CPM mean (**all ExN** — the disagreement) | **−0.18** | +2.46 | +0.58 | 70 / 17 / 15 |
+| **C. + maturity-q0 (least-mature quintile)** | **+0.49** | **+2.56** | **+0.49** | 70 / 17 / 15 |
 
-After this fix the ExN pool is biologically coherent (~25–30 % of pediatric
-cells in every cohort). But the aggregate C3+ score still disagreed in
-direction (stage A: PsychAD-V3 −0.30, Vel-V3 +0.24). §§2–3 diagnose why.
+### A.4 Excluded donor: Donor_1400
 
----
+One PsychAD donor (`Donor_1400`, 3 y) is excluded: composition outlier on
+ExN_immature % (38 %, z = +2.51; biologically implausible at 3 y) and a prior
+C3+ outlier (z = −3.4 under sum-then-CPM). The exclusion is criterion-set
+before recomputing d and is **not load-bearing**: leave-one-out across all 70
+q0 donors keeps PsychAD-V3 in +0.36 … +0.64 regardless (Appendix B.3).
+`Donor_28` (4 y, 45 % immature) is more extreme on composition but has only
+71 cells; kept, flagged. See `n_psychad_per_donor.csv`, `n_leave_one_out_d.csv`.
 
-## 2. The second confound — sum-then-CPM aggregation bias
+### A.5 Fuzzy childhood/adolescence boundary
 
-The standard pseudobulk recipe `sum raw counts → CPM → project GRN` is
-**mathematically a UMI-weighted average of per-cell CPM values**:
+There is no sharp child→adolescent transition. Every Cohen's d is the **mean
+of d at boundary ages 8, 9, 10, 11, 12 y** (donors [1, b) child, [b, 25)
+adolescent). Per-boundary d's are saved (`m_window_bounds_d.csv`,
+`m2_correction_progression_data.csv`); the story is identical at every
+boundary.
 
-```
-bulk_CPM_g  =  sum_i count_ig / sum_i N_i × 1e6
-            =  weighted mean of per-cell CPM with weight_i = per-cell UMI N_i
-```
+## Appendix B — The maturity index
 
-Deep cells dominate the bulk. In PsychAD-V3 adolescent cells average
-21.5 k UMI/cell vs children's 17.7 k (~25 % deeper), so adolescent bulks
-preferentially reflect their deep cells. For C3+ this is a systematic
-anti-drop bias because deep PsychAD-V3 cells carry stronger residual
-synapse-associated signal.
+### B.1 The 9-marker mature module
 
-**Fix:** compute per-cell CPM, then take a per-donor MEAN (equal weight
-per cell). (Equivalently, downsample each cell to a fixed UMI cap; the two
-agree to within 0.02 d at every cap 500–8 000 UMI.)
+Each ExN cell scores the mean of `log1p(CP10k)` across nine canonical
+post-mitotic / maturation markers (Ensembl-resolved; `r1_marker_id_resolution.csv`):
 
-Effect (Donor_1400 excluded): PsychAD-V3 −0.30 → **−0.18**; Vel-V2
-+2.09 → +2.46; Vel-V3 +0.24 → +0.58. The same bias operates in the same
-direction in all three groups.
-
-This leaves stage B: PsychAD-V3 −0.18 vs Vel-V3 +0.58 — still a sign
-disagreement on the **all-cell** ExN aggregate. That is the problem §3
-solves.
-
----
-
-## 3. The resolution — the C3+ drop lives in immature neurons
-
-### 3.1 A literature-grounded neuronal-maturity index
-
-We score each ExN cell on a **mature-module**: the mean of
-`log1p(CP10k)` expression across nine canonical post-mitotic /
-maturation markers (resolved by Ensembl ID; see `r1_marker_id_resolution.csv`):
-
-| marker | role in excitatory-neuron maturation | reference |
+| marker | role | reference |
 |---|---|---|
-| **NEUROD2** | proneural bHLH TF driving cortical ExN differentiation & synaptic maturation | Bormuth et al. 2013 *J Neurosci*; Olson et al. 2001 |
-| **SATB2** | upper-layer callosal projection-neuron identity; postmitotic differentiation | Alcamo et al. 2008 *Neuron*; Britanova et al. 2008 *Neuron* |
-| **BCL11B (CTIP2)** | deep-layer (L5) projection-neuron identity & maturation | Arlotta et al. 2005 *Neuron* |
-| **MEF2C** | activity-dependent synaptic maturation / refinement TF | Lyons et al. 2012; Harrington et al. 2016 *eLife* |
-| **NEFM / NEFH** | neurofilament medium/heavy — cytoskeletal proteins upregulated as neurons mature and extend axons | Yuan et al. 2012 *CSH Perspect Biol* |
-| **SYT1** | synaptotagmin-1, presynaptic Ca²⁺ sensor; marks synaptically mature neurons | Geppert et al. 1994 *Cell* |
-| **SNAP25** | presynaptic SNARE; rises with synaptic maturation | Oyler et al. 1991 *J Cell Biol* |
-| **MAP2** | dendritic microtubule-associated protein; rises with dendritic arborisation | Caceres et al. 1984 |
+| NEUROD2 | proneural bHLH TF, ExN differentiation & synaptic maturation | Bormuth 2013; Olson 2001 |
+| SATB2 | upper-layer callosal identity; postmitotic differentiation | Alcamo 2008; Britanova 2008 |
+| BCL11B (CTIP2) | deep-layer (L5) projection identity & maturation | Arlotta 2005 |
+| MEF2C | activity-dependent synaptic maturation/refinement TF | Lyons 2012; Harrington 2016 |
+| NEFM / NEFH | neurofilament M/H, cytoskeletal, upregulated as neurons mature | Yuan 2012 |
+| SYT1 | synaptotagmin-1, presynaptic Ca²⁺ sensor | Geppert 1994 |
+| SNAP25 | presynaptic SNARE, rises with synaptic maturation | Oyler 1991 |
+| MAP2 | dendritic MAP, rises with arborisation | Caceres 1984 |
 
-The module deliberately **excludes** DCX and the pan-neuronal RBFOX3/RBFOX1
-used by the §1 binary classifier, so it is not circular with it. (A tenth
-marker, NEFL, is genuinely absent from the HVG-filtered integrated feature
-space — not merely a wrong ID — and is dropped; results are unchanged from
-a six-marker version.) Low module score ⇒ immature; high ⇒ mature.
+The module **excludes** DCX and RBFOX3/RBFOX1 (used by the A.1 classifier),
+so it is not circular with it. NEFL is genuinely absent from the HVG feature
+space (dropped; results unchanged from a six-marker version). **Important
+scope limit:** these are *early-differentiation / fate* markers; §3.2 shows
+they are already saturated by early childhood, so the module is the right
+tool for *removing* the single-cell maturity confound (§3) but the **wrong**
+tool for measuring late childhood→adolescent maturation (that is strand 3 /
+§4's motivation).
 
-We also test two **detection-based** maturity indices (count of mature
-markers with raw count ≥ 1; and a net mature-minus-immature detection
-count), to address whether normalised-expression or raw-detection scoring
-is more robust (§3.3).
-
-### 3.2 The C3+ drop is concentrated in the least-mature cells
-
-Stratifying ExN cells by mature-module quintile (no depth filter), the
-child→adolescent C3+ d is **monotone in maturity** in PsychAD-V3:
+### B.2 The drop is concentrated in the least-mature quintile
 
 ![Maturity-index cascade across cohorts](r2_maturity_cascade.png)
 
-| mature-module quintile | q0 (least mature) | q1 | q2 | q3 | q4 |
+| mature-module quintile | q0 | q1 | q2 | q3 | q4 |
 |---|---:|---:|---:|---:|---:|
 | PsychAD-V3 fuzzy d | **+0.49** | −0.06 | −0.18 | −0.69 | +0.10 |
 
-The least-mature quintile carries a clear +0.49 drop; the signal fades and
-reverses as cells mature. Three independent maturity definitions converge
-on the same answer in PsychAD-V3, **all without any depth filter**:
+Three independent maturity definitions converge in PsychAD-V3, **no depth
+filter**:
 
 | definition (least-mature cells) | n cells | n donors | fuzzy d |
 |---|---:|---:|---:|
-| binary DCX⁺RBFOX3⁻ "ExN_immature" (the original lead) | 3 361 | 67 | +0.45 |
+| binary DCX⁺RBFOX3⁻ "ExN_immature" (original lead) | 3 361 | 67 | +0.45 |
 | mature-module quintile q0 | 6 412 | 70 | **+0.49** |
 | detection count == 1 mature marker | 1 143 | 66 | +0.54 |
 | *all-ExN baseline (the stage-B disagreement)* | 32 057 | 70 | −0.18 |
 
-So the original +0.45 from the DCX/RBFOX3 classifier was **not a lucky
-hit**: a principled multi-marker module *recovers and slightly exceeds it*
-(+0.49), and a detection count does too (+0.54).
+(Splitting the module at its **median** gives only +0.19 — a binning artefact
+that lumps the strongly-positive q0 with negative q1–q3; the signal is in the
+*extreme* low-maturity bin.) Detection-based scoring works at least as well;
+the earlier *failure* of a continuous score was specific to a depth-confounded
+two-gene RBFOX3−DCX ratio. Practical guidance: use a multi-marker mean module
+or a low-detection count; avoid two-gene normalised ratios.
+(`r3_detection_vs_cp10k.csv`.)
 
-> **Why an earlier module attempt looked weak.** Splitting the module at
-> its **median** gave only +0.19, which had suggested the module was a poor
-> maturity index. That was a binning artefact: the median lumps the
-> strongly-positive q0 (+0.49) together with the negative q1–q3, diluting
-> it. The signal was always in the *extreme* low-maturity bin; you must
-> take the least-mature quintile, not the lower half.
+### B.3 Pan-layer and donor-robust
 
-### 3.3 Detection-based vs normalised scoring
+- **Pan-layer.** q0 drop positive in every layer (PsychAD-V3): upper +0.37,
+  L5_ET +0.16, L6_IT +0.96, L6_CT +0.47, ambiguous +0.74 — a maturation axis,
+  not a layer artefact.
+- **Donor-robust.** PsychAD-V3 q0 = +0.488 across 70 donors; leave-one-out
+  spans +0.358 … +0.642, **never flips sign** (most influential donor Donor_701
+  → +0.358). Contrast the all-ExN −0.44, which the F3 audit showed was
+  small-n variance among 11 children. (`r6_module_q0_*.csv`.)
 
-Both work; detection is at least as good (PsychAD-V3, no depth filter):
+## Appendix C — The depth / FANS confound (our initial hypothesis)
 
-| method | n cells | n donors | fuzzy d |
-|---|---:|---:|---:|
-| CP10k mature-module q0 | 6 412 | 70 | +0.49 |
-| detection count == 1 | 1 143 | 66 | **+0.54** |
-| detection count == 2 | 2 171 | 69 | +0.39 |
-| detection count == 3 | 2 586 | 68 | +0.33 |
-| detection ≤ median (= 5) | 21 960 | 70 | +0.03 |
-
-The earlier *failure* of a continuous maturity score (in the depth-era
-analysis) was specific to a **two-gene difference** construction
-(RBFOX3 − DCX in CP10k space), which is depth-confounded: a shallow cell
-with a single DCX read gets a large normalised value. A **multi-gene mean
-module** or a **detection count** both avoid that and recover the signal.
-Practical guidance: use either a multi-marker mean module or a low-detection
-count; avoid two-gene normalised ratios.
-
-### 3.4 The signal is pan-layer and donor-robust
-
-**Pan-layer (R5).** The least-mature bin is positive in every cortical
-layer (PsychAD-V3): upper +0.37, L5_ET +0.16, L6_IT +0.96, L6_CT +0.47,
-ambiguous +0.74. So this is a maturation axis, not a layer-composition
-artefact. (The depth↔maturity interaction is shown side-by-side with the
-layer breakdown in §4, fig. S3.)
-
-**Donor-robust (R6).** The PsychAD-V3 module-q0 estimate is +0.488 across
-70 donors; **leave-one-out spans +0.358 … +0.642 and never flips sign**.
-The single most influential donor (Donor_701) only moves it to +0.358.
-This is the opposite of the original all-ExN d = −0.44, which the F3 audit
-showed was dominated by small-n variance among the 11 children — the
-maturity-conditioned result is uniformly supported across all 19 child
-donors and all 70 donors.
-
-### 3.5 What stratifying by maturity means: compositional vs within-state
-
-A natural objection: if the C3+ drop is *because* neurons mature (a q0
-child cell becomes a q3 adolescent cell), then conditioning on maturity
-might **remove** the very effect we want — and using only q0 ignores 80 %
-of the cells. We tested this directly by plotting C3+ against the maturity
-module, split by age stage, in each cohort:
-
-![C3+ vs neuronal maturity, split by age](t2_c3_vs_maturity.png)
-
-Two **orthogonal** axes emerge, and separating them resolves the objection:
-
-1. **A cross-sectional maturity gradient.** Within any age, C3+ *rises*
-   with maturity (Spearman ρ(maturity, C3+) = +0.8 / +0.4 / +0.7 in
-   PsychAD-V3 / Vel-V2 / Vel-V3). Mature neurons carry **more** C3+ — they
-   have more synapses (and, partly, more depth/detection). This is the
-   opposite of "immature = high C3+"; the immature framing is only about
-   the *developmental* axis, not the maturity axis.
-
-2. **A developmental within-state decline.** At matched maturity, childhood
-   neurons have higher C3+ than adolescent neurons. In the **clean,
-   unsorted, shallow Velmeshev-V2 cohort this holds at every maturity
-   decile** (child − adol C3+ = +25 k at the least-mature decile, tapering
-   to +4 k at the most-mature). A Kitagawa decomposition of its child→adol
-   drop is **+116 % within-state, −16 % composition** — i.e. the drop is
-   essentially *entirely* a same-maturity age decline, and maturation
-   composition slightly **opposes** it (because, by axis 1, the more-mature
-   adolescent cells individually carry *more* C3+).
-
-**This reverses the objection.** The C3+ drop is **not** produced by cells
-maturing into lower-C3+ states — maturation works against the drop.
-Stratifying by maturity therefore **reveals** the developmental decline by
-removing the opposing cross-sectional gradient, rather than removing the
-signal. C3+ (a synaptogenesis programme) is elevated in childhood neurons
-across the board and falls with age at fixed maturity — the childhood
-synaptic peak, independent of single-cell maturation state.
-
-**Why q0 specifically (and not "wasting" 80 % of cells).** The childhood
-elevation is **robust and cohort-consistent only in the least-mature
-decile** (child − adol C3+ = +5.1 k / +25 k / +5.5 k in
-PsychAD-V3 / Vel-V2 / Vel-V3 — positive in all three). In the *mature*
-deciles the cohorts **disagree**: Vel-V2 stays positive, but the two deep
-cohorts (PsychAD-V3, Vel-V3) go negative. That disagreement is the residual
-depth confound. The C3+ score is CPM-normalised, so in the simplest model
-depth should not matter — but a maturity decile does not fully control depth
-(ρ = 0.65), so *within* a decile childhood cells remain shallower, and
-shallower cells carry a lower **measured** C3+ fraction for two reasons:
-(i) the 9-gene module only approximates maturity, so the shallower childhood
-cells in a bin are partly genuinely less mature (a lower synaptic-transcript
-share — real biology); and (ii) technical — shallow libraries are
-proportionally more ambient-diluted (ambient soup is synaptic-poor) and
-under-detect the handful of low-abundance high-weight C3+ genes that carry
-the score. Both drag childhood C3+ down within a decile, but only in the
-deep cohorts (PsychAD-V3, Vel-V3) where the depth spread is wide; in the
-shallow Vel-V2 cohort the depth range is compressed and childhood stays
-above adolescent at every decile.
-So q0 is not discarded signal: it is the **one maturity stratum where the
-developmental effect is measurable without the depth/FANS contamination
-that corrupts the mature majority**. (Correspondingly, the frequency-
-weighted Kitagawa "within-state" term is only trustworthy for the unsorted
-shallow Vel-V2; in the deep cohorts it is itself depth-contaminated in the
-mature bins, which is exactly why we report q0 rather than an all-bin
-within-state estimate.)
-
-**On raw magnitude.** The raw child→adol C3+ difference is modest (a few
-percent of the ~100 k CPM baseline; the PsychAD all-cell *raw* aggregate is
-even slightly anti-drop, −2.1 k, because its FANS-shifted composition drags
-childhood down). The statistical clarity (Cohen's d ≈ +0.5) comes from
-**low donor-level variance within the q0 stratum**, not from a large raw
-shift — consistent with a real but quantitatively gentle developmental
-decline. See `t2_decomposition.csv` and `t2_c3_vs_maturity_binned.csv`.
-
-### 3.6 Why the drop can't be compositional: maturity is near-static in 1–25 y
-
-§3.5 found the compositional contribution to the C3+ drop is small and even
-opposes it. §3.6 gives the direct reason: across the postnatal 1–25 y
-window the **maturity distribution itself barely moves with age**.
-
-![Distribution of cell maturity vs age, per cohort](t3_maturity_vs_age.png)
-
-Density of per-cell maturity (y) against donor age (x), with the per-2-year
-median (cyan). The distribution is essentially flat across age:
-
-| cohort | ρ(age, maturity) | slope (/yr) | median maturity child → adol |
-|---|---:|---:|---|
-| PsychAD-V3 | +0.06 | +0.003 | 1.084 → 1.144 |
-| Velmeshev-V2 | +0.12 | +0.005 | 1.293 → 1.412 |
-| Velmeshev-V3 | −0.07 | −0.004 | 1.216 → 1.143 |
-
-The age–maturity correlation is negligible in every cohort (|ρ| ≤ 0.12;
-the tiny p-values are only because n ≈ 10⁵ cells), and the median maturity
-shifts by < 0.07 module units between childhood and adolescence — in
-Velmeshev-V3 it even goes slightly *down*. By these canonical post-mitotic
-markers (NEUROD2/SATB2/BCL11B/…), cortical excitatory neurons are **already
-mature by early childhood**: the bulk of this maturation is prenatal /
-infancy, largely complete before the 1 y lower bound of our window.
-
-Two consequences:
-
-1. **A compositional mechanism has almost nothing to work with.** "Cells
-   maturing into a different-C3+ state" requires the maturity distribution
-   to move with age; it doesn't (within 1–25 y). So the C3+ decline cannot
-   be a maturation-composition effect — it must be a within-state decline,
-   confirming §3.5 from a second direction.
-
-2. **q0 is a stable stratum, so the q0 child-vs-adol contrast is like-for-
-   like.** Because the distribution is near-static, the least-mature
-   quintile is a comparable ~20 % slice of cells at every age — q0
-   adolescents are not a weird matured-away residual of q0 children, they
-   are the same kind of cell one age-bin later. This directly answers the
-   worry that stratifying by maturity compares non-comparable populations:
-   over 1–25 y, cells largely stay in their maturity stratum.
-
-(Caveat: the genuinely immature DCX⁺ tail *is* the part that shifts with
-age, but it is a small minority of cells; the overall maturity distribution
-is dominated by the already-mature bulk and is near-static. Stats:
-`t3_maturity_age_stats.csv`.)
-
----
-
-## 4. Our initial hypothesis was depth — and why maturity supersedes it
-
-### 4.1 The depth-window finding (correct, but a proxy)
-
-Before identifying maturity as the operative variable, we found that the
-stage-B disagreement could be removed by **restricting to a common per-cell
-UMI window**. PsychAD-V3's FANS-sorted ExN pool sits ~2× deeper than
-Velmeshev-V3, with a deep tail Velmeshev barely samples:
+Before identifying maturity, we found the stage-B disagreement could be
+removed by a common per-cell UMI window. PsychAD-V3's FANS-sorted pool sits
+~2× deeper than Velmeshev-V3 with a deep tail Velmeshev barely samples:
 
 ![Per-cell UMI distributions and matched window](m3_depth_distributions.png)
-
-Within a 3–12 k UMI window, PsychAD-V3's per-layer C3+ d flips from
-negative to positive, agreeing in direction with both Velmeshev chemistries:
-
 ![Per-layer C3+ d before and after depth-matching](m4_per_layer_d.png)
-
-and PsychAD-V3 is positive in 7 of 9 candidate windows (only the two
-windows that re-admit the deep tail stay marginally negative):
-
-![Per-donor trajectories and d under multiple depth windows](m7_multi_window_trajectories.png)
 
 | window (UMI) | PsychAD-V3 | Vel-V2 | Vel-V3 |
 |---|---:|---:|---:|
 | none (all cells) | −0.18 | +2.46 | +0.58 |
 | 1 k – 8 k | +0.27 | +2.44 | +0.61 |
-| 1 k – 12 k | +0.26 | +2.49 | +0.58 |
-| 1 k – 15 k | +0.20 | +2.52 | +0.58 |
-| 2 k – 15 k | +0.21 | +2.60 | +0.44 |
 | **3 k – 12 k** | **+0.32** | +2.44 | +0.38 |
-| 3 k – 15 k | +0.25 | +2.49 | +0.39 |
 | 5 k – 25 k | +0.03 | +2.36 | +0.33 |
 | 1 k – 35 k | −0.03 | +2.41 | +0.57 |
 
-This worked, but it has two weaknesses: it required a hand-chosen window,
-and it never explained *why* depth should matter biologically. The maturity
-analysis (§3) answers both — and reaches a larger effect (+0.49 vs +0.32)
-with no window.
-
-### 4.2 Depth is a proxy for maturity
-
-Per-cell library depth is **strongly positively correlated with the
-mature-module score in every cohort** — Spearman ρ = **+0.65** (PsychAD-V3),
-+0.55 (Vel-V2), +0.64 (Vel-V3):
+This worked but needed a hand-chosen window and never explained *why* depth
+mattered. **Depth is a proxy for maturity:** per-cell depth ↔ mature-module
+ρ = +0.65 (PsychAD-V3), +0.55 (Vel-V2), +0.64 (Vel-V3) — mature pyramidal
+neurons are larger, transcriptionally richer. Shallow ≈ immature.
 
 ![Per-cell depth vs maturity module, all cohorts](s1_depth_maturity_scatter.png)
-
-This is expected biology: per-cell UMI is dominated by mRNA content, and
-mature pyramidal neurons are larger and transcriptionally richer than
-immature ones. **Shallow ≈ immature.** A depth window and a maturity filter
-therefore select overlapping cell populations — which is exactly why the
-depth window "worked".
-
-The two axes are **entangled but not identical**. The depth × maturity 2D
-grid (below left) shows the C3+ drop is strongest in the shallow ∩ immature
-corner (+0.55) and most reversed in the deep ∩ mid-mature corner (−0.72);
-each axis still carries signal within strata of the other. The layer ×
-maturity grid (below right) confirms the immature-row drop is present
-across all layers:
-
 ![PsychAD-V3 depth×maturity and layer×maturity](s3_psychad_depth_x_layer_maturity.png)
 
-Because maturity is the **biological** axis (a named cell state with
-literature markers) while depth is a **technical** read-out of it, maturity
-is the better explanatory and analytic variable: it is interpretable, needs
-no tuned window, gives a larger effect, and reconciles the cohorts (§3.2).
+The axes are entangled but not identical (the drop is strongest in the
+shallow ∩ immature corner, +0.55; most reversed in deep ∩ mid-mature, −0.72).
+Maturity is the *biological* axis (named state, literature markers, no tuned
+window, larger effect) so it supersedes depth.
 
-### 4.3 The FANS-bias mechanism
-
-Putting the pieces together explains *why PsychAD specifically* masked the
-signal in the all-cell aggregate. In PsychAD-V3, childhood cells are
-shallower, less mature, and have a higher immature fraction than adolescent
-cells; and depth↔maturity are tightly coupled (§4.2):
+**The FANS mechanism.** In PsychAD-V3 childhood cells are shallower, less
+mature, higher immature fraction; FANS NeuN+ preferentially recovers larger /
+brighter / deeper / more-mature nuclei, so it disproportionately **drops the
+immature high-C3+ childhood cells**, deflating measured childhood C3+ and
+erasing the all-cell drop. Velmeshev's unsorted prep imposes no such filter.
 
 ![Median depth & maturity by age stage](s1_stage_shift.png)
 
@@ -564,284 +563,156 @@ cells; and depth↔maturity are tightly coupled (§4.2):
 | child (<10 y) | 12 045 | 1.084 | 0.141 |
 | adolescent (10–25 y) | 15 595 | 1.144 | 0.100 |
 
-PsychAD's FANS NeuN+ sort preferentially recovers larger / brighter / more
-intact (= deeper, more mature) nuclei. Because shallow≈immature and
-childhood has more shallow cells, the FANS "shallow filter" disproportionately
-**drops the immature, high-C3+ cells in childhood**, deflating the measured
-childhood C3+ and erasing the child→adol drop in the all-cell aggregate.
-Velmeshev's unsorted prep does not impose this filter, so its all-cell
-aggregate retains the drop. Conditioning on maturity (or, less directly, on
-depth) restores the comparison by analysing the same cell state in both
-cohorts.
+This is interpretation, not proof; a direct test (split PsychAD upper-layer
+cells by FANS forward-scatter) is in Appendix F.
 
-This is interpretation, not proof — the supporting facts are the depth↔maturity
-correlation (ρ = 0.65), the child→adol depth/maturity shift in PsychAD, and
-the known size-selectivity of FANS. A direct test (split PsychAD upper-layer
-cells by FANS forward-scatter) is listed in §8.
-
----
-
-## 5. The combined result and the residual Velmeshev-V2 gap
-
-The goal is **one result from the combined data**, with the split-cohort
-numbers as robustness. Pooling the maturity-q0 donors (each cohort centred
-to remove its baseline) gives the combined trajectory:
-
-![Combined maturity-q0 trajectory, cohort-centred](s2_combined_trajectory.png)
-
-- **V3-pair (PsychAD-V3 + Vel-V3), cohort-centred: fuzzy d = +0.46** — the
-  cleanest combined estimate (comparable chemistry & depth, 85 donors).
-- All three cohorts, z-scored within cohort: **+0.70** (102 donors).
-- Meta-analysis (fixed-effect, b = 10 y): **+0.75** [95 % CI 0.23–1.26].
-- Random-effects: +1.00 [−0.20, +2.22] — the wide interval reflects
-  Velmeshev-V2's heterogeneity (τ² = 0.88), not weakness of the V3 signal.
-
-**Velmeshev-V2 (+2.56)** agrees in direction but is anomalously large. Its
-median depth is ~1.8 k UMI in children (vs 6–8 k for the V3 cohorts), and
-shallow libraries amplify any real developmental loss of synaptic
-transcripts (higher Poisson-floor noise, differentially amplified in child
-vs adult cells). The layer composition at matched depth confirms Vel-V2 and
-Vel-V3 are nearly identical in cell mixture, so the V2 magnitude is a
-chemistry/depth effect, not a composition or biology difference:
+**The residual Vel-V2 magnitude** (+2.56): its median child depth ~1.8 k UMI
+(vs 6–8 k V3); shallow libraries amplify any real synaptic-transcript loss
+and carry a genome-wide child-shift (§3.4, §4.2). Layer composition at matched
+depth is near-identical to V3, so the V2 magnitude is chemistry/depth, not
+biology.
 
 ![Layer composition at matched depth](m5_layer_composition.png)
 
-The most likely residual sources (Vel-V2 magnitude; any small PsychAD-V3
-vs Vel-V3 gap), in decreasing plausibility: shallow-library amplification
-in V2; true cohort biology (PsychAD = 11 HBCC opportunistic controls vs
-Velmeshev = developmental-atlas recruitment); residual FANS cell-state
-selectivity. None are resolvable from this dataset combination alone; an
-independent third pediatric DLPFC cohort is the appropriate arbiter (§8).
+## Appendix D — Pseudotime recipe for a data-driven maturity axis
 
----
-
-## 6. Would pseudotime improve on the marker-based maturity index?
-
-The marker module is computed from per-cell CP10k expression on the
-**uncorrected counts**, so it still carries per-cohort capture biases —
-e.g. at 5–8 k UMI, Vel-V2 detects RBFOX3 in 77 % of cells vs PsychAD-V3's
-19 % (a 4× capture gap not explained by depth; stage G). This is why we
-must currently define the maturity quintile *within* each cohort and pool
-post-hoc, rather than having one common maturity axis. A **latent-space
-pseudotime** could give a single, batch-corrected maturity coordinate
-across all cells — the natural path to a fully-integrated single result.
-
-### 6.1 The idea
-
-The integration already produces an `X_scVI` latent space designed to
-remove batch/chemistry while preserving biology. A diffusion pseudotime on
-that latent space would order all ExN cells (all cohorts together) along a
-single immature→mature axis, and the C3+ child→adol d could then be
-computed in one pooled analysis stratified by pseudotime quantile — exactly
-the §3 analysis but with a cross-cohort-common maturity coordinate.
-
-### 6.2 Concrete recipe (for a future agent)
+The marker module is computed on uncorrected counts and so carries per-cohort
+capture biases (e.g. at 5–8 k UMI, Vel-V2 detects RBFOX3 in 77 % of cells vs
+PsychAD-V3's 19 %), which is why the maturity quintile must be defined
+*within* each cohort. A latent-space pseudotime could give one batch-corrected
+maturity coordinate across all cells.
 
 ```python
 import scanpy as sc
-# 1. Load the integrated h5ad; subset to marker-ExN cells (use the v4
-#    cache cell_key to select the same 95,605 cells used here).
-# 2. Build the graph ON the scVI latent (NOT on PCA of raw counts):
+# 1. Load integrated h5ad; subset to marker-ExN cells (v4 cache cell_key).
+# 2. Graph ON the scVI latent (NOT PCA of raw counts):
 sc.pp.neighbors(adata, use_rep="X_scVI", n_neighbors=15)
-# 3. Diffusion map + pseudotime, anchored on an IMMATURE root:
 sc.tl.diffmap(adata)
-#    root = the cell with highest DCX / lowest mature-module (marker-anchored),
-#    NOT an arbitrary extreme of DC1:
 adata.uns["iroot"] = int(np.argmax(adata.obs["raw_DCX"] /
                                    (adata.obs["mature_module"] + eps)))
-sc.tl.dpt(adata)                 # → adata.obs["dpt_pseudotime"]
-# 4. (Validate topology) coarse trajectory / branch structure:
-sc.tl.paga(adata, groups="layer")  # confirm one dominant maturation axis
-# 5. Re-run §3: stratify cells by dpt_pseudotime quantile, pool ALL cohorts,
-#    compute fuzzy child→adol d in the least-mature quantile.
+sc.tl.dpt(adata)                       # → dpt_pseudotime
+sc.tl.paga(adata, groups="layer")      # confirm one dominant axis
+# 3. Re-run §3 stratified by dpt quantile, pooled across cohorts.
 ```
 
-### 6.3 Complexities a future agent must handle (this is not turn-key)
+Pitfalls a future agent must handle: **(1) over-correction** — if maturity
+correlates with batch (PsychAD FANS = more mature), scVI may regress out the
+maturity axis; mandatory check is ρ(dpt, mature-module) before use.
+**(2) re-embed the ExN subset** — shipped X_scVI was trained on all cell
+types. **(3) root sensitivity** — anchor on markers, never a raw DC extreme.
+**(4) parallel lineages** — PAGA to decide one global vs per-layer pseudotime
+(the pan-layer result B.3 suggests one axis is defensible). **(5)** pseudotime
+is rank, not time. **(6)** consider the **supervised** axis from §5 (cleaner,
+avoids DPT root sensitivity) or **CellRank2** (`project_cellrank2_pipeline`).
+The v4 cache (`r_per_cell_cache_v4.parquet`) is the join table.
 
-1. **Over-correction risk (the central danger).** scVI removes batch; if
-   maturity correlates with batch (PsychAD FANS = systematically more
-   mature), scVI may regress *out* part of the maturity axis along with the
-   batch effect. **Mandatory check:** correlate `dpt_pseudotime` with the
-   marker mature-module; if ρ is weak, the latent has absorbed maturity into
-   "batch" and pseudotime is unusable as-is. Consider an integration that
-   protects a maturation covariate, or a semi-supervised axis.
-2. **Re-embed the ExN subset.** The shipped `X_scVI` was trained on *all*
-   cell types; a clean ExN maturation axis usually needs the latent
-   restricted to (or retrained on) ExN cells, else glia/InN structure
-   dominates DC1–DC2.
-3. **Root choice dominates DPT.** DPT is highly sensitive to root and kNN
-   graph. Anchor the root on markers (max DCX / min mature-module), never on
-   a raw diffusion-component extreme.
-4. **Parallel lineages vs one tree.** Cortical ExN maturation is roughly
-   continuous *within* a layer, but layers are parallel lineages. PAGA is
-   needed to decide whether one global pseudotime is meaningful or whether a
-   per-layer pseudotime (then pooled) is required. The §3.4 pan-layer result
-   suggests a single maturation axis is defensible, but verify.
-5. **Pseudotime is rank, not time.** It only *stratifies* cells by maturity
-   (like the module quintile); the child→adol comparison still uses donor
-   age. Do not interpret dpt values as developmental time.
-6. **Alternative / complementary tools.** (a) A *supervised* maturity axis —
-   project cells onto the scVI-latent direction separating DCX⁺ immature
-   from RBFOX3⁺ mature cells (cleaner, avoids DPT root sensitivity).
-   (b) **CellRank2**, for which this project already has a pipeline
-   (`project_cellrank2_pipeline`): a real-time-informed or
-   pseudotime kernel could give a principled maturity ordering with
-   uncertainty. (c) Palantir, if a probabilistic terminal-state ordering is
-   wanted.
-
-### 6.4 Decision criterion
-
-Compute the pseudotime-q0 combined fuzzy d and compare to the marker-module
-combined +0.46 / +0.49. **If they agree**, the marker module is validated and
-is the simpler deliverable. **If pseudotime is cleaner** (tighter cross-cohort
-agreement, a single common axis, no per-cohort quintile definition needed),
-adopt it as the headline and keep the marker module as the interpretable
-robustness check. The v4 cache (`r_per_cell_cache_v4.parquet`, carrying
-`cell_key`, markers, mature_module, layer, per_cell_c3) is the join table
-that lets pseudotime be merged back onto the C3+ scores without recomputation.
-
----
-
-## 7. What we explicitly ruled out
+## Appendix E — What we ruled out
 
 | Hypothesis | How rejected | Where |
 |---|---|---|
-| Marker classifier mis-categorises cells (vs native labels) | Marker annotation IS the fix; native labels are the bug | §1 |
-| scANVI re-mapping can rescue PsychAD pediatric EN | Cross-supervision: reference bias propagates | §1.2 |
+| Marker classifier mis-categorises cells | Marker annotation IS the fix; native labels are the bug | A.1 |
+| scANVI re-mapping rescues PsychAD pediatric EN | Cross-supervision: reference bias propagates | A.1 |
 | scANVI `transform_batch` asymmetry causes the gap | By design for single-chemistry config | scvi_batch memory |
-| Vel signal driven by non-PFC region | Both 100 % PFC after filter | A4 |
-| Donor density / power in 1–25 y window | Survives at every age bin | A2 |
-| CPM gene-universe denominator | Survives var_name intersection | D1 |
-| Pediatric clinical pathology in PsychAD | All 11 HBCC normals; all disease flags No | F3 |
-| Single outlier donor (Donor_1400) | LOO on maturity-q0 keeps +0.36…+0.64 | §3.4 |
-| **Depth is the true driver** | **Depth ↔ maturity ρ=0.65; maturity gives larger effect & reconciles cohorts without a window** | §4 |
-| Effect is a cortical-layer artefact | Immature-bin drop present in every layer | §3.4 (R5) |
-| Effect is driven by a few donors | LOO across 70 donors never flips | §3.4 (R6) |
-| Two-gene normalised maturity score is uninformative | True for RBFOX3−DCX ratio only; multi-marker module/detection recover the signal | §3.3 |
-| Specific child/adolescent boundary cut-off | Fuzzy mean across 8–12 y is identical | this report |
+| Vel signal driven by non-PFC region | Both 100 % PFC after filter | audit A4 |
+| Donor density / power in 1–25 y window | Survives at every age bin | audit A2 |
+| CPM gene-universe denominator | Survives var_name intersection | audit D1 |
+| Pediatric clinical pathology in PsychAD | All 11 HBCC normals; disease flags No | audit F3 |
+| Single outlier donor (Donor_1400) | LOO on q0 keeps +0.36…+0.64 | A.4, B.3 |
+| Depth is the true driver | Depth ↔ maturity ρ=0.65; maturity larger & window-free | Appendix C |
+| Effect is a layer artefact | q0 drop in every layer | B.3 |
+| Effect driven by a few donors | LOO across 70 donors never flips | B.3 |
+| Two-gene normalised maturity score uninformative | True for RBFOX3−DCX ratio only | B.2 |
+| Specific child/adolescent boundary | Fuzzy mean across 8–12 y identical | A.5 |
 
----
+**No independent third cohort exists** (`THIRD_COHORT_FEASIBILITY.md`): Wang
+fetal (0 childhood PFC donors), Zhu tiny (~5), 284-donor lifespan atlas =
+PsychAD/HBCC consortium subset, Herring 2022 = only different-lab option but
+small and likely NeuroBioBank-overlapping. Pediatric post-mortem PFC is
+intrinsically scarce and donor-recycled.
 
-## 8. Recommended deliverable + next experiments
+## Appendix F — Next experiments (in value order)
 
-### 8.1 Headline analysis for `grn_dev_multi.md`
-
-```python
-For each ExN cell (marker_annotation ∈ {ExN_mature, immature, weak}, 1–25 y, PFC):
-  1. mature_module_i = mean over {NEUROD2,SATB2,BCL11B,MEF2C,NEFM,NEFH,
-                                  SYT1,SNAP25,MAP2} of log1p(CP10k count).
-  2. per_cell_C3_i   = sum_g (w_g * count_ig) / total_i * 1e6.
-Per cohort: take the LEAST-MATURE quintile (mature_module q0).
-Per donor (≥5 q0 cells): donor_score = mean per_cell_C3 over its q0 cells.
-Combined: centre each cohort's donor scores, pool, Cohen's d (child vs adol)
-          at boundaries {8,9,10,11,12} y → mean ("fuzzy d").
-```
-
-> Suggested headline: *In the least-mature quintile of marker-annotated
-> DLPFC excitatory neurons — a maturation state defined by nine canonical
-> post-mitotic / synaptic markers — the AHBA C3+ network drops from
-> childhood to adolescence in every cohort: combined V3 fuzzy d = +0.46
-> (PsychAD-V3 +0.49, Velmeshev-V3 +0.49; Velmeshev-V2 +2.56, larger due to
-> shallow-library amplification). No sequencing-depth window is required;
-> depth is a technical proxy for maturity (ρ = 0.65). The all-cell aggregate
-> masks the drop in PsychAD because its FANS NeuN+ prep under-samples the
-> shallow, immature, high-C3+ nuclei that carry the childhood peak.*
-
-Also report the canonical per-gene drop panel (NRXN1, NLGN1, GRIK1/2, GRM7,
-KIRREL3, NTM, MEF2C, GRIN2A, DLGAP1) — the gene-level signal is robust in
-both datasets; only the weighted aggregate disagreed, because the weights
-up-weight exactly the genes where PsychAD has the technical bias (F2).
-
-### 8.2 Next experiments (in order of value)
-
-1. **Pseudotime on the scVI latent** (§6) — the route to a single fully-
-   integrated maturity axis and one combined number. Highest value.
-2. **A truly independent third pediatric-DLPFC cohort does not appear to
-   exist** — see `THIRD_COHORT_FEASIBILITY.md`. The on-disk candidates fail
-   (Wang is a fetal atlas with **zero** 1–12 y PFC donors; Zhu has only ~5
-   PFC donors across 1–25 y); the large new lifespan DLPFC atlas (284
-   donors) is itself a **PsychAD-consortium / HBCC** subset, so it shares
-   our pediatric donors rather than replicating them. Herring et al. 2022
-   is the only different-lab developmental dlPFC atlas but is small (~two
-   dozen lifespan donors) and likely overlaps the same NIH NeuroBioBank
-   pediatric pool. Realistic options: (a) use Herring purely as a
-   **direction tie-breaker** on the q0/immature drop (after checking donor
-   overlap with HBCC); (b) **enlarge the PsychAD pediatric sample** via the
-   284-donor atlas — a power gain within the same source, not independent
-   replication; (c) accept that pediatric postmortem PFC is intrinsically
-   scarce and donor-recycled across studies, so this question is near the
-   ceiling of what human snRNA-seq can currently arbitrate.
-3. **Direct FANS test:** split PsychAD upper-layer cells by FANS
-   forward-scatter (or by depth within layer) and confirm the anti-drop
-   concentrates in the FANS-favoured (deep/mature) subset. Confirms §4.3.
+1. **Data-driven late-maturation axis** (supervised age direction from §4.1,
+   then pseudotime, Appendix D) — the route to settling strand 3 and giving
+   one pooled number. **Highest value.**
+2. **Direct FANS test:** split PsychAD upper-layer cells by FANS forward-scatter
+   (or depth within layer); confirm the anti-drop concentrates in the
+   FANS-favoured deep/mature subset. Confirms Appendix C.
+3. **Per-gene biology panel** (NRXN1, NLGN1, GRIK1/2, GRM7, KIRREL3, NTM,
+   MEF2C, GRIN2A, DLGAP1): the gene-level child→adol drop is robust in both
+   datasets; only the weighted aggregate disagreed, because the weights
+   up-weight the genes where PsychAD has the technical bias (F2_REPORT).
 4. **PMI / antemortem-condition audit** for both pediatric pools.
 
----
-
-## 9. File index
+## Appendix G — File index
 
 All in `scripts/grn_dev_diagnostics/outputs/`.
 
-### Figures in this report
+### Figures
 
 | Figure | File | Section |
 |---|---|---|
-| Per-cohort trajectories + linear fit (all-ExN \| q0) | `t1_headline_trajectories.png` | Headline |
-| C3+ vs maturity, child/adol split (3 cohorts) | `t2_c3_vs_maturity.png` | §3.5 |
-| Maturity distribution vs age (3 cohorts) | `t3_maturity_vs_age.png` | §3.6 |
-| Combined maturity result (forest) | `s2_combined_forest.png` | Headline, §5 |
-| Combined maturity-q0 trajectory | `s2_combined_trajectory.png` | §5 |
-| Maturity-index cascade (3 cohorts) | `r2_maturity_cascade.png` | §3.2 |
-| Depth ↔ maturity scatter (ρ per cohort) | `s1_depth_maturity_scatter.png` | §4.2 |
-| Depth×maturity \| layer×maturity (PsychAD) | `s3_psychad_depth_x_layer_maturity.png` | §3.4, §4.2 |
-| Depth & maturity by age stage | `s1_stage_shift.png` | §4.3 |
-| Cell-class confound (markers <1 y) | `m1_cell_class_problem.png` | §1.3 |
-| Per-cell UMI distributions | `m3_depth_distributions.png` | §4.1 |
-| Per-layer d before/after depth | `m4_per_layer_d.png` | §4.1 |
-| Multi-window trajectories + d bars | `m7_multi_window_trajectories.png` | §4.1 |
-| Layer composition at matched depth | `m5_layer_composition.png` | §5 |
+| Per-cohort trajectories + linear fit (all-ExN \| q0) | `t1_headline_trajectories.png` | §1.1 |
+| Combined maturity result (forest) | `s2_combined_forest.png` | §1.2 |
+| C3+ vs maturity, child/adol split | `t2_c3_vs_maturity.png` | §2 |
+| Maturity distribution vs age | `t3_maturity_vs_age.png` | §3.2 |
+| **Child vs adol embedding separability (NEW)** | `w1_latent_separability.png` | §4.1 |
+| **Per-gene age-d vs C3+ weight (NEW)** | `w2_age_vs_c3_scatter.png` | §4.2 |
+| Combined maturity-q0 trajectory | `s2_combined_trajectory.png` | §3.3 |
+| Maturity-index cascade | `r2_maturity_cascade.png` | B.2 |
+| Depth ↔ maturity scatter | `s1_depth_maturity_scatter.png` | Appendix C |
+| Depth×maturity \| layer×maturity | `s3_psychad_depth_x_layer_maturity.png` | Appendix C |
+| Depth & maturity by age stage | `s1_stage_shift.png` | Appendix C |
+| Cell-class confound (<1 y markers) | `m1_cell_class_problem.png` | A.1 |
+| Per-cell UMI distributions | `m3_depth_distributions.png` | Appendix C |
+| Per-layer d before/after depth | `m4_per_layer_d.png` | Appendix C |
+| Layer composition at matched depth | `m5_layer_composition.png` | Appendix C |
 
 ### Key tables
 
 | Table | File |
 |---|---|
-| Combined estimates (per-cohort, V3-pair, all-3, meta) | `s2_combined_estimate.csv` |
-| Depth↔maturity Spearman ρ per cohort | `s1_spearman.csv` |
+| **Embedding separability (AUC, latent-age ρ) (NEW)** | `w1_latent_separability.csv` |
+| **Age-DE vs C3+ enrichment summary (NEW)** | `w2_age_vs_c3_summary.csv` |
+| **Per-gene child→adol d + C3+ weight (NEW)** | `w2_per_gene_age_d.csv` |
+| Combined estimates | `s2_combined_estimate.csv` |
+| Depth↔maturity Spearman ρ | `s1_spearman.csv` |
 | Depth & maturity by age stage | `s1_stage_shift.csv` |
-| Maturity-index cascade (all definitions) | `r2_maturity_cascade.csv` |
-| C3+ vs maturity decile, child/adol | `t2_c3_vs_maturity_binned.csv` |
-| Kitagawa composition/within-state decomposition | `t2_decomposition.csv` |
-| Per-cohort linear trends (β, p) all-ExN & q0 | `t1_linear_trends.csv` |
-| Maturity-vs-age stats per cohort | `t3_maturity_age_stats.csv` |
-| Detection vs CP10k head-to-head | `r3_detection_vs_cp10k.csv` |
-| Depth × maturity 2D d | `r4_depth_x_module.csv` |
-| Layer × maturity 2D d | `r5_layer_x_module.csv` |
-| Maturity-q0 per-donor + leave-one-out | `r6_module_q0_per_donor.csv`, `r6_module_q0_leave_one_out.csv` |
-| Cross-cohort concordance (definitions) | `r7_concordance.csv` |
-| Marker symbol→Ensembl resolution | `r1_marker_id_resolution.csv` |
-| PsychAD per-donor composition + scores | `n_psychad_per_donor.csv` |
-| Per-stage / per-depth-window d (provenance) | `m2_correction_progression_data.csv`, `m_window_bounds_d.csv` |
+| Maturity-index cascade | `r2_maturity_cascade.csv` |
+| C3+ vs maturity decile | `t2_c3_vs_maturity_binned.csv` |
+| Kitagawa decomposition | `t2_decomposition.csv` |
+| Per-cohort linear trends (β, p) | `t1_linear_trends.csv` |
+| Maturity-vs-age stats | `t3_maturity_age_stats.csv` |
+| Detection vs CP10k | `r3_detection_vs_cp10k.csv` |
+| Depth × / layer × maturity 2D d | `r4_depth_x_module.csv`, `r5_layer_x_module.csv` |
+| Maturity-q0 per-donor + LOO | `r6_module_q0_*.csv` |
+| Marker symbol→Ensembl | `r1_marker_id_resolution.csv` |
+| PsychAD per-donor composition | `n_psychad_per_donor.csv` |
 
-### Companion reports & audit trail
+### Companion reports
 
 | Report | Content |
 |---|---|
-| `R_REPORT.md` | The maturity investigation in full (where +0.45 comes from) |
+| `THIRD_COHORT_FEASIBILITY.md` | Why no independent third cohort exists (Appendix E) |
+| `PAIRWISE_RELATIONS.md` | 6-relationship pairwise scatters (depth/maturity/C3+/age) |
+| `R_REPORT.md` | The maturity investigation in full |
 | `Q_REPORT.md` | Multi-marker reconciliation (binary vs continuous) |
-| `J_REPORT.md` | Per-cell-CPM mean correction (§2) |
-| `K_REPORT.md` / `L_REPORT.md` | Layer + depth-matched analysis (§4.1 provenance) |
-| `F2_REPORT.md` | Per-gene biology: which genes carry signal vs disagreement |
-| `G_REPORT.md` / `H_REPORT.md` | Depth-dependent classification; within-PsychAD maturity baseline |
+| `J_REPORT.md` | Per-cell-CPM mean correction (A.2) |
+| `K_REPORT.md` / `L_REPORT.md` | Layer + depth-matched analysis (Appendix C) |
+| `F2_REPORT.md` | Per-gene biology |
+| `G_REPORT.md` / `H_REPORT.md` | Depth-dependent classification; maturity baseline |
 
-Scripts: `a_`…`n_` (audit trail), `r_immature_investigation.py` (the
-maturity result + v4 cache), `s_combined_maturity.py` (combined estimate +
-§4/§5 figures).
+Scripts: `a_`…`n_` (audit trail), `r_immature_investigation.py` (maturity +
+v4 cache), `s_combined_maturity.py` (combined estimate), `t_trajectories_and_scatter.py`
+(§1–3 figures), `u_pairwise_scatter.py` (PAIRWISE_RELATIONS), `v_cohort_audit.py`
+(third-cohort feasibility), **`w_age_axis.py` (§4 embedding separability +
+age-DE-vs-C3+ enrichment)**.
 
-### Reading order for a colleague
+### Reading order
 
-1. This report (`FINAL_REPORT.md`) — headline + biology + methods.
-2. `R_REPORT.md` — the maturity result derivation and robustness.
-3. `J_REPORT.md` — the per-cell-CPM mean correction.
-4. Optionally `F2_REPORT.md` — per-gene biology.
-5. The PsychAD diagnostic report
-   (`notebooks/results/psychad_diagnostic_report/`) for §1's evidence base.
+1. This report §0–§5 — the biological question and answer.
+2. `R_REPORT.md` — maturity result derivation.
+3. `J_REPORT.md` — per-cell-CPM correction.
+4. `F2_REPORT.md` — per-gene biology.
+5. PsychAD diagnostic report (`notebooks/results/psychad_diagnostic_report/`)
+   for A.1's evidence base.
