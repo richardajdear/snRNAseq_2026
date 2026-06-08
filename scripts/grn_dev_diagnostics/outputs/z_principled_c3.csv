@@ -1,0 +1,7 @@
+exn_def,cohort,n_exn_cells,d_allExN,n_don_all,d_q0,n_don_q0,rho_module_c3
+marker_rule,PsychAD-V3,149369.0,-0.288,70.0,0.46,70,0.79
+marker_rule,Velmeshev-V3,29647.0,0.577,15.0,0.489,15,0.48
+marker_rule,COMBINED-V3pair,,,,0.441,85,
+principled,PsychAD-V3,98455.0,-0.344,70.0,0.284,70,0.59
+principled,Velmeshev-V3,19245.0,-0.097,15.0,0.12,15,0.32
+principled,COMBINED-V3pair,,,,0.217,85,

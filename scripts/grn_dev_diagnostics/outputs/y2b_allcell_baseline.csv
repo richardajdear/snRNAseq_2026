@@ -1,0 +1,3 @@
+group,latent,n_cells,cv_auc
+PsychAD-V3,all-cell (same ExN cells),98792,0.8475667514373397
+Velmeshev-V3,all-cell (same ExN cells),19245,0.9623380758960077

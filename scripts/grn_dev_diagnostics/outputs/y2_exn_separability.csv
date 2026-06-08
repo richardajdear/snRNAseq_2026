@@ -1,0 +1,3 @@
+group,n_cells,n_donors,n_child_donors,cv_auc,folds,max_abs_rho_latent_age
+PsychAD-V3,98792,71,11,0.8328347614050792,5,0.6922674282343931
+Velmeshev-V3,19245,15,8,0.9407994590280637,3,0.8711999628787989
