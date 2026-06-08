@@ -1,0 +1,83 @@
+# ============================================================================
+# VelPsychAD_V3_ExN_dev30 — ExN-ONLY joint PsychAD-V3 + Velmeshev-V3 embedding
+# ============================================================================
+# Stage 3 of the ExN late-maturation-axis plan. Identical to
+# VelPsychAD_V3_allcell_dev30 EXCEPT each source is restricted (cell_id_filter)
+# to the cluster/marker-based ExN cells identified by y1_annotate_exn.py on the
+# Stage-1 all-cell embedding. HVG is re-selected on ExN cells only (combine
+# step), so the latent's full capacity encodes WITHIN-ExN maturation rather
+# than glia/InN/ExN separation.
+#
+# Unsupervised scVI (no scANVI); batch_key=source-chemistry with only 2 batches
+# (PSYCHAD-V3, VELMESHEV-V3) and NO age covariate, so maturation (which varies
+# within each batch) is not regressed out (Appendix-D over-correction guard —
+# verified in Stage 4 via rho(latent age-axis, maturity module)).
+#
+# Requires y1_exn_cellids_{VELMESHEV,PSYCHAD}.parquet to exist first.
+# ============================================================================
+
+output_dir: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/VelPsychAD_V3_ExN_dev30
+
+sources:
+  - name: VELMESHEV
+    path: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/velmeshev/velmeshev.h5ad
+    dataset_type: Velmeshev
+    cell_type_field: "Cell_Type"
+    pfc_only: true
+    max_age: 30
+    chemistry_filter: [V3]
+    cell_id_filter: /home/rajd2/rds/hpc-work/snRNAseq_2026/scripts/grn_dev_diagnostics/outputs/y1_exn_cellids_VELMESHEV.parquet
+
+  - name: PSYCHAD
+    paths:
+      aging: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_PsychAD/RNAseq/Aging_Cohort.h5ad
+      hbcc:  /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_PsychAD/RNAseq/HBCC_Cohort.h5ad
+    dataset_type: PsychAD
+    cell_type_field: "subclass"
+    pfc_only: true
+    max_age: 30
+    chemistry_filter: [V3]
+    cell_id_filter: /home/rajd2/rds/hpc-work/snRNAseq_2026/scripts/grn_dev_diagnostics/outputs/y1_exn_cellids_PSYCHAD.parquet
+
+postnatal_only: false
+seed: 42
+
+scvi:
+  n_top_genes: 15000
+  hvg_flavor: pearson_residuals
+  hvg_batch_key: source-chemistry
+  batch_key: source-chemistry
+  n_latent: 30
+  n_hidden: 512
+  n_layers: 3
+  gene_likelihood: zinb
+  max_epochs_scvi: 400
+  batch_size: 512
+  early_stopping: true
+  early_stopping_patience: 20
+  num_workers: 16
+  transform_batch: VELMESHEV-V3
+  continuous_covariate_keys: []
+  categorical_covariate_keys: [sex]
+  run_scvi_inference: true
+  run_scanvi: false
+  steps: [prep, train_scvi, infer, save]
+  overwrite_scvi: true
+
+scanvi_label_transfer:
+  enabled: false
+
+pseudobulk:
+  layers:
+    - name: counts
+      aggregation: sum
+  min_cells: 10
+  groups:
+    - name: all_cells_by_donor
+      group_cols: [individual]
+
+steps:
+  - downsample
+  - combine
+  - scvi
+overwrite: false
