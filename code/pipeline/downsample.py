@@ -96,6 +96,11 @@ def main():
                              "developmental cells (e.g. PsychAD < 5 y).")
     parser.add_argument("--cell_class_filter", nargs='+', default=None,
                         help="Keep only cells whose cell_class is in this list (e.g. Excitatory Glia).")
+    parser.add_argument("--cell_id_filter", default=None,
+                        help="Path to a parquet/csv whose index (or first column) lists "
+                             "cell barcodes to KEEP. Use to inject a custom cell selection "
+                             "(e.g. a cluster/marker-based ExN set) that is not expressible "
+                             "via the native cell_class labels.")
     parser.add_argument("--chemistry_filter", nargs='+', default=None,
                         help="Keep only cells whose chemistry is in this list (e.g. V3).")
     parser.add_argument("--n_cells", type=int, default=None,
@@ -237,6 +242,19 @@ def main():
         n_before = mask.sum()
         mask = mask & meta_df['cell_class'].isin(args.cell_class_filter)
         print(f"Cell class filter {args.cell_class_filter}: {n_before} -> {mask.sum()} cells")
+
+    # --- Explicit cell-ID filter (custom selection, e.g. cluster-based ExN) ---
+    if args.cell_id_filter:
+        if args.cell_id_filter.endswith('.parquet'):
+            ids_df = pd.read_parquet(args.cell_id_filter)
+        else:
+            ids_df = pd.read_csv(args.cell_id_filter)
+        # Accept either an index of barcodes or a first column of barcodes.
+        keep_ids = set(ids_df.index.astype(str)) | set(ids_df.iloc[:, 0].astype(str))
+        n_before = mask.sum()
+        mask = mask & meta_df.index.astype(str).isin(keep_ids)
+        print(f"Cell-ID filter ({args.cell_id_filter}): {n_before} -> {mask.sum()} cells "
+              f"({len(keep_ids):,} ids in file)")
 
     # --- Chemistry filter ---
     if args.chemistry_filter:

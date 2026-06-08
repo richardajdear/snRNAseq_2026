@@ -261,6 +261,8 @@ def step_downsample(cfg: dict, output_dir: Path, overwrite: bool,
             cmd += ['--cell_class_filter'] + [str(c) for c in cfg['cell_class_filter']]
         if src.get('chemistry_filter'):
             cmd += ['--chemistry_filter'] + [str(c) for c in src['chemistry_filter']]
+        if src.get('cell_id_filter'):
+            cmd += ['--cell_id_filter', str(src['cell_id_filter'])]
         if cfg.get('seed'):
             cmd += ['--seed', str(cfg['seed'])]
 
