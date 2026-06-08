@@ -1,0 +1,11 @@
+stratum,cohort,n_donors,quad_b2,quad_p,trough_age,shape
+all principled ExN,PsychAD-V3,107.0,-5.834647271173104,0.7018587204109863,61.41202578090684,inverted-U/none
+all principled ExN,Velmeshev-V3,38.0,0.5735568266463944,0.9868848901546898,-325.24642263101936,U (dip)
+least-mature quintile (q0),PsychAD-V3,107.0,17.717254815403827,0.13764140194916663,18.267562101325936,U (dip)
+least-mature quintile (q0),Velmeshev-V3,38.0,75.71657993601019,0.10436184296942079,11.06990713160076,U (dip)
+"triangulation rho(age,C3+)",PsychAD-V3,,,,,0.145
+"triangulation rho(age_axis,C3+)",PsychAD-V3,,,,,0.237
+"triangulation rho(module,C3+)",PsychAD-V3,,,,,0.601
+"triangulation rho(age,C3+)",Velmeshev-V3,,,,,0.493
+"triangulation rho(age_axis,C3+)",Velmeshev-V3,,,,,-0.286
+"triangulation rho(module,C3+)",Velmeshev-V3,,,,,0.114

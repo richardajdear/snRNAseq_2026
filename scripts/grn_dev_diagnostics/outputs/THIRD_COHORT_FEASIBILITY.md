@@ -1,5 +1,21 @@
 # Is there a third independent pediatric-DLPFC cohort for the C3+ analysis?
 
+> **⚠ CORRECTION (2026-06-08) — this document's central premise was wrong.**
+> `velmeshev.h5ad` is **not** one Velmeshev-2023 study split by chemistry. It is
+> a **composite atlas of four datasets** (`y3_diagnose.py`): **U01** (original
+> Velmeshev, 10x **V2**), **Ramos** (V3), **Herring 2022** (V2+V3), **Trevino**
+> (multiome). In the PFC developmental window **Ramos is entirely prenatal** and
+> the postnatal "Velmeshev-V3" series **is Herring**. So: **Herring is already
+> on disk** (it is postnatal Velmeshev-V3, present in every "Velmeshev-V3" number
+> throughout); **PsychAD-V3 vs Velmeshev-V3 is genuinely independent** (PsychAD
+> vs Herring, different labs) — the cross-cohort replication this doc said we
+> lacked already exists; and the "V2/V3 = within-study chemistry control" framing
+> below is **wrong** (V2 ≈ U01, V3 = Ramos+Herring are different studies; the V2
+> confound is the U01 study). The Wang/Zhu/donor-recycling parts still hold. See
+> FINAL_REPORT §0.5.
+
+---
+
 **Date:** 2026-06-07 · audit script `v_cohort_audit.py` ·
 `v_cohort_age_audit.csv`. Investigates whether an independent
 childhood→adolescence DLPFC snRNA-seq cohort exists to arbitrate the

@@ -1,0 +1,85 @@
+# ============================================================================
+# VelWangZhuPsychAD_V3_allcell_dev30 — all-cell joint embedding, 4 datasets
+# ============================================================================
+# Same recipe as VelPsychAD_V3_allcell_dev30 (unsupervised scVI, prenatal->30y,
+# PFC, batch toward Velmeshev-V3) but ADDS Wang (fetal multiome) and Zhu (small
+# independent multiome) to PsychAD-V3 + Velmeshev-V3 (=Ramos prenatal + Herring
+# postnatal). Purpose: does adding more developmental data improve or break the
+# childhood/adolescent structure? UMAP computed in-pipeline for inspection.
+# ============================================================================
+
+output_dir: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/VelWangZhuPsychAD_V3_allcell_dev30
+
+sources:
+  - name: VELMESHEV
+    path: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/velmeshev/velmeshev.h5ad
+    dataset_type: Velmeshev
+    cell_type_field: "Cell_Type"
+    pfc_only: true
+    max_age: 30
+    chemistry_filter: [V3]          # Ramos (prenatal) + Herring (postnatal); excludes U01-V2
+
+  - name: PSYCHAD
+    paths:
+      aging: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_PsychAD/RNAseq/Aging_Cohort.h5ad
+      hbcc:  /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_PsychAD/RNAseq/HBCC_Cohort.h5ad
+    dataset_type: PsychAD
+    cell_type_field: "subclass"
+    pfc_only: true
+    max_age: 30
+
+  - name: WANG
+    path: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/wang/wang.h5ad
+    dataset_type: Wang
+    pfc_only: true
+    max_age: 30
+    n_cells: 150000                 # fetal atlas can be large — cap
+
+  - name: ZHU
+    path: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/zhu/zhu.h5ad
+    dataset_type: Zhu
+    pfc_only: false                 # already cortex-restricted
+    max_age: 30
+
+postnatal_only: false               # include prenatal
+seed: 42
+
+scvi:
+  n_top_genes: 15000
+  hvg_flavor: pearson_residuals
+  hvg_batch_key: source-chemistry
+  batch_key: source-chemistry
+  n_latent: 30
+  n_hidden: 512
+  n_layers: 3
+  gene_likelihood: zinb
+  max_epochs_scvi: 400
+  batch_size: 512
+  early_stopping: true
+  early_stopping_patience: 20
+  num_workers: 16
+  transform_batch: VELMESHEV-V3
+  continuous_covariate_keys: []
+  categorical_covariate_keys: [sex]
+  run_scvi_inference: true
+  run_scanvi: false
+  steps: [prep, train_scvi, infer, umap, save]   # umap in-pipeline for inspection
+  overwrite_scvi: true
+
+scanvi_label_transfer:
+  enabled: false
+
+pseudobulk:
+  layers:
+    - name: counts
+      aggregation: sum
+  min_cells: 10
+  groups:
+    - name: all_cells_by_donor
+      group_cols: [individual]
+
+steps:
+  - downsample
+  - combine
+  - scvi
+overwrite: false
