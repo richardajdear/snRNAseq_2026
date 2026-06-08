@@ -249,8 +249,10 @@ def main():
             ids_df = pd.read_parquet(args.cell_id_filter)
         else:
             ids_df = pd.read_csv(args.cell_id_filter)
-        # Accept either an index of barcodes or a first column of barcodes.
-        keep_ids = set(ids_df.index.astype(str)) | set(ids_df.iloc[:, 0].astype(str))
+        # Accept barcodes in the index and/or any column (handles index-only frames).
+        keep_ids = set(ids_df.index.astype(str))
+        for _col in ids_df.columns:
+            keep_ids |= set(ids_df[_col].astype(str))
         n_before = mask.sum()
         mask = mask & meta_df.index.astype(str).isin(keep_ids)
         print(f"Cell-ID filter ({args.cell_id_filter}): {n_before} -> {mask.sum()} cells "

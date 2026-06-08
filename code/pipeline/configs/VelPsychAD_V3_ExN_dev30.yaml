@@ -3,10 +3,13 @@
 # ============================================================================
 # Stage 3 of the ExN late-maturation-axis plan. Identical to
 # VelPsychAD_V3_allcell_dev30 EXCEPT each source is restricted (cell_id_filter)
-# to the cluster/marker-based ExN cells identified by y1_annotate_exn.py on the
-# Stage-1 all-cell embedding. HVG is re-selected on ExN cells only (combine
-# step), so the latent's full capacity encodes WITHIN-ExN maturation rather
-# than glia/InN/ExN separation.
+# to the PRINCIPLED ExN set from y4_lineage_exn.py: confident ExN (SLC17A7/6+)
+# plus ambiguous immature neurons whose batch-corrected embedding neighbours
+# are ExN-anchors (a data-driven, threshold-free lineage vote that agrees with
+# excitatory/inhibitory lineage TFs). This replaces the arbitrary GAD>=10
+# marker rule, which over-called young PsychAD ExN by sweeping in immature
+# DLX+/LHX6+ interneurons (GAD still <10). 321,586 ExN cells total
+# (VEL 168,386 + PSYCHAD 153,200). HVG is re-selected on ExN cells only.
 #
 # Unsupervised scVI (no scANVI); batch_key=source-chemistry with only 2 batches
 # (PSYCHAD-V3, VELMESHEV-V3) and NO age covariate, so maturation (which varies
@@ -26,7 +29,7 @@ sources:
     pfc_only: true
     max_age: 30
     chemistry_filter: [V3]
-    cell_id_filter: /home/rajd2/rds/hpc-work/snRNAseq_2026/scripts/grn_dev_diagnostics/outputs/y1_exn_cellids_VELMESHEV.parquet
+    cell_id_filter: /home/rajd2/rds/hpc-work/snRNAseq_2026/scripts/grn_dev_diagnostics/outputs/y4_principledexn_cellids_VELMESHEV.parquet
 
   - name: PSYCHAD
     paths:
@@ -37,7 +40,7 @@ sources:
     pfc_only: true
     max_age: 30
     chemistry_filter: [V3]
-    cell_id_filter: /home/rajd2/rds/hpc-work/snRNAseq_2026/scripts/grn_dev_diagnostics/outputs/y1_exn_cellids_PSYCHAD.parquet
+    cell_id_filter: /home/rajd2/rds/hpc-work/snRNAseq_2026/scripts/grn_dev_diagnostics/outputs/y4_principledexn_cellids_PSYCHAD.parquet
 
 postnatal_only: false
 seed: 42
