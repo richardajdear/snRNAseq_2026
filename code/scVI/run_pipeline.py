@@ -211,6 +211,17 @@ def run(config: PipelineConfig):
             )
         logger.info(f"X_scVI latent: shape={adata.obsm['X_scVI'].shape}")
 
+        # --- batch-integration quality metric (auto-warn if poorly mixed) ---
+        try:
+            from scVI.batch_metric import batch_mixing_score
+            _bk = getattr(config, "batch_key", "source")
+            if _bk in adata.obs.columns and adata.obs[_bk].nunique() > 1:
+                adata.uns["batch_mixing_score"] = batch_mixing_score(
+                    adata.obsm["X_scVI"], adata.obs[_bk].astype(str).values,
+                    logger=logger)
+        except Exception as _e:
+            logger.warning(f"batch_mixing_score failed (non-fatal): {_e}")
+
         # Extract LDVAE factor loadings (gene weights per latent dimension).
         # Done here, before any scANVI step modifies the latent space, so the
         # loadings always reflect the LDVAE decoder regardless of downstream steps.
