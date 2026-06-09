@@ -85,7 +85,11 @@ def run_one(name, path):
     sccol = axes[0, 2].scatter(U[:, 0], U[:, 1], s=2, c=logage, cmap="viridis", alpha=0.6, linewidths=0)
     axes[0, 2].set_title("age (log2 post-conception)"); axes[0, 2].set_xticks([]); axes[0, 2].set_yticks([])
     fig.colorbar(sccol, ax=axes[0, 2], fraction=0.046)
-    cat_scatter(axes[1, 0], U, obs["cell_class"], "native cell_class")
+    cccol = "cell_class" if "cell_class" in obs else ("cell_type_raw" if "cell_type_raw" in obs else None)
+    if cccol:
+        cat_scatter(axes[1, 0], U, obs[cccol], f"native {cccol}")
+    else:
+        axes[1, 0].axis("off")
     schem = "source-chemistry" if "source-chemistry" in obs else "chemistry"
     cat_scatter(axes[1, 1], U, obs[schem], schem)
     axes[1, 2].scatter(U[~is_exn, 0], U[~is_exn, 1], s=2, c="#D5DBDB", alpha=0.4, linewidths=0, label="other")

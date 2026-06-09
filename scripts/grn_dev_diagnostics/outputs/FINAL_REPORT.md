@@ -188,9 +188,13 @@ evidence (`y7_gene_enrichment_principled.csv`).
 all-cell and ExN UMAPs, PsychAD and Velmeshev/Herring remain **visibly
 separated** despite `transform_batch`. This is why pooled-latent constructs
 (the supervised age axis) are unreliable, and why **per-cohort** analyses are
-the trustworthy ones throughout. A 4-dataset embedding adding Wang (fetal) and
-Zhu is being evaluated to see whether more developmental data tightens the
-integration.
+the trustworthy ones throughout. **A 4-dataset embedding adding Wang (fetal)
+and Zhu makes this worse, not better** (`y5_umap_4dataset.png`,
+`VelWangZhuPsychAD_V3_allcell_dev30`): both are **10x multiome**, and the
+platform batch separates them strongly from the V3 datasets — the joint space
+becomes *more* fragmented, not better mixed. So more developmental data does
+**not** help here when it comes from a different platform; the cleaner
+comparison remains the two V3 datasets (PsychAD-V3 vs Herring).
 
 ---
 
