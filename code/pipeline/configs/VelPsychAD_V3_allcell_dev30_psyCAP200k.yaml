@@ -1,0 +1,81 @@
+# ============================================================================
+# VelPsychAD_V3_allcell_dev30 — joint PsychAD-V3 + Velmeshev-V3 embedding
+# ============================================================================
+# Stage 1 of the ExN-only late-maturation-axis plan.
+#
+# Purpose: an UNSUPERVISED scVI integration of PsychAD-V3 + Velmeshev-V3 (V2
+# excluded — Appendix C.1 confound), prenatal→30 y, PFC, batch-corrected toward
+# Velmeshev-V3. This is (a) the joint V3 embedding requested, and (b) the space
+# we Leiden-cluster to call ExN by marker enrichment (no scANVI label transfer,
+# which is what mis-maps PsychAD neurons to InN).
+#
+# scANVI is DISABLED on purpose: we want a data-driven latent, not reference
+# labels. ExN selection happens downstream (y1_annotate_exn.py) and feeds the
+# Stage-3 ExN-only config via cell_id_filter.
+# ============================================================================
+
+output_dir: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/VelPsychAD_V3_allcell_dev30_psyCAP200k
+
+sources:
+  - name: VELMESHEV
+    path: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/velmeshev/velmeshev.h5ad
+    dataset_type: Velmeshev
+    cell_type_field: "Cell_Type"
+    pfc_only: true
+    max_age: 30
+    chemistry_filter: [V3]          # exclude Velmeshev-V2
+
+  - name: PSYCHAD
+    paths:
+      aging: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_PsychAD/RNAseq/Aging_Cohort.h5ad
+      hbcc:  /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_PsychAD/RNAseq/HBCC_Cohort.h5ad
+    dataset_type: PsychAD
+    cell_type_field: "subclass"
+    n_cells: 200000
+    pfc_only: true
+    max_age: 30
+    chemistry_filter: [V3]          # PsychAD is all V3 (explicit/redundant)
+
+postnatal_only: false               # include prenatal (Velmeshev-only) to anchor the immature end
+seed: 42
+
+scvi:
+  n_top_genes: 15000
+  hvg_flavor: pearson_residuals
+  hvg_batch_key: source-chemistry
+  batch_key: source-chemistry
+  n_latent: 30
+  n_hidden: 512
+  n_layers: 3
+  gene_likelihood: zinb
+  max_epochs_scvi: 400
+  batch_size: 512
+  early_stopping: true
+  early_stopping_patience: 20
+  num_workers: 16
+  transform_batch: VELMESHEV-V3     # normalize inferred expression toward Velmeshev-V3
+  continuous_covariate_keys: []
+  categorical_covariate_keys: [sex]
+  run_scvi_inference: true
+  run_scanvi: false
+  # skip umap/plot (no cell_type_aligned without scANVI); we compute our own UMAP in Stage 2
+  steps: [prep, train_scvi, infer, save]
+  overwrite_scvi: true
+
+scanvi_label_transfer:
+  enabled: false                    # UNSUPERVISED — data-driven latent only
+
+pseudobulk:
+  layers:
+    - name: counts
+      aggregation: sum
+  min_cells: 10
+  groups:
+    - name: all_cells_by_donor
+      group_cols: [individual]
+
+steps:
+  - downsample
+  - combine
+  - scvi
+overwrite: false

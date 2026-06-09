@@ -1,0 +1,3 @@
+run,n,n_batches,mixing_all,mixing_postnatal
+BAD_dev30_V3,827349,2,0.112,0.188
+GOOD_200k_VelWangPsychAD,627655,3,0.223,0.3
