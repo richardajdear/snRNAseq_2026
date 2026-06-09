@@ -147,6 +147,53 @@ cancelled by the maturity gradient per cell.
 
 ---
 
+## 0.6 Follow-up (2026-06-09): what C3+ actually tracks, and what the axes mean
+
+Re-running the key analyses on the principled ExN set, on the new joint
+embedding, with explicit attention to *which x-axis* we use:
+
+**C3+ tracks maturation STATE, not developmental time** (`y6_triangulation.png`).
+Plotting C3+ against three candidate axes, per cohort:
+
+| x-axis | meaning | ρ(x, C3+) PsychAD / Herring | behaviour |
+|---|---|---:|---|
+| **maturation module** | single-cell maturation **state** | **+0.60 / +0.11** | rises monotonically in **both** — clean, consistent |
+| actual age (years) | developmental **time** | +0.15 / +0.49 | noisy, weakly positive |
+| "data-driven age axis" | a *supervised classifier direction* | +0.24 / **−0.29** | **opposite signs per cohort** — not a real shared axis |
+
+The robust, reproducible relationship is **C3+ ↑ with maturation state**. The
+"data-driven age axis" (a logistic child-vs-adolescent direction through the
+scVI latent — **not** an embedding dimension and **not** pseudotime) points
+*opposite ways in the two cohorts*, so the earlier pooled "U-shape" of C3+
+against it was an **artefact** of averaging two opposite-sloping cohorts plus
+incomplete batch integration (below). Pseudotime would mostly recapitulate the
+maturation module and is therefore low-value here.
+
+**No robust "adolescent dip."** Testing the idea that C3+ troughs in
+adolescence (donor-mean C3+ vs actual age, quadratic fit; `y6_c3_vs_age.png`):
+a faint trough at ~11–18 y appears **only in the least-mature quintile** and is
+**not significant** (p ≈ 0.10–0.14, 8–11 child donors); all-ExN shows none. Not
+supported by these data.
+
+**One developmental strand survives the principled definition: gene-level
+enrichment in the independent cohort.** Childhood-elevated genes remain
+over-represented among C3+ genes in **Herring** (95 of top-300 vs 65 expected,
+**p = 2.8e-5**; attenuated from the marker-rule p = 3e-12 but still robust),
+with **no** enrichment in PsychAD (p = 0.94). So a *specific subset* of C3+
+genes is reproducibly childhood-elevated in the independent cohort even though
+the aggregate q0 effect is small — the most durable piece of developmental
+evidence (`y7_gene_enrichment_principled.csv`).
+
+**Caveat — incomplete batch integration** (`y5_umap_*.png`). In both the
+all-cell and ExN UMAPs, PsychAD and Velmeshev/Herring remain **visibly
+separated** despite `transform_batch`. This is why pooled-latent constructs
+(the supervised age axis) are unreliable, and why **per-cohort** analyses are
+the trustworthy ones throughout. A 4-dataset embedding adding Wang (fetal) and
+Zhu is being evaluated to see whether more developmental data tightens the
+integration.
+
+---
+
 ## 1. Headline figures
 
 > **⚠ Superseded by §0.5.** All figures and numbers in §§1–5 below were
