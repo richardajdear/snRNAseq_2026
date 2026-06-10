@@ -253,15 +253,25 @@ tested (open item above).
 ### Appendix A — Data sanity: PsychAD cell-type misclassification check
 
 **Concern:** PsychAD native labels derive from an aging/dementia reference, so young-donor EN
-subtypes might be mislabeled.
+subtypes might be mislabeled. **Full provenance + UMAP evidence: see `REPORT_annotation.md`.**
 
-**A1. Composition vs age (marker-based labels).** Using PsychAD's independent *marker-based*
-annotation (ExN_*/InN/glia/Unknown), young-donor EN fractions are normal — PsychAD-V3 EN fraction
-median 0.51 (<2y), 0.30 (2–5y), 0.36 (5–10y) — **not** the ~5% seen with the native aging-reference
-labels. The "5% EN in young donors" problem is therefore a **labeling** artefact, and the
-marker-based annotation is the trustworthy one. (Velmeshev EN fraction *declines* with age, e.g.
-Herring 0.46→0.08, but since all analyses are *within* EN this composition shift is conditioned out;
-it does mean older Velmeshev EN pseudobulks rest on fewer cells.)
+**Three labelings, different provenance** (this matters — an earlier draft conflated them):
+- **native** `cell_type_raw` = PsychAD `subclass` (the aging/dementia reference itself);
+- **`cell_type_aligned`** = scANVI **trained on the native labels** (so reference-derived) — *this is
+  what Steps 1–2 used for EN subtypes*;
+- **`marker_annotation`** = `code/annotation_by_markers.py`, a hard-threshold classifier on **raw
+  counts** (InN if max(GAD1,GAD2,SLC32A1)≥10; ExN if RBFOX3 or DCX≥1; glia by AQP4/PLP1/…),
+  **independent** of the reference and of scANVI — *used here for composition only*. Caveat: being a
+  per-cell hard threshold, it is dropout-/depth-sensitive (a neuron with 0 RBFOX3 counts is missed),
+  so its EN fractions are a depth-attenuated **lower bound**.
+
+**A1. Composition vs age (reference-independent marker labels).** By `marker_annotation`, young-donor
+EN fractions are reasonable — PsychAD-V3 EN median 0.51 (<2y), 0.30 (2–5y), 0.36 (5–10y) — **not**
+the ~5% reported from native labels. So the "5% EN in young donors" is a **native-labeling** issue,
+not a real dearth of neurons. (Velmeshev EN fraction *declines* with age, e.g. Herring 0.46→0.08,
+but analyses are *within* EN so this composition shift is conditioned out; it does mean older
+Velmeshev EN pseudobulks rest on fewer cells.) A direct three-way EN-fraction-vs-age comparison and
+the UMAPs that localise the disagreement are in `REPORT_annotation.md`.
 
 ![EN fraction vs age](s03A_EN_fraction_vs_age.png)
 
