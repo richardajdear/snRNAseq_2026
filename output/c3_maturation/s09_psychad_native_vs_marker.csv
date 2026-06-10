@@ -1,0 +1,8 @@
+native_broad,EN,Glia,IN,Unknown
+Astrocytes,0.142,0.849,0.0,0.009
+Endothelial,0.369,0.597,0.0,0.034
+Excitatory,0.975,0.024,0.001,0.0
+Inhibitory,0.608,0.02,0.372,0.0
+Microglia,0.132,0.862,0.0,0.006
+OPC,0.454,0.541,0.004,0.001
+Oligos,0.112,0.888,0.0,0.0

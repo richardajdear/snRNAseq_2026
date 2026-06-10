@@ -16,11 +16,15 @@ native labels or with the marker labels — using the differentiation markers as
 - **Cells:** ALL cells from donors aged **<5y**, per dataset, taken from the integrated objects.
   PsychAD = `PsychAD_noage_tuning5`; Velmeshev-V3 = `Vel_prepost_noage_tuning5` filtered to
   `chemistry == V3` (Herring + Ramos sub-sources; excludes V2-U01).
-- **UMAP representation:** recomputed (scanpy `neighbors`+`umap`, default params, n_neighbors=15) on
-  the subset's **`X_scVI` latent** — the *unsupervised*, batch-corrected scVI embedding from each
-  dataset's own integration run. We deliberately use scVI, **not** scANVI, because scANVI is trained
-  on the native labels we are scrutinising; scVI lets the data cluster independently of those labels.
-  _(The integrated objects also carry `X_scANVI`, `X_pca_*`, and precomputed `X_umap_*`.)_
+- **UMAP representation — two versions shown:**
+  1. **scVI latent** (`X_scVI`): the *unsupervised*, batch-corrected scVI embedding from each
+     dataset's integration run. We use scVI, **not** scANVI, because scANVI is trained on the native
+     labels we are scrutinising; scVI clusters independently of them.
+  2. **PCA on raw counts** (no model): the young subset's own counts →
+     `normalize_total(1e4)` → `log1p` → `highly_variable_genes(2000)` → `scale` → `PCA(30)` →
+     `neighbors`+`umap`. This is the most unbiased view — *if young-donor labels are wrong, a plain
+     PCA should show it without any scVI/scANVI involvement.*
+  Both are recomputed on the <5y subset only (scanpy defaults, n_neighbors=15).
 - **Labels shown:** native broad (`cell_class`), native fine (`cell_type_raw`/`subclass` for PsychAD,
   `Cell_Type` for Velmeshev), and our **marker** label computed here from raw counts with the
   `code/annotation_by_markers.py` logic (InN if max(GAD1,GAD2,SLC32A1)≥10; ExN_mature if RBFOX3≥1;
@@ -29,26 +33,73 @@ native labels or with the marker labels — using the differentiation markers as
   STMN2 (immature/migrating neuron), NEUROD6 (neuronal diff.), RBFOX3 (mature neuron); ExN identity —
   SLC17A7, SATB2; InN identity — GAD1, GAD2, SLC32A1, DLX2; glia — AQP4, PDGFRA, PLP1, CSF1R.
 
-## PsychAD (<5y)
+## Headline finding (the labels are worse than "native under-calls EN")
 
-> _Figure `s09_young_umap_psychad.png` and native×marker crosstab — pending job 30341254._
+Comparing native labels to the marker classifier *and* to the excitatory-**specific** marker SLC17A7
+(vs the pan-neuronal RBFOX3) overturns the earlier framing:
 
-Key things to read off:
-- Do the SLC17A7+/SATB2+ islands (true ExN) get labeled EN by native, or scattered into glia/IN?
-- Where do DCX+/STMN2+ (immature neurons) sit, and what does native call them? (the hypothesised
-  late-maturing population)
-- Is there a SOX2+/MKI67+ progenitor pole, and does it explain any "Unknown"/glia calls?
+- **`marker_annotation` over-calls EN**, because its "ExN = RBFOX3≥1 & GAD<10" rule uses **RBFOX3
+  (NeuN), a *pan-neuronal* marker**. It therefore sweeps in **interneurons with GAD dropout** and
+  ambient-RBFOX3 OPCs. Of the cells it calls "EN": in **PsychAD** 44% are natively IN_SST/VIP/PVALB
+  and 28% native glia/OPC; in **Velmeshev** 65% are natively "Interneurons".
+- **Native PsychAD (aging ref) gives a biologically impossible EN:IN ratio in young donors** — 16%
+  EN vs **36% IN** (more interneurons than excitatory, the reverse of real cortex ~80:20).
+- So **neither label is reliable for young-donor EN%.** The earlier claim ("marker gives the
+  trustworthy ~40–50% EN") is **withdrawn**. Only **excitatory-specific** markers — SLC17A7/SATB2
+  vs GAD1/GAD2 — can adjudicate, which is why these UMAP panels matter.
 
-## Velmeshev-V3 (<5y)
+The same cluster structure and marker-gene territories appear in **both** the scVI-latent and the
+**raw-counts PCA** UMAPs (below), so this is real biology, not a model artefact — you do *not* need
+scVI to see it.
 
-> _Figure `s09_young_umap_velmeshev_v3.png` and crosstab — pending job 30341254._
+## PsychAD (<5y, n=13,542)
 
-Velmeshev's native labels come from a **developmental** atlas (not an aging reference), so this is
-the positive control: if native↔marker agree well here but disagree in PsychAD, that pinpoints the
-problem as PsychAD's aging-reference labeling specifically.
+UMAP on scVI latent:
+![PsychAD young scVI](s09_young_scvi_psychad.png)
 
-## Verdict
+UMAP on raw-counts PCA (no model):
+![PsychAD young PCA](s09_young_pca_psychad.png)
 
-> _To be written from the figures: does the EN-% discrepancy make visual sense, which labeling
-> tracks the marker-defined neuron territory, and what should the within-EN ExN definition be for
-> each dataset._
+Label composition (<5y):
+
+| labeling | EN | IN | Glia/vasc | other/unknown |
+|---|---|---|---|---|
+| native (aging ref, fine→broad) | **0.16** | **0.36** | 0.46 | 0.02 |
+| marker (RBFOX3/GAD) | 0.49 | 0.13 | 0.37 | 0.00 |
+
+Of **marker-"EN"** cells: 27% native-EN, **44% native-IN** (top: OPC, IN_SST, IN_VIP, IN_PVALB),
+28% native-glia. Read the figures: the **SLC17A7/SATB2** territory is the true excitatory island; the
+**GAD1/GAD2/SLC32A1/DLX2** territory is interneurons; **SOX2/MKI67** mark a progenitor pole and
+**DCX/STMN2/NEUROD6** an immature-neuron region (the hypothesised late-maturing population). The
+adjudication to make visually: do the contested native-IN / marker-EN cells sit in the **SLC17A7+**
+island (→ native mislabels young EN as IN) or the **GAD1+** territory (→ marker over-calls)?
+
+## Velmeshev-V3 (<5y, n=82,036)
+
+UMAP on scVI latent:
+![Velmeshev young scVI](s09_young_scvi_velmeshev_v3.png)
+
+UMAP on raw-counts PCA (no model):
+![Velmeshev young PCA](s09_young_pca_velmeshev_v3.png)
+
+Velmeshev's native labels come from a **developmental** atlas. At the **broad** level it collapses
+young cells into Glia/Other (developmentally appropriate — many are progenitors/immature), so use the
+**fine** labels (`native_fine` panel). Even so, the fine labels call **50% of <5y cells
+"Interneurons"** — also implausibly IN-heavy — and 65% of marker-"EN" cells are natively
+"Interneurons". So the *same* RBFOX3-pan-neuronal over-call + unreliable young IN labels appear here
+too; this is **not** a PsychAD-only problem, though PsychAD's aging reference is the worse of the two.
+
+## Verdict & recommendation
+
+1. **Drop RBFOX3 as the EN gate.** It is pan-neuronal; it conflates excitatory with GAD-dropout
+   interneurons. Define excitatory neurons by **SLC17A7 (and/or SATB2) dominance over GAD1/GAD2**
+   (e.g. `SLC17A7 > GAD1` and `SLC17A7 ≥ 1`), with DCX/STMN2 used to *include* immature neurons.
+2. **Do not trust either native or marker EN% in young donors.** Native (aging ref) over-calls IN;
+   marker (RBFOX3) over-calls EN. The true young EN fraction needs the specific-marker gating above.
+3. **The late-maturing population is visible** (SOX2/DCX/NEUROD6 regions) in both datasets and both
+   embeddings — so the late-maturing-ExN dip *can* be tested, but only with the SLC17A7-based,
+   immature-inclusive definition, not the labels used so far.
+4. This **strengthens the caveat** on the within-EN/dip results in `REPORT.md`: they used
+   `cell_type_aligned` (≈ native), which in young PsychAD is both mature-biased *and* mixes in
+   mislabeled IN — so the young end of those analyses is unreliable and must be redone with
+   SLC17A7-based EN membership.

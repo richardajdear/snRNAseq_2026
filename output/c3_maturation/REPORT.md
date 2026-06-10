@@ -30,13 +30,16 @@ current labels, is a **late-maturing-ExN dip** (see caveats).
    not predict within-neuron dynamics (robust to expression confound). _[Caveat: computed on AGG
    pseudobulks; the synaptic-set decline within this analysis should be re-checked under CELL
    aggregation given #2.]_
-5. **The ExN definition is uncertain and consequential — especially for the dip.** PsychAD's native
-   labels (and `cell_type_aligned`, which is scANVI **trained on them**) call only **10–25%** of
-   cells EN; the reference-independent marker classifier calls **40–50%** (`REPORT_annotation.md`).
-   The excluded cells are disproportionately **immature/late-maturing** neurons — *exactly* the
-   population a "late-maturing-ExN dip" would live in. So our within-EN analyses (which used
-   `cell_type_aligned`) are run on a **mature-biased subset**, and the dip cannot be properly tested
-   without an immature-inclusive, marker-based ExN definition (planned, not yet done).
+5. **The ExN definition is uncertain and consequential — and *no* current label is reliable for
+   young donors.** Native PsychAD labels (and `cell_type_aligned`, scANVI **trained on them**) call
+   only ~10–25% of cells EN *and give a biologically backwards young EN:IN ratio (16:36)*. The
+   "marker" classifier calls ~40–50% EN but **over-calls**, because its RBFOX3 (NeuN) gate is
+   **pan-neuronal** and sweeps in GAD-dropout interneurons (44% of its PsychAD "EN" are native
+   IN_SST/VIP/PVALB). So young EN% must be defined by **excitatory-specific** markers
+   (SLC17A7/SATB2 vs GAD1), not RBFOX3 and not the reference labels. Young-donor UMAPs (both scVI and
+   raw-PCA, PsychAD & Velmeshev): **`REPORT_young_umaps.md`**. Our within-EN analyses used
+   `cell_type_aligned`, so their **young end is unreliable** and the late-maturing-dip test must be
+   redone with SLC17A7-based, immature-inclusive EN membership (planned).
 
 **Bottom line.** Strongly **deflationary** for "C3 = a within-neuron maturation axis": once you
 control aggregation and acknowledge the ExN-selection bias, the within-neuron C3 trends largely
@@ -360,13 +363,14 @@ subtypes might be mislabeled. **Full provenance + UMAP evidence: see `REPORT_ann
   per-cell hard threshold, it is dropout-/depth-sensitive (a neuron with 0 RBFOX3 counts is missed),
   so its EN fractions are a depth-attenuated **lower bound**.
 
-**A1. Composition vs age (reference-independent marker labels).** By `marker_annotation`, young-donor
-EN fractions are reasonable — PsychAD-V3 EN median 0.51 (<2y), 0.30 (2–5y), 0.36 (5–10y) — **not**
-the ~5% reported from native labels. So the "5% EN in young donors" is a **native-labeling** issue,
-not a real dearth of neurons. (Velmeshev EN fraction *declines* with age, e.g. Herring 0.46→0.08,
-but analyses are *within* EN so this composition shift is conditioned out; it does mean older
-Velmeshev EN pseudobulks rest on fewer cells.) A direct three-way EN-fraction-vs-age comparison and
-the UMAPs that localise the disagreement are in `REPORT_annotation.md`.
+**A1. Composition vs age (marker labels) — with an important correction.** By `marker_annotation`,
+young-donor EN fractions look higher (PsychAD ~0.5 at <2y) than the native ~0.1 — so the native "~5%
+EN in young" is partly a labeling artefact. **But** the young-donor UMAP analysis
+(`REPORT_young_umaps.md`) shows the marker classifier itself **over-calls** EN (its RBFOX3 gate is
+pan-neuronal → absorbs GAD-dropout interneurons), while native **over-calls IN**. So neither EN% is
+trustworthy in young donors; the true value needs excitatory-specific (SLC17A7 vs GAD1) gating. The
+qualitative point survives — young neurons are mis-partitioned by the reference labels — but the
+specific ~40–50% figure is **withdrawn**.
 
 ![EN fraction vs age](s03A_EN_fraction_vs_age.png)
 

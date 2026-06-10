@@ -53,10 +53,20 @@ PANEL_ORDER = ["SOX2", "MKI67", "DCX", "STMN2", "NEUROD6", "RBFOX3",
 
 DATASETS = {
     "PsychAD": dict(path=L.B / "PsychAD_noage_tuning5/scvi_output/integrated.h5ad",
+                    parquet=L.B / "PsychAD_noage_tuning5/pseudobulk_output/manual_annotations.parquet",
                     chem=None),
     "Velmeshev-V3": dict(path=L.B / "Vel_prepost_noage_tuning5/scvi_output/integrated.h5ad",
+                         parquet=L.B / "Vel_prepost_noage_tuning5/pseudobulk_output/manual_annotations.parquet",
                          chem="V3"),
 }
+
+
+def marker_to_broad(s):
+    """ExN*->EN, InN->IN, glia types->Glia, Unknown/skipped/NaN->Unknown."""
+    s = pd.Series(s, dtype=object).fillna("Unknown").astype(str)
+    return np.where(s.str.startswith("ExN"), "EN",
+           np.where(s == "InN", "IN",
+           np.where(s.isin(["Astro", "Oligo", "OPC", "Micro"]), "Glia", "Unknown")))
 
 
 def marker_classify(counts_csr, vn):
@@ -122,8 +132,14 @@ def process(name, cfg):
 
     X = sub.layers["counts"] if "counts" in sub.layers else sub.X
     X = X.tocsr() if sp.issparse(X) else sp.csr_matrix(X)
-    sub.obs["marker"] = marker_classify(X, vn)
-    sub.obs["marker_broad"] = broad_of(sub.obs["marker"].values)
+    # marker labels: use the VALIDATED cached parquet (annotation_by_markers.py on
+    # RAW per-dataset h5ads), NOT a recompute from the integrated counts layer
+    # (which is not the same raw counts and over-calls EN).
+    ma = pd.read_parquet(cfg["parquet"])
+    sub.obs["marker"] = ma["marker_annotation"].reindex(sub.obs_names).astype(str).values
+    sub.obs["marker_broad"] = marker_to_broad(sub.obs["marker"].values)
+    n_match = (sub.obs["marker"] != "nan").sum()
+    print(f"  marker_annotation joined from parquet: {n_match}/{len(sub)} matched", flush=True)
 
     # native labels
     nat_fine = next((c for c in ["cell_type_raw", "subclass", "Cell_Type"] if c in sub.obs), None)
@@ -132,56 +148,73 @@ def process(name, cfg):
     sub.obs["native_broad"] = sub.obs[nat_broad].astype(str) if nat_broad else "?"
     sub.obs["age_y"] = pd.to_numeric(sub.obs["age_years"], errors="coerce").values
 
-    # UMAP on scVI latent (unsupervised)
-    rep = "X_scVI" if "X_scVI" in sub.obsm else "X_scANVI"
-    print(f"  UMAP rep: {rep}", flush=True)
-    sc.pp.neighbors(sub, use_rep=rep, n_neighbors=15)
-    sc.tl.umap(sub)
-    um = sub.obsm["X_umap"]
-
-    # marker expression (log1p CPM)
+    # marker expression (log1p CPM) — same for both embeddings
     tot = np.asarray(X.sum(1)).ravel(); tot[tot == 0] = 1
     expr = {}
     for g in PANEL_ORDER:
         ens = GENES[g]
         expr[g] = np.log1p(np.asarray(X[:, vn.index(ens)].todense()).ravel() / tot * 1e4) if ens in vn else np.zeros(len(idx))
 
-    # ---- figure ----
-    label_panels = ["native_broad", "native_fine", "marker", "age_y"]
-    n_panels = len(label_panels) + len(PANEL_ORDER)
-    ncol = 5
-    nrow = int(np.ceil(n_panels / ncol))
-    fig, axes = plt.subplots(nrow, ncol, figsize=(4 * ncol, 3.6 * nrow))
-    axes = axes.ravel()
-    pi = 0
-    for col in label_panels:
-        ax = axes[pi]; pi += 1
-        if col == "age_y":
-            sca = ax.scatter(um[:, 0], um[:, 1], c=sub.obs[col].values, s=3, cmap="viridis")
+    # ---- two embeddings ----
+    # (1) scVI latent (unsupervised, batch-corrected within dataset)
+    rep = "X_scVI" if "X_scVI" in sub.obsm else "X_scANVI"
+    print(f"  scVI UMAP rep: {rep}", flush=True)
+    sc.pp.neighbors(sub, use_rep=rep, n_neighbors=15)
+    sc.tl.umap(sub)
+    um_scvi = sub.obsm["X_umap"].copy()
+    # (2) PCA on the young cells' OWN raw counts (no model): normalize_total ->
+    #     log1p -> HVG(2000) -> scale -> PCA(30) -> UMAP
+    print("  PCA-on-raw-counts UMAP ...", flush=True)
+    b = sub.copy()
+    b.X = (b.layers["counts"].copy() if "counts" in b.layers else b.X.copy())
+    sc.pp.normalize_total(b, target_sum=1e4)
+    sc.pp.log1p(b)
+    sc.pp.highly_variable_genes(b, n_top_genes=2000)
+    b = b[:, b.var.highly_variable].copy()
+    sc.pp.scale(b, max_value=10)
+    sc.tl.pca(b, n_comps=30)
+    sc.pp.neighbors(b, use_rep="X_pca", n_neighbors=15)
+    sc.tl.umap(b)
+    um_pca = b.obsm["X_umap"].copy()
+
+    def plot_panels(um, tag, rep_desc):
+        label_panels = ["native_broad", "native_fine", "marker", "age_y"]
+        n_panels = len(label_panels) + len(PANEL_ORDER)
+        ncol = 5
+        nrow = int(np.ceil(n_panels / ncol))
+        fig, axes = plt.subplots(nrow, ncol, figsize=(4 * ncol, 3.6 * nrow))
+        axes = axes.ravel()
+        pi = 0
+        for col in label_panels:
+            ax = axes[pi]; pi += 1
+            if col == "age_y":
+                sca = ax.scatter(um[:, 0], um[:, 1], c=sub.obs[col].values, s=3, cmap="viridis")
+                plt.colorbar(sca, ax=ax, fraction=.04)
+            else:
+                top = sub.obs[col].astype(str).value_counts().head(12).index
+                for k in pd.Categorical(sub.obs[col].astype(str)).categories:
+                    m = (sub.obs[col].astype(str) == k).values
+                    ax.scatter(um[m, 0], um[m, 1], s=3,
+                               label=(f"{k} ({m.sum()})" if k in top else None))
+                ax.legend(markerscale=3, fontsize=5, loc="best", ncol=1)
+            ax.set_title(col, fontsize=11); ax.set_xticks([]); ax.set_yticks([])
+        for g in PANEL_ORDER:
+            ax = axes[pi]; pi += 1
+            sca = ax.scatter(um[:, 0], um[:, 1], c=expr[g], s=3, cmap="magma")
             plt.colorbar(sca, ax=ax, fraction=.04)
-        else:
-            cats = pd.Categorical(sub.obs[col].astype(str))
-            top = sub.obs[col].astype(str).value_counts().head(12).index
-            for k in cats.categories:
-                m = (sub.obs[col].astype(str) == k).values
-                ax.scatter(um[m, 0], um[m, 1], s=3,
-                           label=(f"{k} ({m.sum()})" if k in top else None))
-            ax.legend(markerscale=3, fontsize=5, loc="best", ncol=1)
-        ax.set_title(col, fontsize=11); ax.set_xticks([]); ax.set_yticks([])
-    for g in PANEL_ORDER:
-        ax = axes[pi]; pi += 1
-        sca = ax.scatter(um[:, 0], um[:, 1], c=expr[g], s=3, cmap="magma")
-        plt.colorbar(sca, ax=ax, fraction=.04)
-        ax.set_title(g, fontsize=11); ax.set_xticks([]); ax.set_yticks([])
-    for j in range(pi, len(axes)):
-        axes[j].set_visible(False)
-    fig.suptitle(f"{name}: <{AGE_MAX:.0f}y donors — UMAP on {rep} (unsupervised). "
-                 f"n={len(idx):,} cells. Native (aging/dev ref) vs marker labels + differentiation markers",
-                 y=1.005, fontsize=13)
-    fig.tight_layout()
-    out = L.OUT_DIR / f"s09_young_umap_{name.replace('-', '_').lower()}.png"
-    fig.savefig(out, dpi=120, bbox_inches="tight")
-    print(f"  saved {out}", flush=True)
+            ax.set_title(g, fontsize=11); ax.set_xticks([]); ax.set_yticks([])
+        for j in range(pi, len(axes)):
+            axes[j].set_visible(False)
+        fig.suptitle(f"{name}: <{AGE_MAX:.0f}y donors — {rep_desc}. n={len(idx):,} cells. "
+                     f"Native (aging/dev ref) vs marker labels + differentiation markers",
+                     y=1.005, fontsize=13)
+        fig.tight_layout()
+        out = L.OUT_DIR / f"s09_young_{tag}_{name.replace('-', '_').lower()}.png"
+        fig.savefig(out, dpi=120, bbox_inches="tight"); plt.close(fig)
+        print(f"  saved {out}", flush=True)
+
+    plot_panels(um_scvi, "scvi", f"UMAP on {rep} (scVI latent, unsupervised, batch-corrected)")
+    plot_panels(um_pca, "pca", "UMAP on PCA of raw counts (normalize_total+log1p+HVG2000+scale+PCA30; no model)")
 
     # composition + native-vs-marker crosstab
     print(f"  marker_broad composition (<{AGE_MAX}y): "

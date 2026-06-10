@@ -101,32 +101,38 @@ of the "~5–10% EN in young donors" anomaly — a **labeling** artefact, not bi
 | **IN** | **0.54** | 0.05 | 0.37 | 0.02 | 0.01 |
 | **Glia/other** | 0.08 | **0.16** | 0.00 | 0.42 | 0.23 |
 
-- Cells the native reference calls **EN are 95% marker-ExN** → when it commits to EN it is right
-  (consistent with the purity check, `REPORT.md` Appendix A2).
-- But **54% of natively-"IN" young cells are RBFOX3+ (marker-ExN)** and **~24% of natively-"glia"
-  young cells are marker-ExN** (8% mature + 16% immature). So the native reference **scatters real
-  young neurons into IN/glia** — it *misses* them rather than mis-calling non-neurons as EN.
+- Cells the native reference calls **EN are 95% marker-ExN** → consistent (both agree these are
+  neurons).
+- **54% of natively-"IN" young cells are RBFOX3+** and **~24% of natively-"glia" young cells** too.
+  _Read with the correction below:_ because RBFOX3 is **pan-neuronal**, a native-IN cell being
+  RBFOX3+ is *expected* and does **not** by itself prove native mislabels it — so this crosstab is
+  ambiguous, and the excitatory-**specific** SLC17A7-vs-GAD1 view (`REPORT_young_umaps.md`) is needed
+  to tell whether the contested cells are truly excitatory or GAD-dropout interneurons.
 
-_(Symmetric caveat: the marker classifier also **over-calls** EN somewhat — ambient/co-expressed
-RBFOX3 at ≥1 count tags some true IN/glia as ExN. Neither labeling is ground truth; the truth lies
-between ~20% and ~45% EN, and the young immature neurons are the contested population.)_
+> ⚠️ **Update — the marker classifier is NOT trustworthy for EN% either.** The young-donor UMAP
+> analysis (`REPORT_young_umaps.md`) shows its "ExN = RBFOX3≥1 & GAD<10" rule uses **RBFOX3 (NeuN),
+> a pan-neuronal marker**, so it absorbs GAD-dropout interneurons and ambient-RBFOX3 OPCs: 44% of
+> its PsychAD "EN" calls are natively IN_SST/VIP/PVALB, 28% glia/OPC. So the "~40–50% EN, the
+> trustworthy number" claim above is **withdrawn** — marker *over*-calls EN, native (aging ref)
+> over-calls IN, and **neither is reliable for young EN%**. Use excitatory-**specific** markers
+> (SLC17A7/SATB2 vs GAD1) instead.
 
 ## The consequence for the dip — and the recommendation
 
 The within-EN analyses in `REPORT.md` (Steps 1–2 and the `within_EN` dip level) used
-`cell_type_aligned`. In young donors that is a **mature-biased subset** — it keeps the ~10–20% of
-neurons already looking adult-EN-like and discards the immature/late-maturing ones into glia/IN.
-**If an adolescent "dip" lives in late-maturing neurons, this is exactly the population the analysis
-throws away** — so the current within-EN/dip results cannot settle the late-maturing hypothesis,
-especially in PsychAD where the discrepancy is largest.
+`cell_type_aligned` (≈ native). In young donors that is unreliable two ways: it is **mature-biased**
+(discards immature/late-maturing neurons) *and* it **mislabels young excitatory neurons as
+interneurons** (native young EN:IN ≈ 16:36, biologically backwards). **If an adolescent "dip" lives
+in late-maturing neurons, that is exactly the population these labels mishandle** — so the current
+within-EN/dip results cannot settle the late-maturing hypothesis, especially in PsychAD.
 
-**Recommendation**
-- **EN membership:** define ExN by the reference-independent marker call (RBFOX3/DCX), *including*
-  `ExN_immature`, rather than `cell_type_aligned`. Add an ambient guard if over-calling is a concern
-  (e.g. RBFOX3≥2, or RBFOX3>max(GAD)), and report sensitivity.
-- **Subtype/layer:** `cell_type_aligned` only, used as a covariate within marker-confirmed EN; young
+**Recommendation** (revised after the young-UMAP finding)
+- **EN membership:** define ExN by **excitatory-specific** markers — `SLC17A7` (and/or `SATB2`)
+  dominant over `GAD1/GAD2` (e.g. `SLC17A7 ≥ 1` & `SLC17A7 > GAD1`) — *not* RBFOX3 and *not*
+  `cell_type_aligned`. Use `DCX`/`STMN2` to *include* immature neurons. Report sensitivity to the gate.
+- **Subtype/layer:** `cell_type_aligned` only as a covariate within SLC17A7-confirmed EN; young
   subtype labels are unvalidated.
-- **Decisive next analysis (planned):** per-cell, define ExN by marker, split **mature vs immature**,
-  and compute the C3 age curve within each — especially in PsychAD — to test directly whether a dip
-  is carried by the late-maturing neurons the reference-based labels exclude. Combine cohorts only on
-  the batch-corrected `scanvi_normalized` layer.
+- **Decisive next analysis (planned):** per-cell, define ExN by SLC17A7-vs-GAD1 gating, split
+  **mature vs immature** (RBFOX3 vs DCX/STMN2), and compute the C3 age curve within each — especially
+  in PsychAD — to test directly whether a dip is carried by late-maturing neurons. Combine cohorts
+  only on the batch-corrected `scanvi_normalized` layer.
