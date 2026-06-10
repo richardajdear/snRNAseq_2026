@@ -38,10 +38,21 @@ native labels or with the marker labels — using the differentiation markers as
 Comparing native labels to the marker classifier *and* to the excitatory-**specific** marker SLC17A7
 (vs the pan-neuronal RBFOX3) overturns the earlier framing:
 
+> **⚠️ CORRECTION (s11): Velmeshev `Interneurons` is a misnomer for *immature excitatory* cells.**
+> The Velmeshev native label `Interneurons` (the single largest <5y group, 34,935 cells) is **95%
+> SLC17A7-specific-excitatory by per-cell call and 36% ExN / 61% Immature by cluster-vote, with ~0%
+> InN** — these cells express SLC17A7/SATB2 and lack GAD. Genuine inhibitory neurons are Velmeshev's
+> *granular* SST/PV/VIP/CALB2/CCK/INT labels (which correctly vote 72–99% InN). So the "Velmeshev is
+> 50–65% interneurons in young donors" appearance below is **a native-label naming artefact, not a
+> marker over-call**: once `Interneurons`→immature-EN, young Velmeshev is appropriately
+> excitatory-heavy. The bullet below is left as originally written but is **superseded for Velmeshev**.
+
 - **`marker_annotation` over-calls EN**, because its "ExN = RBFOX3≥1 & GAD<10" rule uses **RBFOX3
   (NeuN), a *pan-neuronal* marker**. It therefore sweeps in **interneurons with GAD dropout** and
   ambient-RBFOX3 OPCs. Of the cells it calls "EN": in **PsychAD** 44% are natively IN_SST/VIP/PVALB
-  and 28% native glia/OPC; in **Velmeshev** 65% are natively "Interneurons".
+  and 28% native glia/OPC; in **Velmeshev** 65% are natively "Interneurons" (← *but per the correction
+  above, those are genuinely excitatory; the PsychAD over-call from GAD-dropout interneurons still
+  stands, the Velmeshev one does not*).
 - **Native PsychAD (aging ref) gives a biologically impossible EN:IN ratio in young donors** — 16%
   EN vs **36% IN** (more interneurons than excitatory, the reverse of real cortex ~80:20).
 - So **neither label is reliable for young-donor EN%.** The earlier claim ("marker gives the
@@ -133,6 +144,64 @@ IN 15% / Glia 33%. So:
   <5y the truth is a large **immature/transitional pool that markers cannot confidently split into
   EN vs IN** (silhouette ≈ 0).
 
+## Neuron-only manifold & trajectory feasibility (s11)
+
+To get a trajectory-amenable embedding we first **remove the major non-neuronal classes** (rather
+than trying to resolve EN vs IN up front): cluster the scVI latent, vote each cluster neuronal/
+progenitor vs glia using a **pan-neuronal** signature (RBFOX3 + DCX + STMN2 + NEUROD6, alongside
+EN/IN/Prog signatures), keep neurons+progenitors, and recompute the embedding on the
+**batch-corrected scVI latent**. Run over a developmental window (age <40y), stratified-subsampled.
+Velmeshev's `Interneurons` is treated as immature-EN (correction above).
+
+![Velmeshev neuron manifold](s11_neuron_manifold_velmeshev_v3.png)
+![PsychAD neuron manifold](s11_neuron_manifold_psychad.png)
+
+**1. Subsetting works.** Pan-neuronal cluster-vote cleanly keeps the neuronal lineage and drops glia:
+PsychAD 63,740 kept (42%), Velmeshev 74,730 (54%). Sub-identity of the kept pool differs sharply
+between datasets and **this is the key result**:
+
+| dataset (<40y neurons) | ExN | Immature | InN | progenitors / SOX2 |
+|---|---|---|---|---|
+| **Velmeshev-V3** | 27,974 | **26,888** | 19,868 | present (SOX2/DCX/STMN2 gradient) |
+| **PsychAD** | 33,275 | **1,183** | 29,282 | ~absent (SOX2 ≈ 0 everywhere) |
+
+**Velmeshev has a real developmental continuum; PsychAD does not.** PsychAD <40y neurons are
+essentially *all mature* — no SOX2, negligible DCX — so it can only supply the **mature end** of a
+trajectory, not the maturation axis itself. Any pseudotime/dip analysis of the *maturing* EN lineage
+must be anchored in **Velmeshev** (a true developmental atlas), with PsychAD as mature-end replication.
+
+**2. Diffusion-map pseudotime tracks age in Velmeshev.** DPT (rooted at the progenitor/immature pole)
+along the EN lineage (ExN + immature) gives **Spearman ρ(pseudotime, age) = +0.35, p≈0 (n=54,862)**
+in Velmeshev — i.e. the maturation ordering is real and developmentally meaningful. In PsychAD the
+same correlation is **−0.11** (noise: no immature cells to anchor a trajectory). So trajectory
+analysis **is feasible — but only in Velmeshev**.
+
+**3. Why the UMAPs are islands, not a continuous spread (answered empirically).**
+
+![Velmeshev embedding sweep](s11_embedding_sweep_velmeshev_v3.png)
+![PsychAD embedding sweep](s11_embedding_sweep_psychad.png)
+
+The same neuron subset under six embeddings (coloured by DPT). The finding: **UMAP fragments into
+islands *regardless of parameters*** — default (`n_neighbors`=15), global (`n_neighbors`=50), spread
+(`min_dist`=0.9, `spread`=2), and even **PAGA-initialised** all stay islanded. So the islands are
+**not** merely a parameter choice; they reflect genuinely **discrete cluster structure in the scVI
+latent**, which UMAP is designed to *emphasise* (it optimises local neighbourhoods and exaggerates
+gaps). The parameters that *do* exist and what they control:
+- `n_neighbors` — local (low, more/tighter islands) vs global (high, more connected) structure;
+- `min_dist` / `spread` — purely cosmetic compactness/scale of clumps;
+- `init_pos='paga'` — seeds layout from cluster connectivity (helps, insufficient here).
+
+The embedding that **does** give a continuous spread is the **diffusion map** (DC1×DC2): a smooth
+manifold with a clear maturation branch — and **ForceAtlas2** (force-directed) is intermediate.
+**Conclusion: do trajectory work in diffusion-map / DPT space (or ForceAtlas2), not UMAP.** UMAP is
+for visualization of discrete identity; it structurally cannot show the maturation continuum even
+when one exists (as the Velmeshev diffmap proves it does).
+
+**4. The `Interneurons` correction, visualized.** In the Velmeshev neuron manifold the native panel's
+`ImmatureEN(native-misnomer)` group (36,122 cells — the largest) sits squarely in the **EN_sig /
+immature (SLC17A7+, DCX+) territory**, *not* the GAD1+ IN territory — confirming it is immature
+excitatory, and that the earlier "IN-heavy young Velmeshev" was a naming artefact.
+
 ## Verdict & recommendation
 
 1. **No single marker cutoff defines young EN.** RBFOX3 over-counts (pan-neuronal), SLC17A7
@@ -152,3 +221,9 @@ IN 15% / Glia 33%. So:
 4. This **strengthens** the `REPORT.md` caveat: the within-EN/dip results used `cell_type_aligned`
    (≈ native), unreliable in young donors; redo with cluster/trajectory-based EN-lineage and restrict
    firm claims to ages ≳5y.
+5. **Trajectory is feasible — in Velmeshev only, in diffusion-map/DPT space (s11).** The neuron-only
+   manifold gives a Velmeshev EN-lineage pseudotime that tracks age (ρ=+0.35); PsychAD lacks the
+   immature pool (use it for the mature end only). UMAP cannot show the continuum at any parameter
+   setting — use the diffusion map. **Next step:** project the depth-robust C3 score (`signed_logcpm`)
+   along this Velmeshev EN-lineage pseudotime (and against age within pseudotime bins) to test the
+   maturation/dip hypothesis on a principled trajectory rather than discrete age-binned pseudobulk.
