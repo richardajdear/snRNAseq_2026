@@ -7,47 +7,45 @@
 
 ## TL;DR (current state)
 
-1. **A depth-robust C3 score exists and the prior artefact is understood.** The old C3+
-   aggregate is depth-biased; its age trend disagrees between V2 and V3 — *that* disagreement
-   is the artefact that produced the spurious adolescent "dip". A **signed, log-CPM score**
-   (`signed_logcpm`) is depth-invariant and gives the **same age trend in V3-only as in V2+V3**.
-2. **The strong C3↑-with-age signal is the prenatal→postnatal differentiation jump (composition).**
-   Across the full age range C3 rises steeply with age, but this is the progenitor→neuron / glia
-   emergence axis — i.e. the deflationary reading.
-3. **Within a fixed mature excitatory-neuron (EN) type, there is no robust *positive* adolescent
-   maturation program.** If anything there is a *weak postnatal decline* in the C3 score,
-   consistent in direction across all three cohorts but individually non-significant
-   (meta-analysis p≈0.09). It is **not** upper-layer-specific.
-4. **A reproducible within-neuron developmental program exists — but it is AHBA *C1*, not C3.**
-   Per-gene within-EN age slopes replicate across cohorts (ρ=0.24–0.40) and align with C1
-   (ρ≈+0.33, robust to expression confound), while C3 weight is ~0 / slightly negative. So C3
-   does **not** encode the within-neuron developmental axis.
-5. **There IS a genuine synaptic-gene-set postnatal decline within EN** — synaptic genes decline
-   more than background in all three cohorts, highly significant in clean V3 (Herring MWU
-   p=3.5e-5; U01 p=4e-12; PsychAD p=0.018). This is pruning-consistent, but it is a property of
-   synaptic genes broadly (only partially overlapping C3+), not a distinct "C3 program."
-6. **The data are sound for this question.** PsychAD's notorious "5% EN in young donors" is an
-   artefact of its aging-reference labels; using marker-based labels, young-donor EN fractions are
-   normal (~30–50%), and the labeled-EN pseudobulks are EN-pure at all ages (Appendix A).
+**Headline:** C3-the-axis is **composition** (neuron-vs-glia / differentiation). Every claimed
+*within-neuron* C3 trend (the postnatal decline; the adolescent dip) turns out to be **fragile to
+method choices** — pseudobulk aggregation, the ExN definition, and cohort/batch handling — and none
+is yet established. The one hypothesis still genuinely open, and *not* cleanly testable with our
+current labels, is a **late-maturing-ExN dip** (see caveats).
 
-**Interpretation.** Two things are true at once, and separating them resolves the question:
+1. **C3's big age signal is prenatal→postnatal differentiation (composition).** Robust; this is the
+   deflationary core and it is not in dispute.
+2. **The "within-mature-EN postnatal decline" is NOT robust to pseudobulk aggregation.** Under
+   *sum-counts-then-CPM* (deep-cell-weighted) it is negative; under *per-cell-CPM-then-mean* (equal
+   cell weight, log) it **flattens or reverses** in the clean V3 cohorts (s05, 8-metric grid). So
+   the Step-1 decline is largely a deep-cell-weighting artefact, not a robust biological trend.
+   *No* metric is cleanly depth-free at the within-subtype level (all ρ(score,depth|age)=0.2–0.7).
+3. **The nonlinear "adolescent dip" is suggestive but unestablished.** Its descending arm
+   (childhood→~18y) is significant in *both* Velmeshev cohorts incl. clean Herring-V3 under the
+   depth-robust metric (so not merely V2 depth); but the adult *recovery* arm rests on 1–3 Velmeshev
+   donors, adult-rich PsychAD shows no rebound, and the pooled cross-cohort U-shape is **n.s.
+   (p≈0.29)**. It is also composition- and ExN-definition-dependent (see #5).
+4. **The reproducible within-neuron developmental program is AHBA *C1*, not C3** (ion-channel /
+   intrinsic-excitability genes — SCN1A/1B, KCNC1/3 — that *rise* with maturation). C3 weight does
+   not predict within-neuron dynamics (robust to expression confound). _[Caveat: computed on AGG
+   pseudobulks; the synaptic-set decline within this analysis should be re-checked under CELL
+   aggregation given #2.]_
+5. **The ExN definition is uncertain and consequential — especially for the dip.** PsychAD's native
+   labels (and `cell_type_aligned`, which is scANVI **trained on them**) call only **10–25%** of
+   cells EN; the reference-independent marker classifier calls **40–50%** (`REPORT_annotation.md`).
+   The excluded cells are disproportionately **immature/late-maturing** neurons — *exactly* the
+   population a "late-maturing-ExN dip" would live in. So our within-EN analyses (which used
+   `cell_type_aligned`) are run on a **mature-biased subset**, and the dip cannot be properly tested
+   without an immature-inclusive, marker-based ExN definition (planned, not yet done).
 
-- **As a spatial/cellular *axis*, C3 is composition** (neuron-vs-glia / differentiation). The C3
-  *score* does not track a within-neuron maturation program — the within-neuron developmental axis
-  is **C1** (an ion-channel / intrinsic-excitability program: top C1+ genes are SCN1A/SCN1B,
-  KCNC1/KCNC3 (Kv3), VAMP1; these *rise* within maturing neurons).
-- **But the C3+ *genes* are the synaptic genes, and they do carry a real within-neuron program.**
-  Synaptic genes have a strongly positive mean C3 loading (+0.29 vs ~0 baseline) and they
-  *decline* within neurons postnatally (Q3; robust across cohorts) — consistent with synaptic
-  overproduction→pruning. So the within-neuron developmental story is **ion channels up (C1),
-  synapses down (C3+ genes)** = functional maturation plus pruning.
-
-So the answer to "is there more to C3 than composition?" is: **the C3 component itself is
-composition, but the synaptic genes it up-weights undergo a genuine pruning-related decline within
-neurons.** C3's psychiatric-GWAS relevance is inherited from those synaptic genes (which is *why*
-it hits GWAS), and there *is* a real developmental program in them — but C3-the-axis measures
-*where* synaptic genes are expressed (neurons), not *when* they change. This is a more precise,
-and more defensible, statement than either pure interpretation.
+**Bottom line.** Strongly **deflationary** for "C3 = a within-neuron maturation axis": once you
+control aggregation and acknowledge the ExN-selection bias, the within-neuron C3 trends largely
+dissolve, and the genuine within-neuron developmental axis is C1, not C3. C3's psychiatric-GWAS
+relevance is most parsimoniously explained by it up-weighting synaptic genes (which are neuronal),
+i.e. C3 marks *where* risk genes are expressed, not *when* they change. **The remaining live
+question** — whether a real adolescent dip exists in late-maturing neurons that our reference-based
+labels discard — requires the marker-based, immature-inclusive, batch-aware analysis set out under
+*Caveats & planned work*.
 
 ---
 
@@ -60,10 +58,11 @@ and more defensible, statement than either pure interpretation.
 > age trend at the donor level (PsychAD r≈+0.09 n.s., Herring r≈−0.11 n.s.) — whereas across *all*
 > cell classes the C3+↔maturity coupling is r≈+0.85 (the neuron-vs-glia contrast). Two independent
 > methods (per-cell maturity-module coupling vs per-gene slope/AHBA alignment) agree: the C3↔age
-> relationship is a cell-type-composition effect, not a within-neuron program. _(That line also
-> flags that a kNN-vote "principled ExN" cell definition is InN-contaminated; our analyses use
-> purity-validated `cell_type_aligned` EN — see Appendix A — and the convergent native-ExN result
-> shows the conclusion is not sensitive to this choice.)_
+> relationship is a cell-type-composition effect, not a within-neuron program. _(Caveat on EN
+> definition: both that line's `cell_class==Excitatory` and our `cell_type_aligned` are
+> reference-based and **mature-biased** in PsychAD — see #5 and `REPORT_annotation.md`. The "C3↔age
+> is composition" conclusion is robust to this because it concerns the contrast collapsing once you
+> are within neurons at all; the **dip**, by contrast, is sensitive to the EN definition.)_
 
 ### 1. Depth-robustness gate (Step 0)
 
@@ -113,9 +112,40 @@ Reading:
 - The decline is **not upper-layer-specific** (upper ≈ deep, if anything deeper-biased) — so the
   simplest "upper-layer pruning" prediction is **not** supported by these data.
 - Effect magnitude tracks cohort: largest in U01-V2 (steepest, also the V2/depth-prone cohort) and
-  in the child-rich Velmeshev cohorts; weakest in the adult-heavy PsychAD-V3. This could reflect
-  either residual V2-depth inflation **or** that the effect is a childhood phenomenon diluted by
-  PsychAD's adult-heavy sampling — disentangling these is an open question (see below).
+  in the child-rich Velmeshev cohorts; weakest in the adult-heavy PsychAD-V3.
+
+> ⚠️ **This decline does not survive the aggregation robustness check (§2b) — read that next before
+> interpreting it.** It also rests on the mature-biased `cell_type_aligned` EN definition (#5).
+
+### 2b. Robustness of the within-EN trend to scoring metric & aggregation (s05, 8-metric grid)
+
+The C3 score has three independent binary choices — pole {C3+, signed} × transform {linear CPM,
+log1p CPM} × **aggregation** {`AGG` = sum-counts-then-CPM (deep-cell-weighted, the pipeline
+default); `CELL` = per-cell-CPM-then-mean (equal cell weight)} = **8 metrics**. Computed per
+(donor × mature-EN subtype) from per-cell counts in each cohort:
+
+![8-metric grid](s05_metric_grid.png)
+
+Two things stand out:
+
+- **No metric is cleanly depth-free at the within-subtype level.** Every metric retains
+  ρ(score, depth | age) ≈ 0.2–0.7 (left panel). The Step-0 depth-robustness of `signed_logcpm` was
+  established at the *donor-level ExN aggregate*; it does **not** carry down to the noisier
+  per-(donor×subtype) level. (`AGG_*_log` are in fact the *most* depth-coupled here, because at low
+  depth log1p(CPM) is dominated by dropout.)
+- **The within-EN "decline" flips sign with aggregation.** Under `AGG` metrics the age trend is
+  negative (−0.08 to −0.50); under **`CELL` per-cell-CPM-then-mean with log**, it **reverses to
+  ≈0/positive in both V3 cohorts** (Herring `CELL_pos_log` +0.19, `CELL_sign_log` +0.06; U01 +0.17,
+  +0.05), while only the depth-prone U01-V2 keeps a strong negative under linear metrics. (right
+  panel).
+
+**Conclusion:** the Step-1 within-EN decline is **largely an artefact of deep-cell weighting**
+(sum-then-CPM), not a robust biological trend. This is the single most important methodological
+result here, and it cuts *toward* the deflationary reading. _Best practice note: for "average cell
+state" comparisons across samples with differing per-cell depth, per-cell-normalise-then-mean is the
+more defensible aggregation; sum-then-CPM is standard for count-model DE (edgeR/DESeq2) but lets a
+few deep cells dominate. The conclusion should track the metrics that are *invariant* to this
+choice — here, "no robust within-EN trend."_
 
 ### 3. De novo within-EN developmental program, and its (non-)alignment to C3 (Step 2)
 
@@ -162,17 +192,68 @@ C3 weight also weakly tracks mean expression in neurons (ρ=0.21) — i.e. C3+ p
 expressed neuronal genes" — but the synaptic enrichment is specific and is what carries the GWAS
 signal. The net within-neuron developmental program is **ion-channels-up / synapses-down**.
 
-### Open items
+### 5. The nonlinear "adolescent dip" (s08)
 
-- [x] **De novo within-EN axis (Step 2)** — done: program exists, is C1-aligned not C3, synaptic-set
-      decline replicates.
-- [x] **Characterise C1** — done: C1 = ion-channel / intrinsic-excitability maturation axis.
-- [ ] **Normalisation robustness** — current pseudobulk is *sum-counts-then-CPM* (deep-cell biased);
-      repeat with *per-cell-CPM-then-mean*. _(sbatch job running)_
-- [ ] **Characterise C1** — what is AHBA C1 biologically, and is the C1↔within-neuron-development
-      link itself interesting?
-- [ ] **Matched age windows** — separate "childhood effect diluted in adults" from "V2-depth
-      inflation" across cohorts.
+Does C3 trace a U-shape — high in childhood, low in adolescence, recovering in adulthood? Tested via
+quadratic convexity (age², centred, depth-controlled) at three aggregation levels and two metrics
+(depth-robust `signed_log` vs depth-biased `pos_lin`), per cohort. **Important:** the three levels
+use *different* ExN definitions — `all_cells` (no ExN selection), `ExN_agg` (**marker-based** ExN,
+incl. immature), `within_EN` (**`cell_type_aligned`** mature subtypes, subtype-averaged) — so they
+are not strictly comparable; see #5 caveat.
+
+![Adolescent dip by level/metric/cohort](s08_adolescent_dip.png)
+
+- **Both Velmeshev cohorts — incl. clean Herring-V3 — show a significant U-shape** (trough ~18–20y)
+  at the `all_cells` and `ExN_agg` levels, under the **depth-robust** metric (Herring p=0.043/0.045,
+  U01 p=0.003/0.002). So the *descending* arm is **not** a pure V2-depth artefact.
+- **PsychAD-V3 shows no dip** — but it barely samples childhood (<10y), covering mainly the
+  *ascending* arm; it does not contradict the dip so much as miss its left half.
+- The dip **weakens to non-significance within EN subtypes** (`within_EN`), i.e. it is substantially
+  **composition-mediated**.
+
+**Pooled, cohort+depth-adjusted** across all cohorts (the only frame spanning 1–44y), the U-shape is
+**not significant** (all_cells age² p=0.29, trough ~14y; ExN_agg concave; within_EN p=0.37):
+
+![Pooled cross-cohort dip](s08_dip_pooled.png)
+
+**Verdict.** The childhood→adolescence **decline** is real in Velmeshev (depth-robust, both cohorts)
+— but the **recovery** arm is fragile (1–3 adult donors; no PsychAD rebound; pooled U n.s.), and the
+whole pattern is composition- and ExN-definition-dependent. ⚠️ *This combined-cohort framing is not
+batch-corrected and should be treated as provisional (see planned work).* A clean test needs (a) a
+marker-based, immature-inclusive ExN definition, (b) batch-corrected combining, (c) the `CELL`
+aggregation from §2b.
+
+### Open items / status
+
+- [x] Step 0 depth gate · Step 1 within-EN · Step 2 de novo (C1 not C3) · C1 = ion-channel axis.
+- [x] **Normalisation robustness (s05)** — done: within-EN decline is aggregation-dependent (§2b).
+- [x] **Annotation provenance / UMAP (s07)** — done: `cell_type_aligned` is mature-biased
+      (`REPORT_annotation.md`).
+- [ ] **ExN-definition sensitivity of the dip** — recompute the dip/within-EN trajectory under a
+      marker-based, **immature-inclusive** ExN definition (per-cell), esp. for PsychAD. _(planned)_
+- [ ] **Batch-corrected combining** — redo any cross-cohort/pooled analysis on the
+      `scanvi_normalized` (batch-corrected) layer; treat current non-corrected pooled results as
+      suspect. _(planned)_
+- [ ] **Re-check Step 2 synaptic-set decline under `CELL` aggregation.**
+
+### Caveats & planned work (method choices that change the answer)
+
+Three method choices have been shown to flip or dissolve the within-neuron signals, so any future
+claim must be robust to all three:
+
+1. **Pseudobulk aggregation** (§2b). Use `CELL` (per-cell-normalise-then-mean) as the primary; report
+   `AGG` only alongside. The within-neuron decline is not robust to this.
+2. **ExN definition** (#5, `REPORT_annotation.md`). `cell_type_aligned`/native = mature-biased
+   (10–25% EN in PsychAD); the marker classifier (40–50%) includes immature/late-maturing neurons
+   but over-calls via ambient RBFOX3. The *late-maturing-ExN dip* hypothesis specifically requires
+   the immature-inclusive definition — plan: per-cell, define ExN by marker (RBFOX3/DCX), split
+   mature vs immature, and compute the C3 age curve within each, especially in PsychAD where the
+   discrepancy is largest.
+3. **Batch / cohort combining.** Pooling cohorts on raw/CPM scores (as in the current pooled dip) is
+   **suspect** — cohort offsets are absorbed by fixed effects but residual batch structure is not.
+   Plan: for any combined-data analysis, use the **`scanvi_normalized`** layer (the batch-corrected
+   embedding-run output) and/or model cohort explicitly; treat non-batch-corrected combined results
+   as provisional. *(Not yet implemented — flagged per design discussion.)*
 
 ---
 
@@ -238,13 +319,27 @@ Spearman correlation over shared genes; the synaptic set is a curated list of ca
 synaptic/maturation genes (NRXN/NLGN/GRIK/GRM/DLG/SHANK/GRIN/GRIA/GABR/… incl. the prior drop set),
 compared to all genes by Mann–Whitney U.
 
-### Pseudobulk normalisation — current choice and caveat
+### Metric grid & pseudobulk aggregation (s05)
 
-The current scores use **sum-counts-then-CPM** (the standard pseudobulk library-size
-normalisation used by edgeR/DESeq2), in which deeper cells contribute proportionally more to the
-donor profile. An alternative, **per-cell-CPM-then-mean**, gives every cell equal weight and is
-less sensitive to a few deep cells. Robustness of the within-EN decline to this choice is being
-tested (open item above).
+The C3 score is defined by pole {C3+, signed} × transform {linear CPM, log1p CPM} × aggregation
+{`AGG`, `CELL`} = 8 metrics. **`AGG`** = sum raw counts across the cells of a (donor×subtype) group,
+then CPM (the pipeline pseudobulk default; deeper cells contribute proportionally more — standard
+for count-model DE à la edgeR/DESeq2). **`CELL`** = CPM-normalise each cell, (log1p), then mean
+across cells (equal cell weight; the more defensible choice when per-cell depth varies across
+samples/chemistries). `s05_metric_grid.py` computes all 8 per (donor×subtype) from per-cell counts
+in the integrated objects (sbatch), then reports ρ(score,depth|age) and ρ(score,age|depth) per
+cohort. Result (§2b): the within-EN trend is **not invariant** to aggregation — it is negative under
+`AGG` and ≈0/positive under `CELL`-log in V3 — so the conclusion follows the aggregation-invariant
+reading (no robust within-EN trend).
+
+### Adolescent-dip test (s08)
+
+U-shape tested by fitting `score ~ age_c + age_c² + log10_depth` (age centred; HC3-robust SE) and
+inspecting the age² coefficient (convex & significant = dip; minimum at mean_age − b₁/2b₂), plus
+LOWESS curves. Run at three aggregation levels (`all_cells`, marker-ExN `ExN_agg`, aligned-mature
+`within_EN`) × two metrics × per cohort, and pooled with cohort fixed effects + depth. **Caveat:**
+the pooled fit is *not* batch-corrected (cohort FE only) and the three levels use different ExN
+definitions — both flagged for proper treatment in *Caveats & planned work*.
 
 ---
 
@@ -298,8 +393,10 @@ cells at all ages.
 | `s01a/s01b/s01c…` | Step 1 development (per-subtype, confound check, PsychAD) |
 | `s03_sanity_composition_markers.py` | Appendix A composition + marker purity |
 | `s04_within_en_cohorts.py` | 3-cohort within-EN aggregate trajectory + layer split + meta |
-| `s05_norm_robustness.py` | (sbatch) sum-CPM vs per-cell-CPM-then-mean robustness |
+| `s05_metric_grid.py` + `s05_plot.py` | (sbatch) **8-metric grid** depth/age robustness (§2b) |
 | `s06_denovo_within_en.py` | **Step 2** per-gene within-EN program, C3/C1 alignment, synaptic set |
+| `s07_annotation_provenance.py` | (sbatch) PsychAD UMAP + EN-fraction by labeling (`REPORT_annotation.md`) |
+| `s08_adolescent_dip.py` | **§5** nonlinear dip: quadratic + LOWESS, 3 levels × metrics × cohorts + pooled |
 
 Run pattern (login-safe, small pseudobulks):
 `singularity exec --pwd $PWD <sif> micromamba run -n shortcake_default python3 -u scripts/c3_maturation/<script>.py`

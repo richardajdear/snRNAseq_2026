@@ -52,31 +52,81 @@ low depth, e.g. V2 or shallow cells) is *not* called ExN — it falls to glia or
   IN+glia markers low at all ages — i.e. whatever its subtype-level accuracy, `cell_type_aligned`
   EN is genuinely *neuronal*.
 
-**Why the conclusion is robust to this.** The deflationary result is also reproduced by the
-independent `grn_dev_diagnostics` line using **native** `cell_class == Excitatory` + raw counts (no
-scANVI), and that line additionally showed an alternative kNN-vote "principled ExN" definition is
-InN-contaminated (so it was *not* used). The within-EN C3 result does not depend on which EN
-definition is used.
+**Which conclusions are / aren't robust to this.** The **deflationary** result ("C3↔age is
+composition; no within-neuron C3 program") is robust — it is also reproduced by the independent
+`grn_dev_diagnostics` line using native `cell_class == Excitatory` + raw counts, and it concerns the
+C3↔maturity contrast collapsing *once you are within neurons at all*, which holds for any reasonable
+EN subset. The **adolescent-dip** claim is **not** robust to the EN definition: a dip hypothesised to
+live in *late-maturing* neurons is exactly the population `cell_type_aligned` discards (see below),
+so the dip must be re-tested with a marker-based, immature-inclusive definition before it can be
+believed or dismissed.
 
-## UMAP comparison _(job 30337068)_
+## UMAP comparison (s07, job 30337068)
 
-UMAP computed on the **scVI/scANVI latent space** (`obsm['X_scANVI']` if present, else `X_scVI`) —
-the same embedding used for integration and label transfer — on an 80k-cell subsample
-(young-oversampled so <10y cells are visible). Coloured by native / aligned / marker labelings, by
-age, and by **ground-truth marker genes** (SLC17A7, GAD1, AQP4, RBFOX3) computed as log1p(CPM) from
-raw counts.
+UMAP computed on the **scANVI latent space** (`obsm['X_scANVI']`; the integrated object also carries
+`X_scVI`, `X_pca_*`, and precomputed `X_umap_*`) — the same embedding used for label transfer — on
+an 80k-cell subsample (young-oversampled so <10y cells are visible). Coloured by native / aligned /
+marker labelings, by age, and by **ground-truth marker genes** (SLC17A7, GAD1, AQP4, RBFOX3,
+log1p-CPM from raw counts).
 
-> **Pending** — figures `s07_umap_annotations.png`, `s07_en_fraction_by_labeling.png`, and the
-> young-donor native×marker confusion table will be embedded here when job 30337068 completes.
-> Key question they resolve: does the native/aligned labeling actually under-call EN in young
-> donors (the "~5% EN" claim), and where do those cells sit relative to the SLC17A7+ neuron island?
+![PsychAD annotation UMAP](s07_umap_annotations.png)
 
-## Recommendation _(to be finalised with UMAP evidence)_
+Two visual facts:
+- **`native_broad` and `aligned_broad` are essentially identical** — scANVI simply reproduces the
+  native subclass. Both label a large fraction of the map as glia/other.
+- The **SLC17A7+ / RBFOX3+ neuron territory is larger than the EN-labeled region**: cells that are
+  clearly excitatory by marker expression are labeled glia/IN by native/aligned.
 
-- For **composition / EN-membership**, prefer the reference-independent **`marker_annotation`**
-  (with the depth caveat in mind — read it as a depth-attenuated lower bound on EN fraction).
-- For **EN subtype / layer** resolution, `cell_type_aligned` is the only option, but treat
-  young-donor *subtype* assignments cautiously (validated as EN-pure, not as correctly-layered).
-- The safest within-EN analyses condition on EN *membership* via the reference-independent marker
-  call and use subtype only as a covariate — which is the direction the main report's robustness
-  work is heading.
+### EN fraction vs age — the three labelings diverge sharply
+
+![EN fraction by labeling](s07_en_fraction_by_labeling.png)
+
+| age bin | native = aligned EN frac | marker EN frac |
+|---|---|---|
+| <2 | **0.10** | 0.50 |
+| 2–5 | 0.17 | 0.42 |
+| 5–10 | 0.14 | 0.39 |
+| 10–20 | 0.20 | 0.41 |
+| 20–40 | 0.25 | 0.45 |
+| 40+ | 0.22 | 0.40 |
+
+Native/aligned under-call EN at **all** ages (worst in young: 10% vs 50% at <2y). This is the origin
+of the "~5–10% EN in young donors" anomaly — a **labeling** artefact, not biology.
+
+### Where the disagreement is: young (<10y) native × marker confusion (row-normalised)
+
+| native broad | →ExN_mature | →ExN_immature | →InN | →Oligo | →Astro |
+|---|---|---|---|---|---|
+| **EN** | 0.95 | 0.01 | 0.00 | 0.02 | 0.01 |
+| **IN** | **0.54** | 0.05 | 0.37 | 0.02 | 0.01 |
+| **Glia/other** | 0.08 | **0.16** | 0.00 | 0.42 | 0.23 |
+
+- Cells the native reference calls **EN are 95% marker-ExN** → when it commits to EN it is right
+  (consistent with the purity check, `REPORT.md` Appendix A2).
+- But **54% of natively-"IN" young cells are RBFOX3+ (marker-ExN)** and **~24% of natively-"glia"
+  young cells are marker-ExN** (8% mature + 16% immature). So the native reference **scatters real
+  young neurons into IN/glia** — it *misses* them rather than mis-calling non-neurons as EN.
+
+_(Symmetric caveat: the marker classifier also **over-calls** EN somewhat — ambient/co-expressed
+RBFOX3 at ≥1 count tags some true IN/glia as ExN. Neither labeling is ground truth; the truth lies
+between ~20% and ~45% EN, and the young immature neurons are the contested population.)_
+
+## The consequence for the dip — and the recommendation
+
+The within-EN analyses in `REPORT.md` (Steps 1–2 and the `within_EN` dip level) used
+`cell_type_aligned`. In young donors that is a **mature-biased subset** — it keeps the ~10–20% of
+neurons already looking adult-EN-like and discards the immature/late-maturing ones into glia/IN.
+**If an adolescent "dip" lives in late-maturing neurons, this is exactly the population the analysis
+throws away** — so the current within-EN/dip results cannot settle the late-maturing hypothesis,
+especially in PsychAD where the discrepancy is largest.
+
+**Recommendation**
+- **EN membership:** define ExN by the reference-independent marker call (RBFOX3/DCX), *including*
+  `ExN_immature`, rather than `cell_type_aligned`. Add an ambient guard if over-calling is a concern
+  (e.g. RBFOX3≥2, or RBFOX3>max(GAD)), and report sensitivity.
+- **Subtype/layer:** `cell_type_aligned` only, used as a covariate within marker-confirmed EN; young
+  subtype labels are unvalidated.
+- **Decisive next analysis (planned):** per-cell, define ExN by marker, split **mature vs immature**,
+  and compute the C3 age curve within each — especially in PsychAD — to test directly whether a dip
+  is carried by the late-maturing neurons the reference-based labels exclude. Combine cohorts only on
+  the batch-corrected `scanvi_normalized` layer.
