@@ -30,17 +30,40 @@
    artefact of its aging-reference labels; using marker-based labels, young-donor EN fractions are
    normal (~30–50%), and the labeled-EN pseudobulks are EN-pure at all ages (Appendix A).
 
-**Interpretation.** The evidence leans **deflationary**: C3 largely tracks the
-neuron-vs-glia / differentiation (composition) axis. The genuine within-neuron developmental
-program lives in **C1**, not C3. There *is* a robust synaptic-gene-set postnatal decline within
-neurons (consistent with synaptic overproduction→pruning), and because C3+ is enriched for synaptic
-genes this plausibly explains *why C3 hits psychiatric GWAS* — but the maturation **dynamics** are
-not what C3 measures. In short: C3's GWAS relevance is inherited from the synaptic genes it weights,
-not from C3 itself tracking an adolescent maturation program.
+**Interpretation.** Two things are true at once, and separating them resolves the question:
+
+- **As a spatial/cellular *axis*, C3 is composition** (neuron-vs-glia / differentiation). The C3
+  *score* does not track a within-neuron maturation program — the within-neuron developmental axis
+  is **C1** (an ion-channel / intrinsic-excitability program: top C1+ genes are SCN1A/SCN1B,
+  KCNC1/KCNC3 (Kv3), VAMP1; these *rise* within maturing neurons).
+- **But the C3+ *genes* are the synaptic genes, and they do carry a real within-neuron program.**
+  Synaptic genes have a strongly positive mean C3 loading (+0.29 vs ~0 baseline) and they
+  *decline* within neurons postnatally (Q3; robust across cohorts) — consistent with synaptic
+  overproduction→pruning. So the within-neuron developmental story is **ion channels up (C1),
+  synapses down (C3+ genes)** = functional maturation plus pruning.
+
+So the answer to "is there more to C3 than composition?" is: **the C3 component itself is
+composition, but the synaptic genes it up-weights undergo a genuine pruning-related decline within
+neurons.** C3's psychiatric-GWAS relevance is inherited from those synaptic genes (which is *why*
+it hits GWAS), and there *is* a real developmental program in them — but C3-the-axis measures
+*where* synaptic genes are expressed (neurons), not *when* they change. This is a more precise,
+and more defensible, statement than either pure interpretation.
 
 ---
 
 ## Key results
+
+> **Independent corroboration.** A separate, embedding-free analysis line in this repo
+> (`scripts/grn_dev_diagnostics/`, FINAL_REPORT) reached the same deflationary conclusion by a
+> different route: within **native** postnatal ExN (cell_class == Excitatory, raw counts), the C3+
+> score has ~zero coupling to a 9-gene maturity module (PsychAD r≈0.08, Herring r≈−0.10) and ~zero
+> age trend at the donor level (PsychAD r≈+0.09 n.s., Herring r≈−0.11 n.s.) — whereas across *all*
+> cell classes the C3+↔maturity coupling is r≈+0.85 (the neuron-vs-glia contrast). Two independent
+> methods (per-cell maturity-module coupling vs per-gene slope/AHBA alignment) agree: the C3↔age
+> relationship is a cell-type-composition effect, not a within-neuron program. _(That line also
+> flags that a kNN-vote "principled ExN" cell definition is InN-contaminated; our analyses use
+> purity-validated `cell_type_aligned` EN — see Appendix A — and the convergent native-ExN result
+> shows the conclusion is not sensitive to this choice.)_
 
 ### 1. Depth-robustness gate (Step 0)
 
@@ -128,10 +151,22 @@ because the switch is largely perinatal and our window is postnatal.
 *Left: cross-cohort slope replication. Middle: within-EN slope vs C3 weight (flat). Right: synaptic
 gene slopes — predominantly negative across cohorts.*
 
+### What C1 and C3 actually weight (gene identity)
+
+| | top genes / enrichment | within-EN age dynamics |
+|---|---|---|
+| **C1+** | ion channels: SCN1A, SCN1B, KCNC1/KCNC3 (Kv3), VAMP1 — intrinsic excitability / firing maturation | **rise** (slope ↔ C1 weight ρ≈+0.33) |
+| **C3+** | synaptic / adhesion genes (NRXN, NLGN, GRIK, DLG, SHANK…): mean C3 loading **+0.29** vs ~0 baseline | **decline** (the Q3 synaptic-set drop) |
+
+C3 weight also weakly tracks mean expression in neurons (ρ=0.21) — i.e. C3+ partly = "highly
+expressed neuronal genes" — but the synaptic enrichment is specific and is what carries the GWAS
+signal. The net within-neuron developmental program is **ion-channels-up / synapses-down**.
+
 ### Open items
 
 - [x] **De novo within-EN axis (Step 2)** — done: program exists, is C1-aligned not C3, synaptic-set
       decline replicates.
+- [x] **Characterise C1** — done: C1 = ion-channel / intrinsic-excitability maturation axis.
 - [ ] **Normalisation robustness** — current pseudobulk is *sum-counts-then-CPM* (deep-cell biased);
       repeat with *per-cell-CPM-then-mean*. _(sbatch job running)_
 - [ ] **Characterise C1** — what is AHBA C1 biologically, and is the C1↔within-neuron-development

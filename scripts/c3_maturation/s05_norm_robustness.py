@@ -40,8 +40,8 @@ CHUNK = 50_000
 def process(name, cfg, c3_ens):
     print(f"\n=== {name}: {cfg['path']}", flush=True)
     a = ad.read_h5ad(cfg["path"], backed="r")
-    n = a.n_obs
-    print(f"  n_obs={n:,} n_var={a.n_var:,}", flush=True)
+    n = a.shape[0]
+    print(f"  n_obs={n:,} n_var={a.shape[1]:,}", flush=True)
     obs = a.obs
     stcol = "cell_type_aligned"
     subtype = obs[stcol].astype(str).values
@@ -63,7 +63,7 @@ def process(name, cfg, c3_ens):
     # group keys
     gkey = np.array([f"{i}||{s}" for i, s in zip(indiv, subtype)])
     groups = {}  # key -> dict(sum_counts[full], sum_logcpm_c3, ncells, meta)
-    nG = a.n_var
+    nG = a.shape[1]
 
     for start in range(0, n, CHUNK):
         stop = min(start + CHUNK, n)
