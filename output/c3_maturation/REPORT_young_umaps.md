@@ -45,8 +45,11 @@ Comparing native labels to the marker classifier *and* to the excitatory-**speci
 - **Native PsychAD (aging ref) gives a biologically impossible EN:IN ratio in young donors** — 16%
   EN vs **36% IN** (more interneurons than excitatory, the reverse of real cortex ~80:20).
 - So **neither label is reliable for young-donor EN%.** The earlier claim ("marker gives the
-  trustworthy ~40–50% EN") is **withdrawn**. Only **excitatory-specific** markers — SLC17A7/SATB2
-  vs GAD1/GAD2 — can adjudicate, which is why these UMAP panels matter.
+  trustworthy ~40–50% EN") is **withdrawn**. Excitatory-**specific** markers (SLC17A7/SATB2 vs
+  GAD1/GAD2) help — but, as the cluster analysis below (s10) shows, **SLC17A7 alone *under*-counts**
+  (it is a *mature* marker that immature excitatory neurons don't yet express), so the honest
+  conclusion is that young EN identity is **intrinsically ambiguous** and needs cluster/trajectory
+  methods, not any single cutoff.
 
 The same cluster structure and marker-gene territories appear in **both** the scVI-latent and the
 **raw-counts PCA** UMAPs (below), so this is real biology, not a model artefact — you do *not* need
@@ -89,17 +92,63 @@ young cells into Glia/Other (developmentally appropriate — many are progenitor
 "Interneurons". So the *same* RBFOX3-pan-neuronal over-call + unreliable young IN labels appear here
 too; this is **not** a PsychAD-only problem, though PsychAD's aging reference is the worse of the two.
 
+## Cluster-based labeling & embedding quality (s10)
+
+Following the request to use an SLC17A7-**specific** definition, label by **clusters** not per-cell
+cutoffs, fix Velmeshev's broad labels, enlarge the classification panels, and judge whether the
+scVI-UMAP fragmentation reflects a bad embedding.
+
+**Fixed native broad labels.** Velmeshev's stored broad column is `{Glia, Microglia, OPC, Other}` —
+**no EN/IN class** (all neurons → "Other"); PsychAD's is fine. Both broad labels here are now derived
+from the **fine** labels.
+
+**Fragmentation = a UMAP-recompute artefact, not a bad embedding.**
+
+![PsychAD embedding comparison](s10_young_embed_psychad.png)
+![Velmeshev embedding comparison](s10_young_embed_velmeshev_v3.png)
+
+Three embeddings of the same <5y cells (colour = cluster-vote): (left) scVI latent **recomputed on
+the subset** — fragmented; (middle) the **precomputed full-data scVI UMAP** subset to these cells —
+coherent; (right) **raw-counts PCA** — coherent. So the s09 fragmentation was a
+**recompute-on-subset artefact**; the scVI embedding is fine. Quantitatively, Leiden over-segments in
+**both** representations (PsychAD 42 scVI / 31 PCA; Velmeshev 64 / 53) and the **silhouette of
+marker-based labels ≈ 0 in both** (PsychAD 0.03 / −0.04; Velmeshev −0.00 / 0.02) — low separation in
+*both* spaces reflects the **immature, still-differentiating cells**, not scVI.
+
+**Cluster-based labels work and are the right approach.** Leiden clusters labeled by dominant marker
+*signature* track the marker-gene territories cleanly (main figures): SLC17A7/SATB2/NEUROD6 → ExN,
+GAD1/GAD2/SLC32A1/DLX2 → IN, AQP4/PLP1/PDGFRA/CSF1R → glia, SOX2/MKI67 → progenitors, DCX/STMN2 →
+immature. Cluster-vote on model-free **PCA** is preferable to per-cell cutoffs (averages out dropout)
+and to **scANVI** (trained on the unreliable reference labels — avoid for young cells).
+
+![PsychAD main (PCA UMAP)](s10_young_main_psychad.png)
+![Velmeshev main (PCA UMAP)](s10_young_main_velmeshev_v3.png)
+
+**The deeper finding: young EN identity is *intrinsically* ambiguous.** SLC17A7 (VGLUT1) is a
+**mature** excitatory marker — immature excitatory neurons barely express it. So SLC17A7 gating
+(and the cluster-vote) puts most young excitatory-lineage cells in the **Immature/DCX+** pool, not
+"ExN": PsychAD cluster-vote = ExN 12% / InN 34% / Glia 53%; Velmeshev = ExN 22% / **Immature 30%** /
+IN 15% / Glia 33%. So:
+- **RBFOX3** (pan-neuronal) → **over**-counts EN; **SLC17A7** (mature) → **under**-counts EN; and at
+  <5y the truth is a large **immature/transitional pool that markers cannot confidently split into
+  EN vs IN** (silhouette ≈ 0).
+
 ## Verdict & recommendation
 
-1. **Drop RBFOX3 as the EN gate.** It is pan-neuronal; it conflates excitatory with GAD-dropout
-   interneurons. Define excitatory neurons by **SLC17A7 (and/or SATB2) dominance over GAD1/GAD2**
-   (e.g. `SLC17A7 > GAD1` and `SLC17A7 ≥ 1`), with DCX/STMN2 used to *include* immature neurons.
-2. **Do not trust either native or marker EN% in young donors.** Native (aging ref) over-calls IN;
-   marker (RBFOX3) over-calls EN. The true young EN fraction needs the specific-marker gating above.
-3. **The late-maturing population is visible** (SOX2/DCX/NEUROD6 regions) in both datasets and both
-   embeddings — so the late-maturing-ExN dip *can* be tested, but only with the SLC17A7-based,
-   immature-inclusive definition, not the labels used so far.
-4. This **strengthens the caveat** on the within-EN/dip results in `REPORT.md`: they used
-   `cell_type_aligned` (≈ native), which in young PsychAD is both mature-biased *and* mixes in
-   mislabeled IN — so the young end of those analyses is unreliable and must be redone with
-   SLC17A7-based EN membership.
+1. **No single marker cutoff defines young EN.** RBFOX3 over-counts (pan-neuronal), SLC17A7
+   under-counts (mature-only). Use **cluster-based** labeling with a maturation-aware scheme:
+   ExN-lineage = SLC17A7/SATB2/NEUROD6 territory *including* the contiguous DCX+ immature pool that
+   flows into it; IN-lineage = DLX2/GAD territory; progenitors = SOX2/MKI67 — but accept that some
+   <5y cells are irreducibly ambiguous.
+2. **Embedding is adequate; the scVI fragmentation was a viz artefact.** Cluster on raw-counts PCA
+   (model-free) or the precomputed scVI UMAP; do **not** use scANVI for young-cell identity.
+3. **Implication for the dip — important.** The "late-maturing ExN" the dip hypothesis needs are
+   *exactly* this immature, marker-ambiguous pool. So a clean dip test **at the youngest ages is
+   fundamentally limited**, not just a labeling fix. The dip's descending arm is on firmer ground at
+   **~5–20y**, where excitatory neurons express mature identity; the <5y end is intrinsically
+   uncertain. Practical path: (a) restrict the within-EN dip to ages with confident EN identity
+   (≳5y), or (b) use a **pseudotime/trajectory** EN-lineage assignment (progenitor→immature→mature)
+   rather than discrete labels, then test C3 along maturation × age.
+4. This **strengthens** the `REPORT.md` caveat: the within-EN/dip results used `cell_type_aligned`
+   (≈ native), unreliable in young donors; redo with cluster/trajectory-based EN-lineage and restrict
+   firm claims to ages ≳5y.
