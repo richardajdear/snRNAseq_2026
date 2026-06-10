@@ -18,16 +18,25 @@
    maturation program.** If anything there is a *weak postnatal decline* in the C3 score,
    consistent in direction across all three cohorts but individually non-significant
    (meta-analysis p≈0.09). It is **not** upper-layer-specific.
-4. **The data are sound for this question.** PsychAD's notorious "5% EN in young donors" is an
+4. **A reproducible within-neuron developmental program exists — but it is AHBA *C1*, not C3.**
+   Per-gene within-EN age slopes replicate across cohorts (ρ=0.24–0.40) and align with C1
+   (ρ≈+0.33, robust to expression confound), while C3 weight is ~0 / slightly negative. So C3
+   does **not** encode the within-neuron developmental axis.
+5. **There IS a genuine synaptic-gene-set postnatal decline within EN** — synaptic genes decline
+   more than background in all three cohorts, highly significant in clean V3 (Herring MWU
+   p=3.5e-5; U01 p=4e-12; PsychAD p=0.018). This is pruning-consistent, but it is a property of
+   synaptic genes broadly (only partially overlapping C3+), not a distinct "C3 program."
+6. **The data are sound for this question.** PsychAD's notorious "5% EN in young donors" is an
    artefact of its aging-reference labels; using marker-based labels, young-donor EN fractions are
    normal (~30–50%), and the labeled-EN pseudobulks are EN-pure at all ages (Appendix A).
 
-**Interpretation.** So far the evidence leans **deflationary**: C3 largely tracks the
-neuron-vs-glia / differentiation axis. The weak within-EN decline is intriguing and *directionally*
-compatible with a synaptic-overproduction-then-pruning account, but it is **not yet compelling** on
-its own. The projection-of-C3-weights approach may be insensitive inside a pure-EN population (the
-signed contrast is dominated by its synaptic pole against a near-floor glial pole); a **de novo
-within-EN developmental axis** (Step 2, in progress) is the more sensitive next test.
+**Interpretation.** The evidence leans **deflationary**: C3 largely tracks the
+neuron-vs-glia / differentiation (composition) axis. The genuine within-neuron developmental
+program lives in **C1**, not C3. There *is* a robust synaptic-gene-set postnatal decline within
+neurons (consistent with synaptic overproduction→pruning), and because C3+ is enriched for synaptic
+genes this plausibly explains *why C3 hits psychiatric GWAS* — but the maturation **dynamics** are
+not what C3 measures. In short: C3's GWAS relevance is inherited from the synaptic genes it weights,
+not from C3 itself tracking an adolescent maturation program.
 
 ---
 
@@ -85,17 +94,50 @@ Reading:
   either residual V2-depth inflation **or** that the effect is a childhood phenomenon diluted by
   PsychAD's adult-heavy sampling — disentangling these is an open question (see below).
 
-### What would make the within-EN decline compelling (open items)
+### 3. De novo within-EN developmental program, and its (non-)alignment to C3 (Step 2)
 
-- [ ] **Normalisation robustness** — current pseudobulk is *sum-counts-then-CPM* (deep-cell biased).
-      Repeat with *per-cell-CPM-then-mean* (equal cell weight). _(in progress)_
-- [ ] **De novo within-EN axis (Step 2)** — per-gene age slopes within EN; do C3's high-weight
-      (synaptic) genes change with age within neurons, beyond composition (PC1)? More sensitive
-      than the aggregate score. _(next)_
-- [ ] **Matched age windows** — compare cohorts on a common child→adolescent window to separate
-      "childhood effect diluted in adults" from "V2-depth inflation".
-- [ ] **Per-gene anchoring** — is the declining signal carried by synaptic genes (SynGO; the prior
-      NRXN1/NLGN1/GRIK… drop)? Ties to GWAS.
+Rather than projecting C3 weights, we compute **per-gene** within-EN age slopes (log1p CPM
+residualised on subtype + depth) in each cohort, and ask three questions.
+
+**Q1 — does a within-neuron developmental program exist & replicate?** Yes. The per-gene slope
+vectors correlate across cohorts (Spearman ρ): PsychAD-V3↔Herring-V3 **0.26**, PsychAD-V3↔U01-V2
+**0.24**, Herring-V3↔U01-V2 **0.40**. A reproducible within-EN program is present even though the
+aggregate C3 score barely moved.
+
+**Q2 — is that program C3?** **No — it is C1.** Spearman(per-gene slope, AHBA weight):
+
+| cohort | C1 | C2 | C3 |
+|---|---|---|---|
+| PsychAD-V3 | **+0.33** | −0.01 | −0.03 |
+| Herring-V3 | **+0.22** | +0.07 | −0.08 |
+| U01-V2 | **+0.18** | +0.05 | −0.14 |
+
+The C1 alignment is **not** an expression-level artefact: partialling on mean expression leaves it
+essentially unchanged (PsychAD C1: 0.326 → 0.322; C3 stays ≈ −0.04). So the within-neuron
+developmental axis is captured by **C1**, and C3 weight does not predict within-neuron dynamics.
+
+**Q3 — are the dynamic genes synaptic (pruning)?** Yes, at the set level. Canonical synaptic genes
+(incl. the prior NRXN1/NLGN1/GRIK… set) decline within EN more than background in **all three
+cohorts**: MWU p = 0.018 (PsychAD-V3), **3.5e-5 (Herring-V3, clean V3)**, 4e-12 (U01-V2). Individual
+slopes are small (≈ −0.01 to −0.05 log1p-CPM/yr); the signal is robust at the set level.
+Canonical maturation *switches* (GRIN2B→GRIN2A, KCC2/NKCC1) are **not** cleanly recovered — likely
+because the switch is largely perinatal and our window is postnatal.
+
+![Step 2 de novo within-EN](s06_denovo_within_en.png)
+
+*Left: cross-cohort slope replication. Middle: within-EN slope vs C3 weight (flat). Right: synaptic
+gene slopes — predominantly negative across cohorts.*
+
+### Open items
+
+- [x] **De novo within-EN axis (Step 2)** — done: program exists, is C1-aligned not C3, synaptic-set
+      decline replicates.
+- [ ] **Normalisation robustness** — current pseudobulk is *sum-counts-then-CPM* (deep-cell biased);
+      repeat with *per-cell-CPM-then-mean*. _(sbatch job running)_
+- [ ] **Characterise C1** — what is AHBA C1 biologically, and is the C1↔within-neuron-development
+      link itself interesting?
+- [ ] **Matched age windows** — separate "childhood effect diluted in adults" from "V2-depth
+      inflation" across cohorts.
 
 ---
 
@@ -152,6 +194,15 @@ genes are near-floor, so the score is effectively driven by the C3+ (synaptic/ne
   correlate within that cohort) is handled by separating cohorts and leaning on the two **V3**
   cohorts, where the same-direction decline appears without any V2 data.
 
+### De novo within-EN slopes (Step 2)
+
+Per cohort, on mature-EN postnatal pseudobulks, each gene's log1p(CPM) and age are residualised on
+[subtype dummies + log10 depth] and the per-gene slope is cov(resid_expr, resid_age)/var(resid_age).
+This is a within-subtype, depth-controlled developmental slope. Alignment to AHBA components uses
+Spearman correlation over shared genes; the synaptic set is a curated list of canonical
+synaptic/maturation genes (NRXN/NLGN/GRIK/GRM/DLG/SHANK/GRIN/GRIA/GABR/… incl. the prior drop set),
+compared to all genes by Mann–Whitney U.
+
 ### Pseudobulk normalisation — current choice and caveat
 
 The current scores use **sum-counts-then-CPM** (the standard pseudobulk library-size
@@ -201,7 +252,9 @@ cells at all ages.
 | `s00b_depth_harness.py` | Step 0 depth-robustness gate → `signed_logcpm` |
 | `s01a/s01b/s01c…` | Step 1 development (per-subtype, confound check, PsychAD) |
 | `s03_sanity_composition_markers.py` | Appendix A composition + marker purity |
-| `s04_within_en_cohorts.py` | **headline** 3-cohort within-EN trajectory + layer split + meta |
+| `s04_within_en_cohorts.py` | 3-cohort within-EN aggregate trajectory + layer split + meta |
+| `s05_norm_robustness.py` | (sbatch) sum-CPM vs per-cell-CPM-then-mean robustness |
+| `s06_denovo_within_en.py` | **Step 2** per-gene within-EN program, C3/C1 alignment, synaptic set |
 
 Run pattern (login-safe, small pseudobulks):
 `singularity exec --pwd $PWD <sif> micromamba run -n shortcake_default python3 -u scripts/c3_maturation/<script>.py`
