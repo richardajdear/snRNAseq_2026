@@ -695,8 +695,47 @@ def step_umap(cfg: dict, output_dir: Path, logger: logging.Logger) -> None:
     _run(cmd, logger)
 
 
+def step_gpu_umaps(cfg: dict, output_dir: Path, config_path: str,
+                   logger: logging.Logger) -> None:
+    """Compute GPU-accelerated UMAPs for configured cell subsets.
+
+    Reads the diagnostic_umaps section from cfg and calls pipeline.gpu_umaps,
+    which materialises one subset at a time to keep peak memory low.
+
+    Outputs land in <output_dir>/plots/<subset_name>/.
+    Requires a GPU node with shortcake_full.sif / shortcake_rapidsc env.
+    See step5_umaps_gpu.sh for the matching SLURM script.
+    """
+    logger.info("=" * 60)
+    logger.info("STEP: GPU_UMAPS")
+    logger.info("=" * 60)
+
+    integrated_path = output_dir / 'scvi_output' / 'integrated.h5ad'
+    if not integrated_path.exists():
+        logger.error(
+            f"integrated.h5ad not found: {integrated_path}. "
+            "Run the scvi step first."
+        )
+        sys.exit(1)
+
+    plots_dir = output_dir / 'plots'
+    logger.info(f"  GPU UMAP → {plots_dir}")
+    cmd = [
+        sys.executable, '-m', 'pipeline.gpu_umaps',
+        '--config', config_path,
+        '--input', str(integrated_path),
+        '--output_dir', str(plots_dir),
+    ]
+    _run(cmd, logger)
+
+
 def step_diagnostics(cfg: dict, output_dir: Path, logger: logging.Logger) -> None:
-    """Re-run scANVI diagnostics on an existing integrated.h5ad (no model re-run needed)."""
+    """Re-run scANVI diagnostics on an existing integrated.h5ad (no model re-run needed).
+
+    CPU-only step — use step6_diagnostics.sh (icelake, shortcake_scvi.sif).
+    Does NOT compute UMAPs; run step_gpu_umaps / step5_umaps_gpu.sh first if
+    the UMAP coordinates are not already stored in integrated.h5ad.
+    """
     logger.info("=" * 60)
     logger.info("STEP: DIAGNOSTICS")
     logger.info("=" * 60)
@@ -731,7 +770,8 @@ def main():
                         help='Path to pipeline_config.yaml')
     parser.add_argument('--steps', nargs='+',
                         choices=['downsample', 'combine', 'scvi', 'scanvi', 'label_transfer',
-                                 'umap', 'diagnostics', 'pseudobulk', 'notebook', 'all'],
+                                 'umap', 'gpu_umaps', 'diagnostics', 'pseudobulk', 'notebook',
+                                 'all'],
                         default=['all'],
                         help='Which steps to run (default: all)')
     parser.add_argument('--overwrite', action='store_true',
@@ -797,6 +837,9 @@ def main():
 
     if 'umap' in steps:
         step_umap(cfg, output_dir, logger)
+
+    if 'gpu_umaps' in steps:
+        step_gpu_umaps(cfg, output_dir, args.config, logger)
 
     if 'diagnostics' in steps:
         step_diagnostics(cfg, output_dir, logger)

@@ -72,8 +72,37 @@ notebook:
       cell_class_col: cell_class_original
       cell_class_value: Excitatory
 
+diagnostic_umaps:
+  # GPU UMAP computation (step5_umaps_gpu.sh / step_gpu_umaps).
+  # Each subset is loaded independently to avoid peak-memory spikes.
+  # Output: <output_dir>/plots/<subset_name>/umap_grid.png + individual PNGs.
+  embeddings:
+    - key: X_pca      # computed on-the-fly from expression via rsc.pp.pca
+      compute_pca: true
+      n_pcs: 50
+    - key: X_scVI     # read from obsm
+    - key: X_scANVI   # read from obsm
+  n_neighbors: 30
+  min_dist: 0.3
+  subsets:
+    - name: all_cells
+      # no filter = entire dataset
+    - name: excitatory
+      filter:
+        cell_class: Excitatory
+    - name: neurons
+      filter:
+        cell_class: [Excitatory, Inhibitory]
+  color_by:
+    - cell_class
+    - cell_type_aligned
+    - source
+    - age_years
+    - cell_type_aligned_confidence
+
 steps:
   # - pseudobulk
   # - notebook
-  - diagnostics
+  - gpu_umaps   # step5_umaps_gpu.sh  (GPU, shortcake_full.sif / shortcake_rapidsc)
+  - diagnostics # step6_diagnostics.sh (CPU, shortcake_scvi.sif)
 overwrite: false

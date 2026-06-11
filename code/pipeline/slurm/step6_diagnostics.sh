@@ -1,6 +1,6 @@
 #!/bin/bash
-#SBATCH --output=/home/rajd2/rds/hpc-work/snRNAseq_2026/logs/%j_step5_diagnostics.out
-#SBATCH --error=/home/rajd2/rds/hpc-work/snRNAseq_2026/logs/%j_step5_diagnostics.err
+#SBATCH --output=/home/rajd2/rds/hpc-work/snRNAseq_2026/logs/%j_step6_diagnostics.out
+#SBATCH --error=/home/rajd2/rds/hpc-work/snRNAseq_2026/logs/%j_step6_diagnostics.err
 #SBATCH --time=03:00:00
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
@@ -8,21 +8,24 @@
 #SBATCH --mem=212G
 #SBATCH --account=vertes-sl2-cpu
 
-# LEGACY: CPU-only UMAPs + scANVI diagnostics in a single job.
+# Run scANVI label-transfer diagnostics on an existing integrated.h5ad.
 #
-# Prefer the split approach for new runs:
-#   step5_umaps_gpu.sh    — GPU UMAP computation  → plots/
-#   step6_diagnostics.sh  — CPU scANVI diagnostics → scanvi_diagnostics/
+# CPU-only step — does NOT compute UMAPs.  Run step5_umaps_gpu.sh first to
+# produce UMAP coordinates if they are not already stored in integrated.h5ad.
 #
-# Keep this script for backward compatibility or when no GPU is available.
-# Runs --steps umap diagnostics on CPU (icelake, shortcake_scvi.sif).
+# Use this step when:
+#   - step2 (scVI+scANVI) completed and integrated.h5ad exists, OR
+#   - step2_scvi_resume_infer regenerated integrated.h5ad after a timeout.
 #
 # Reads:  <output_dir>/scvi_output/integrated.h5ad
 # Writes: <output_dir>/scanvi_diagnostics/
 #
+# Does NOT retrain or reload any model.  Does NOT require GPU.
+# For GPU UMAP plots (plots/) use step5_umaps_gpu.sh.
+#
 # Usage:
-#   sbatch --export=ALL,CONFIG=code/pipeline/configs/postnatal_source-chemistry_hpc_config_tuning2.yaml \
-#          code/pipeline/slurm/step5_diagnostics.sh
+#   sbatch --export=ALL,CONFIG=code/pipeline/configs/Vel_prepost_noage_tuning5.yaml \
+#          code/pipeline/slurm/step6_diagnostics.sh
 
 set -euo pipefail
 
@@ -34,7 +37,7 @@ CONFIG="${CONFIG:-code/pipeline/configs/source_hpc_config.yaml}"
 mkdir -p "${WORK_DIR}/logs"
 
 echo "========================================"
-echo "STEP 5: scANVI diagnostics"
+echo "STEP 6: scANVI diagnostics (CPU)"
 echo "Job ID:    ${SLURM_JOB_ID}"
 echo "Node:      $(hostname)"
 echo "Config:    ${CONFIG}"
@@ -50,7 +53,7 @@ singularity exec \
     micromamba run -n scvi-scgen-scmomat-unitvelo \
     env PYTHONPATH="code" python3 -m pipeline.run_pipeline \
         --config "${CONFIG}" \
-        --steps umap diagnostics
+        --steps diagnostics
 
 _ELAPSED=$(( $(date +%s) - _JOB_START ))
 _TIME_LIMIT=$(squeue -j "${SLURM_JOB_ID}" -h -o "%l" 2>/dev/null || echo "N/A")
@@ -64,4 +67,4 @@ echo "Resource usage:"
 echo "  Time:   $(( _ELAPSED/3600 ))h $(( (_ELAPSED%3600)/60 ))m $(( _ELAPSED%60 ))s  /  ${_TIME_LIMIT} allocated"
 echo "  Memory: ${_MAX_RSS} peak RSS  /  ${_ALLOC_MEM_GB}G allocated"
 echo "========================================"
-echo "Step 5 diagnostics complete: $(date)"
+echo "Step 6 diagnostics complete: $(date)"
