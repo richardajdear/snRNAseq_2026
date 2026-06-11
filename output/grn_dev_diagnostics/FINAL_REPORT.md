@@ -926,27 +926,46 @@ highlighted in red. The key empirical finding:
 
 C3+ genes are consistently detected even in V2's shallow cells (they are
 well-expressed synaptic genes), so the dropout effect that drives most genes
-negative is minimal for them. Crucially, the depth artefact is **not** the
-source of the positive C3+ module score (d = +2.47 in §1.1): the per-gene
-mean d for C3+ is −0.06, which is in the *opposite* direction to the headline
-figure — the positive module score runs **counter to** the depth artefact.
+negative is minimal for them.
 
-This resolves an apparent contradiction: the negative background (−0.34) and
-the C3+ elevation (above background by ~+0.28) co-exist because the background
-is driven by the many very-rare genes that disappear into dropout in shallow
-cells, while C3+ genes escape this at their expression level. However, the
-summary CSV (`x_v2_confound_summary.csv`) column `c3_expr_matched_bg_d = −0.32`
-shows that even at the expression levels of C3+ genes, other non-C3+ genes are
-strongly suppressed — confirming that the C3+ resistance is *specific to the
-gene set*, not an expression-level artefact.
+**Why this looks contradictory but isn't — two different measurements.**
+The per-gene pseudobulk d and the headline module score d = +2.47 measure
+entirely different quantities:
 
-The reason to exclude V2 is not that the depth artefact creates the C3+ signal
-(it doesn't — it slightly suppresses it). Rather: **the statistical reference
-distribution is so corrupted** (background −0.34, 66 % of genes |d| > 0.5)
-that the gene-enrichment test (p = 3e-24, §4.2) cannot be trusted — the
-biased background makes C3+ membership appear more enriched than it truly is.
-The module-score effect size +2.47 is also unreliable with only 8 child and 9
-adolescent donors. Neither number should be quoted as a calibrated estimate.
+- *x_v2_confound.py per-gene d* uses **pseudobulk log1p-CPM**: raw counts are
+  summed across all cells per donor, then converted to CPM, then log1p.
+  Pseudobulk CPM is approximately depth-invariant (numerator = total
+  gene counts ∝ depth, denominator = total UMI ∝ depth), so these per-gene
+  log1p-CPM values are near-neutral for well-expressed genes. Mean C3+ per-gene
+  d ≈ −0.06 is basically zero — consistent with no depth artefact and no
+  strong per-gene signal in this representation.
+
+- *§1.1 module score d* uses **per-cell raw CPM**: each cell's C3+ score =
+  `Σ(weight_g × count_g) / total_UMI_cell × 1e6`. This is also
+  depth-invariant in expectation (same cancellation), but captures the
+  **weighted aggregate** across 3,462 genes in individual cells. Per-donor =
+  average across thousands of cells. Inspecting the actual per-donor scores:
+  all 8 V2 child donors score 100–115 k CPM; all 9 adolescent donors score
+  84–104 k CPM — a clean separation. Depth–C3+ correlation *within* each age
+  group is non-significant (ρ = −0.36 in children, +0.47 in adolescents),
+  ruling out depth as the driver of the gap.
+
+These two numbers (−0.06 per-gene, +2.47 module) are compatible because the
+aggregated weighted module score is a far more sensitive and stable measure of
+the C3+ programme than the mean of 3,462 individual per-gene estimates in a
+sample of only 8 vs 9 pseudobulk donors.
+
+**The reason to exclude V2 is not that the depth artefact creates the module
+score signal** (it is depth-invariant and appears real at the per-cell level).
+Rather: **(1)** the pseudobulk log1p-CPM reference distribution is so corrupted
+(background −0.34, 66 % of genes |d| > 0.5) that the gene-enrichment test
+(p = 3e-24, §4.2) cannot be trusted — the biased background means C3+
+membership appears more enriched than a clean baseline would show. **(2)** The
+module-score d = +2.47 is not a calibrated effect size with only 8 vs 9 donors
+— the direction is consistent with V3 (q0 d = +0.49, clean background) but the
+magnitude is inflated, likely by small n and V2-specific capture biases. **(3)** V2 and V3 are the *same study*; V3
+already carries the Velmeshev evidence with a clean statistical background.
+Including V2 adds no independent evidence and imports a corrupted reference.
 
 **Why V2 and not PsychAD, which also has a depth–age gap?** Two factors
 compound: the *ratio* imbalance (V2's 0.41 is the worst) and, crucially, the
