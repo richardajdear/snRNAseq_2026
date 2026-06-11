@@ -33,6 +33,46 @@ from .visualize import compute_umaps, plot_umap_grids, plot_pca_grids, plot_exci
 from pipeline.label_transfer.transfer import aligned_to_class
 
 
+def _write_adata_chunked(adata, path, chunk_rows=10_000, logger=None):
+    """Write adata to h5ad, writing np.memmap layers in row-chunks via h5py.
+
+    adata.write_h5ad() calls numpy.asarray(layer) which loads an entire memmap
+    into RAM. This function detects memmap layers, writes everything else via
+    anndata, then appends the large layers incrementally using h5py directly.
+    Peak RAM per layer is chunk_rows × n_genes × 4 bytes (~600 MB at 10k rows).
+    """
+    import h5py
+
+    memmap_layers = {k: v for k, v in adata.layers.items()
+                     if isinstance(v, np.memmap)}
+
+    if not memmap_layers:
+        adata.write_h5ad(str(path))
+        return
+
+    for k in memmap_layers:
+        del adata.layers[k]
+    try:
+        adata.write_h5ad(str(path))
+    finally:
+        for k, v in memmap_layers.items():
+            adata.layers[k] = v
+
+    with h5py.File(str(path), 'a') as h5f:
+        layers_grp = h5f.require_group('layers')
+        for lname, arr in memmap_layers.items():
+            n_rows, n_cols = arr.shape
+            ds = layers_grp.create_dataset(
+                lname, shape=(n_rows, n_cols), dtype='float32',
+                chunks=(min(chunk_rows, n_rows), n_cols),
+            )
+            for start in range(0, n_rows, chunk_rows):
+                end = min(start + chunk_rows, n_rows)
+                ds[start:end] = np.asarray(arr[start:end])
+            if logger:
+                logger.info(f"  Wrote layer '{lname}' ({n_rows}×{n_cols}) to {path}")
+
+
 def _update_cell_class_from_aligned(adata, logger):
     """Recompute cell_class from cell_type_aligned using aligned_to_class mapping.
 
@@ -328,6 +368,10 @@ def run(config: PipelineConfig):
         gc.collect()
         log_memory("After freeing old normalized layers", logger)
 
+        # File-backed temp dir for memmap output arrays — avoids holding 2×56 GB in RAM simultaneously
+        _temp_dir = config.temp_dir or str(config._resolved_output_dir / "tmp_inference")
+        logger.info(f"Inference temp dir (memmap files): {_temp_dir}")
+
         # Load scVI/LDVAE model if not in memory
         if scvi_model is None and config.run_scvi_inference:
             from scvi.model import SCVI
@@ -356,6 +400,7 @@ def run(config: PipelineConfig):
                     device_info=device_info,
                     logger=logger,
                     layer_name=config.output_layer_scvi,
+                    temp_dir=_temp_dir,
                 )
             log_memory("After scVI inference", logger)
 
@@ -405,6 +450,7 @@ def run(config: PipelineConfig):
                     device_info=device_info,
                     logger=logger,
                     layer_name=config.output_layer_scanvi,
+                    temp_dir=_temp_dir,
                 )
             log_memory("After scANVI inference", logger)
 
@@ -423,8 +469,17 @@ def run(config: PipelineConfig):
 
     # --- SAVE ---
     if "save" in steps and adata is not None:
-        save_checkpoint(adata, str(config.output_h5ad_path), logger)
+        with Timer(f"Saving to {config.output_h5ad_path}", logger):
+            _write_adata_chunked(adata, config.output_h5ad_path, chunk_rows=10_000, logger=logger)
+        logger.info(f"Saved: {adata.shape}")
         _export_pca_loadings_csv(adata, config, logger)
+
+        # Remove temp memmap files now that layers are safely written to h5ad
+        import shutil
+        _temp_dir_path = Path(config.temp_dir or str(config._resolved_output_dir / "tmp_inference"))
+        if _temp_dir_path.exists():
+            shutil.rmtree(str(_temp_dir_path), ignore_errors=True)
+            logger.info(f"Cleaned up temp inference files: {_temp_dir_path}")
 
     logger.info("=" * 60)
     logger.info("Pipeline complete.")

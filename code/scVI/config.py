@@ -62,6 +62,7 @@ class PipelineConfig:
     output_layer_scvi: str = "scvi_normalized"
     output_layer_scanvi: str = "scanvi_normalized"
     save_npy_backup: bool = False
+    temp_dir: Optional[str] = None  # directory for memmap files during inference; defaults to {output_dir}/tmp_inference/
 
     # -- UMAP --
     umap_n_neighbors: int = 30

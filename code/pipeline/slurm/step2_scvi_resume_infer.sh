@@ -33,7 +33,7 @@
 #SBATCH --ntasks=1
 #SBATCH --partition=ampere
 #SBATCH --gres=gpu:1
-#SBATCH --mem=100G
+#SBATCH --mem=160G
 #SBATCH --account=vertes-sl2-gpu
 
 set -euo pipefail

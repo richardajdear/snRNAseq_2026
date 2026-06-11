@@ -1,0 +1,102 @@
+# snRNAseq Pipeline Config — HPC, Pearson residuals HVG, prepost + source-chemistry batch correction
+#
+# TEST: disk-backed (memmap) inference to fix scVI OOM on 939k-cell dataset.
+# Chunked inference output now writes to a temp file-backed memmap rather than
+# a pre-allocated numpy array, keeping RAM flat (~120 GB) across both scVI and
+# scANVI passes. Resubmitted 2026-06-11 after job 30321316 OOM-killed at chunk
+# 11/27 of scANVI inference (204 GB RSS vs 200 GB SLURM limit).
+#
+# Uses a combined per-cell batch column created in downsample.py:
+#   source-chemistry = source + '-' + chemistry
+#
+# VELMESHEV is filtered to V3 chemistry only (chemistry_filter: [V3]).
+# No n_cells cap on anything
+#
+# Submit via:
+#   cd /home/rajd2/rds/hpc-work/snRNAseq_2026
+#   bash code/pipeline/slurm/submit_pipeline.sh code/pipeline/configs/prepost_V3only_tuning5_nocap.yaml
+
+output_dir: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/VelWangPsychAD_V3only_tuning5_nocap
+
+sources:
+  - name: WANG
+    path: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/wang/wang.h5ad
+    dataset_type: Wang
+    cell_type_field: "Type_updated"
+    pfc_only: true
+    max_age: 30
+
+  - name: VELMESHEV
+    path: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/velmeshev/velmeshev.h5ad
+    dataset_type: Velmeshev
+    cell_type_field: "Cell_Type"
+    pfc_only: true
+    chemistry_filter: [V3]
+    max_age: 30
+
+  - name: PSYCHAD
+    paths:
+      aging: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_PsychAD/RNAseq/Aging_Cohort.h5ad
+      hbcc:  /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_PsychAD/RNAseq/HBCC_Cohort.h5ad
+    dataset_type: PsychAD
+    cell_type_field: "subclass"
+    pfc_only: true
+    max_age: 30
+
+age_downsample: false
+postnatal_only: false
+seed: 42
+
+scvi:
+  n_top_genes: 15000
+  hvg_flavor: pearson_residuals
+  hvg_batch_key: source-chemistry
+  batch_key: source-chemistry
+  n_latent: 30
+  n_hidden: 512
+  n_layers: 3
+  gene_likelihood: zinb
+  max_epochs_scvi: 400
+  batch_size: 512
+  early_stopping: true
+  early_stopping_patience: 20
+  num_workers: 16
+  transform_batch: VELMESHEV-V3
+  continuous_covariate_keys: []
+  categorical_covariate_keys: [sex]
+
+scanvi_label_transfer:
+  enabled: true
+  label_column: cell_type_for_scanvi
+  max_epochs_scanvi: 100
+  scanvi_lr: 0.0001  # 10x lower than default to prevent NaN explosion when fine-tuning from scVI weights
+  confidence_threshold: 0.5
+
+pseudobulk:
+  layers:
+    - name: counts
+      aggregation: sum
+    - name: scvi_normalized
+      aggregation: mean
+    - name: scanvi_normalized
+      aggregation: mean
+  min_cells: 100
+  groups:
+    - name: by_cell_class
+      group_cols: [individual, cell_class]
+
+notebook:
+  template: notebooks/templates/grn_dev_multi/grn_dev_multi.qmd
+  pseudobulk_inputs:
+    - name: by_cell_class_Excitatory
+      group: by_cell_class
+      cell_class_col: cell_class
+      cell_class_value: Excitatory
+
+steps:
+  # - downsample  # combined.h5ad already built; skip to go straight to step 2
+  - scvi
+  - pseudobulk
+  - notebook
+  - diagnostics
+overwrite: false

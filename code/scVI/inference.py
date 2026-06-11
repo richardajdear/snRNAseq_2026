@@ -1,8 +1,10 @@
 """Chunked inference for batch-corrected normalized expression with OOM retry."""
 
 import logging
+import os
 import sys
 import psutil
+from pathlib import Path
 from typing import Optional
 
 import anndata as ad
@@ -22,6 +24,7 @@ def get_normalized_expression(
     device_info: dict,
     logger: logging.Logger,
     layer_name: str = "scvi_normalized",
+    temp_dir: Optional[str] = None,
 ) -> np.ndarray:
     """
     Extract batch-corrected normalized expression via chunked inference.
@@ -70,10 +73,21 @@ def get_normalized_expression(
 
     logger.info(f"Mapping {n_mapped} HVG genes into full gene space ({n_all_genes})")
 
-    # Pre-allocate the full output once. Chunks write directly into slices of
-    # this array, avoiding a growing chunks list, np.vstack, and a separate
-    # zeros array all existing in RAM simultaneously (~56 GB saved at peak).
-    full_result = np.zeros((n_cells, n_all_genes), dtype=np.float32)
+    # Allocate the full output array. When temp_dir is provided, use a
+    # file-backed memmap so the OS can evict pages after each chunk flush,
+    # keeping RAM usage flat even when two 56 GB layers exist simultaneously.
+    if temp_dir is not None:
+        os.makedirs(temp_dir, exist_ok=True)
+        tmp_path = Path(temp_dir) / f"{layer_name}_{os.getpid()}.dat"
+        full_result = np.memmap(str(tmp_path), dtype='float32', mode='w+',
+                                shape=(n_cells, n_all_genes))
+        logger.info(
+            f"Inference output backed by {tmp_path} "
+            f"(memmap, ~{n_cells * n_all_genes * 4 / 1e9:.1f} GB on disk)"
+        )
+    else:
+        full_result = np.zeros((n_cells, n_all_genes), dtype=np.float32)
+
     adata_full.layers[layer_name] = full_result  # adata shares the same buffer
 
     _chunked_inference(
@@ -90,11 +104,17 @@ def get_normalized_expression(
 
     logger.info(f"Stored in adata.layers['{layer_name}'] shape={full_result.shape}")
 
-    # Optional .npy backup
+    # Optional .npy backup (incompatible with memmap — np.save loads the full array)
     if config.save_npy_backup:
-        npy_path = config._resolved_output_dir / f"{layer_name}.npy"
-        np.save(str(npy_path), full_result)
-        logger.info(f"Backup saved: {npy_path}")
+        if isinstance(full_result, np.memmap):
+            logger.warning(
+                f"save_npy_backup skipped for '{layer_name}': layer is file-backed (memmap). "
+                "It will be written to the final h5ad instead."
+            )
+        else:
+            npy_path = config._resolved_output_dir / f"{layer_name}.npy"
+            np.save(str(npy_path), full_result)
+            logger.info(f"Backup saved: {npy_path}")
 
     return full_result
 
@@ -158,6 +178,8 @@ def _chunked_inference(
             if streaming:
                 output[start_idx:end_idx, output_col_indices] = result.values[:, input_col_mask]
                 del result
+                if hasattr(output, 'flush'):
+                    output.flush()  # msync: pages become clean and evictable under memory pressure
             else:
                 chunks.append(result.values)
             del chunk_adata
