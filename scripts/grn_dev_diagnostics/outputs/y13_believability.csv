@@ -1,0 +1,4 @@
+source,n,principled_exn,native_exc,recall_of_native_exc,leak_from_non_exc,frac_pexn_that_is_native_exc
+PSYCHAD,200000,59909,43751,0.976,0.11,0.713
+VELMESHEV,315903,171636,151792,0.857,0.253,0.758
+WANG,111752,49992,51011,0.784,0.164,0.8

@@ -1,10 +1,15 @@
 # Does AHBA C3+ track childhood→adolescent synaptic maturation in human DLPFC? — PsychAD vs Velmeshev/Herring
 
-*Revised answer (2026-06-08): C3+ robustly indexes neuronal **maturation state**
-(mature cells carry more C3+); evidence that it encodes a developmental **time**
-signal across childhood/adolescence is **weak** once the Velmeshev-V2 technical
-artefact and immature-interneuron contamination of the ExN pool are removed. See
-§0 (framing) and §0.5 (revision).*
+*Final answer (2026-06-10): the pointed test — within postnatal **excitatory
+neurons**, using embedding-independent native labels + raw counts — is **null**.
+C3+ shows no coupling to the synaptic-maturity module (r ≈ 0, was +0.85 across
+all cell classes) and **no childhood→adolescent age trend** (r ≈ 0, n.s. in both
+PsychAD and Herring). The previously reported maturity coupling and developmental
+decline are **cell-type-composition artefacts**; C3+ rises with maturation only
+across coarse contrasts (prenatal→postnatal, neuron > glia), not within
+excitatory neurons. **§0.7 is authoritative.** §0.5/§0.6 (the principled-ExN and
+maturation-state revisions) and §§1–5 + Appendices are the superseded path and
+provenance.*
 
 ## 0. The question
 
@@ -76,6 +81,12 @@ definition (Appendix A.1) is the central methods point of this revision.**
 ---
 
 ## 0.5. Major revision (2026-06-08): a principled ExN definition halves the effect
+
+> **⚠ Further superseded by §0.7 (2026-06-10).** The "principled ExN" set used
+> below is itself **inhibitory-contaminated** (≈19 % native InN; `y13`), so the
+> +0.22 it produces is unreliable; the clean within-ExN test (§0.7) takes the
+> developmental effect to ~0. Read §0.5–§0.6 as the path to §0.7, not as the
+> conclusion.
 
 **What changed and why.** Every C3+ number in the original report was computed
 on excitatory neurons selected by a **marker rule** (`annotation_by_markers.py`:
@@ -198,16 +209,88 @@ comparison remains the two V3 datasets (PsychAD-V3 vs Herring).
 
 ---
 
+## 0.7 Final round (2026-06-10): the clean within-ExN test is null — prior signals were composition
+
+Two **embedding-independent** re-analyses — native `cell_class == "Excitatory"`
++ raw counts, no scVI latent, so they do not depend on the integration quality
+that clouds everything else — collapse **both** headline signals. These are the
+most trustworthy tests in the whole project.
+
+**(1) The +0.85 per-cell C3+↔maturity-module correlation is a cell-class
+composition artefact** (`y14_depth_decomp_exn.*`). Restricting to native
+excitatory neurons (ages 1–25 y):
+
+| r(C3+, module) | all cells | **native ExN** | partial(depth+ngene) | within-donor | donor-pseudobulk |
+|---|---:|---:|---:|---:|---:|
+| PsychAD | 0.85 | **0.08** | 0.02 | 0.12 | −0.19 |
+| Velmeshev (Herring) | 0.84 | **−0.10** | −0.16 | 0.04 | −0.27 |
+
+The +0.85 was the **neuron-vs-glia** contrast (both scores high in neurons, low
+in glia). Within real excitatory neurons C3+ and the maturity module do **not**
+co-vary (and are slightly *negative* at donor level). This supersedes Strand 1
+(§2/§0.6 "C3+ rises with single-cell maturity") *within the postnatal ExN
+window*: the maturation-state correlation is carried by cross-cell-class and
+prenatal→postnatal structure, not by within-ExN biology.
+
+**(2) The childhood→adolescent decline is also a composition artefact**
+(`y15_age_pseudobulk_exn.*`). Donor-pseudobulk vs age, native ExN:
+
+| | all cells | **native ExN (Spearman, p)** |
+|---|---:|---:|
+| PsychAD C3+ vs age (69 donors) | −0.02 | **+0.09 (0.49)** |
+| Velmeshev C3+ vs age (15 donors) | −0.41 | **−0.11 (0.70)** |
+| PsychAD module vs age | −0.04 | +0.24 (0.05) |
+| Velmeshev module vs age | −0.47 | −0.03 (0.93) |
+
+The Velmeshev −0.41 (the strongest surviving "decline") drops to **−0.11, n.s.**
+once cell type is held fixed — it was the cell-type *mix* shifting with age, not
+C3+ changing inside neurons. No cohort shows a C3+ age trend within ExN. This
+supersedes the **maturity-q0 device** (§1, §3, B.2): its residual +0.12–0.46
+rested on the marker-rule / principled ExN definitions (shown contaminated
+below) and is **not** corroborated by the clean within-ExN test. The only
+nominal within-ExN signal is PsychAD *module* rising slightly with age (+0.24,
+p=0.05) — the opposite direction to a childhood synaptic peak.
+
+**(3) Why the principled-ExN definition cannot rescue the §0.5 numbers**
+(`y13_*`, believability on the good embedding). The principled set (basis for
+§0.5's +0.22) is **inhibitory-contaminated**: 18.7 % of PsychAD principled-ExN
+cells are native **Inhibitory** (≈30 % of all native InN flipped in); recall of
+true ExN is 97.6 %, so it over-includes rather than misses. The user's "oligos
+called ExN" worry is **not** borne out — Oligo / Astro / Microglia leak each
+< 2.5 %. Cause: the kNN lineage-vote is structurally ExN-biased — confident
+anchors are **131 k ExN vs only 18 k InN** (the GAD≥10 bar starves the InN
+side), so the 234 k ambiguous immature neurons vote ExN by default. The
+embedding places cell types well (low glia leak confirms it); the *vote
+threshold* is miscalibrated. So the clean, embedding-independent **native-ExN**
+definition is preferred over both the marker rule and the principled set — and
+it is null.
+
+**Updated bottom line.** Across coarse contrasts C3+ rises with maturation
+(prenatal→postnatal; neuron > glia) — real but blunt. But the pointed question
+of this report — does C3+ track childhood→adolescent synaptic maturation *within
+excitatory neurons* — answers **no** on the cleanest available test: within
+postnatal native ExN, C3+ has no module coupling and no age trend, in either
+cohort, embedding-independently. The earlier positive strands (+0.85 maturity
+coupling, q0/Herring developmental decline, the U-shaped age axis of §0.6) were
+composition and/or ExN-misdefinition artefacts. The **one** strand not yet
+refuted on clean cells is the gene-level *membership* enrichment in Herring
+(§4.2, p = 2.8e-5) — but it was computed under the contaminated definitions and
+is now **provisional** pending an ExN-clean re-test.
+
+---
+
 ## 1. Headline figures
 
-> **⚠ Superseded by §0.5.** All figures and numbers in §§1–5 below were
-> generated under the **marker-rule ExN definition** and **include
-> Velmeshev-V2**. They are retained for provenance and detail, but the
-> magnitudes are the **over-permissive upper bound**: the principled
-> ExN definition (Appendix A.1) roughly halves the maturity-q0 effect
-> (combined +0.46 → **+0.22**, Herring +0.49 → **+0.12**), and Velmeshev-V2
-> is a technical artefact. Read the per-cohort *direction* here, not the
-> magnitude. "Velmeshev-V3" below = **Herring** in the developmental window.
+> **⚠ Superseded by §0.7 (and §0.5).** Everything in §§1–5 below — including
+> the **maturity-q0 "decline" (+0.46)** that is the spine of §1 and §3 — was
+> generated under the **marker-rule ExN definition** and **includes
+> Velmeshev-V2**. The clean, embedding-independent within-ExN test (§0.7)
+> shows the q0 decline is a **cell-type-composition artefact** that vanishes
+> inside excitatory neurons (PsychAD C3+ vs age +0.09 n.s., Herring −0.11
+> n.s.), and the principled-ExN definition that gave the intermediate +0.22 is
+> inhibitory-contaminated. These sections are retained as **provenance only** —
+> do not quote the q0 magnitudes as a developmental effect. "Velmeshev-V3"
+> below = **Herring** in the developmental window.
 
 ### 1.1 The childhood→adolescent decline, per cohort
 
@@ -261,6 +344,12 @@ of this work read it.
 
 ### 1.3 The biology in one sentence
 
+> **⚠ Superseded by §0.7.** The two clauses below — "rises with maturity" and
+> "declines toward adolescence at matched maturity" — both **fail the clean
+> within-ExN test**: inside native excitatory neurons C3+↔module r ≈ 0 and
+> C3+↔age r ≈ 0. They held only across cell classes / developmental stages, not
+> within ExN. Retained as the *provenance* reading.
+
 C3+ is a synapse-formation / neuronal-maturation gene programme that **rises
 with a neuron's maturity** (cross-sectional axis, §2) yet is **elevated in
 childhood and declines toward adolescence at matched maturity** (developmental
@@ -272,6 +361,13 @@ FANS-sorted PsychAD first appeared to disagree.
 ---
 
 ## 2. C3+ is a single-cell synaptic-maturation programme (strand 1)
+
+> **⚠ Superseded by §0.7.** The ρ values below were computed on the
+> **marker-rule ExN** pool (which includes immature InN and spans glia-adjacent
+> cells). On the clean native-ExN pool the per-cell C3+↔module correlation is
+> **≈ 0** (PsychAD 0.08, Herring −0.10; `y14`). The strong positive ρ here is a
+> neuron-vs-glia / prenatal→postnatal contrast, **not** a within-ExN maturation
+> gradient. Read this strand as superseded.
 
 Within any age, C3+ **rises** with a neuron's maturity. Scoring each ExN
 cell on a 9-marker mature module (Appendix B) and correlating with its C3+
@@ -300,6 +396,13 @@ analysis and are disentangled in §3.
 ---
 
 ## 3. A childhood→adolescent decline beyond birth differentiation (strand 2)
+
+> **⚠ Superseded by §0.7.** This entire strand — the q0 "decline at matched
+> maturity" and its Kitagawa decomposition — does **not** survive the clean,
+> embedding-independent within-ExN test: donor-pseudobulk C3+ vs age inside
+> native excitatory neurons is +0.09 (PsychAD, n.s.) and −0.11 (Herring, n.s.),
+> i.e. **no developmental decline**. The q0 effect was a composition artefact
+> of the marker-rule/principled ExN pools. Retained as provenance.
 
 ### 3.1 The decline lives at matched maturity, not in composition
 
@@ -468,6 +571,13 @@ canonical early markers cannot see** — but "partly," "in Velmeshev,"
 ---
 
 ## 5. Synthesis and what would settle it
+
+> **⚠ Superseded by §0.7.** Strands (1) and (2) below are now known to be
+> **composition artefacts** — both vanish inside native excitatory neurons on
+> the clean embedding-independent test (§0.7). Only strand (3), the Herring
+> gene-level *membership* enrichment, survives, and only provisionally (it was
+> computed under the contaminated ExN definition). The paragraph below is the
+> superseded synthesis; the current synthesis is §0.7.
 
 **What the evidence supports.** C3+ — an adult, spatially-derived,
 synapse-enriched gene programme — is connected to human cortical development
@@ -907,6 +1017,9 @@ All in `scripts/grn_dev_diagnostics/outputs/`.
 
 | Figure | File | Section |
 |---|---|---|
+| **Within-ExN C3+↔module decomposition (NEW, authoritative)** | `y14_depth_decomp_exn.png` | §0.7 |
+| **Within-ExN C3+/module vs age, donor-pseudobulk (NEW, authoritative)** | `y15_age_pseudobulk_exn.png` | §0.7 |
+| **Principled-ExN believability on good embedding (NEW)** | `y13_principled_good_umap.png` | §0.7 |
 | Per-cohort trajectories + linear fit (all-ExN \| q0) | `t1_headline_trajectories.png` | §1.1 |
 | Combined maturity result (forest) | `s2_combined_forest.png` | §1.2 |
 | C3+ vs maturity, child/adol split | `t2_c3_vs_maturity.png` | §2 |
@@ -928,6 +1041,9 @@ All in `scripts/grn_dev_diagnostics/outputs/`.
 
 | Table | File |
 |---|---|
+| **Within-ExN C3+↔module decomposition (NEW, authoritative)** | `y14_depth_decomp_exn.csv` |
+| **Within-ExN donor-pseudobulk C3+/module vs age (NEW, authoritative)** | `y15_donor_pseudobulk_exn.csv` |
+| **Principled-ExN believability + confusion (NEW)** | `y13_believability.csv`, `y13_confusion_{PSYCHAD,VELMESHEV,WANG}.csv` |
 | **Embedding separability (AUC, latent-age ρ) (NEW)** | `w1_latent_separability.csv` |
 | **Age-DE vs C3+ enrichment summary (NEW)** | `w2_age_vs_c3_summary.csv` |
 | **Per-gene child→adol d + C3+ weight (NEW)** | `w2_per_gene_age_d.csv` |
@@ -964,11 +1080,16 @@ v4 cache), `s_combined_maturity.py` (combined estimate), `t_trajectories_and_sca
 (§1–3 figures), `u_pairwise_scatter.py` (PAIRWISE_RELATIONS), `v_cohort_audit.py`
 (third-cohort feasibility), **`w_age_axis.py` (§4 embedding separability +
 age-DE-vs-C3+ enrichment), `x_v2_confound.py` (Appendix C.1 V2 depth×age
-confound)**.
+confound)**, **`y13_principled_good.py` (§0.7 principled-ExN believability on
+the good embedding), `y14_depth_decomp_exn.py` (§0.7 within-ExN C3+↔module
+decomposition), `y15_age_pseudobulk_exn.py` (§0.7 within-ExN C3+/module vs
+age)** — the y13–y15 scripts use **native labels + raw counts** and are
+embedding-independent.
 
 ### Reading order
 
-1. This report §0–§5 — the biological question and answer.
+1. **§0 (the question) → §0.7 (the authoritative answer).** §0.7 is the current
+   conclusion; §0.5/§0.6 and §§1–5 are the superseded path + provenance.
 2. `R_REPORT.md` — maturity result derivation.
 3. `J_REPORT.md` — per-cell-CPM correction.
 4. `F2_REPORT.md` — per-gene biology.
