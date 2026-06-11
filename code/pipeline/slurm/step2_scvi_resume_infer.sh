@@ -28,7 +28,7 @@
 
 #SBATCH --output=/home/rajd2/rds/hpc-work/snRNAseq_2026/logs/%j_step2_scvi_resume.out
 #SBATCH --error=/home/rajd2/rds/hpc-work/snRNAseq_2026/logs/%j_step2_scvi_resume.err
-#SBATCH --time=02:00:00
+#SBATCH --time=04:30:00
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --partition=ampere

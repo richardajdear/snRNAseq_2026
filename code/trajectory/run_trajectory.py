@@ -58,7 +58,7 @@ DEFAULTS = dict(
     neighbors=dict(use_rep="X_pca", n_neighbors=50),
     paga=dict(groups="leiden_n"),
     dpt=dict(n_dcs=10),
-    palantir=dict(n_diffusion_components=10, knn=30, num_waypoints=1500, terminal_states="signature"),
+    palantir=dict(n_diffusion_components=10, knn=30, num_waypoints=1500, terminal_states="signature", n_eigs=5),
     cellrank=dict(pseudotime_weight=0.8, connectivity_weight=0.2, n_macrostates=8,
                   n_terminal_states="auto", schur_components=12, brandts_max_cells=0),
 )
@@ -166,20 +166,29 @@ def run_palantir(a, cfg, root, log):
     pc = cfg["palantir"]
     palantir.utils.run_diffusion_maps(a, pca_key=cfg["neighbors"]["use_rep"],
                                       n_components=pc["n_diffusion_components"], knn=pc["knn"])
-    palantir.utils.determine_multiscale_space(a)
+    # pin n_eigs so the multiscale space is never empty (auto eigengap can pick 0 -> minmax_scale
+    # 'at least one array' crash on large manifolds)
+    try:
+        palantir.utils.determine_multiscale_space(a, n_eigs=pc.get("n_eigs", 5))
+    except TypeError:
+        palantir.utils.determine_multiscale_space(a)
     early = a.obs_names[root]
     # explicit terminal states = mature-EN / mature-IN signature poles (auto-detection is
     # unreliable and returned 0 branches); pass a Series so branch_probs columns are EN/IN.
     terminal = terminal_cells_by_signature(a, cfg)
     ts = None if pc["terminal_states"] == "auto" else pd.Series(terminal)
     pr = None
+    last_err = None
     for kwargs in (dict(num_waypoints=pc["num_waypoints"], terminal_states=ts, knn=pc["knn"]),
                    dict(num_waypoints=pc["num_waypoints"], terminal_states=ts),
-                   dict(num_waypoints=pc["num_waypoints"])):
+                   dict(num_waypoints=pc["num_waypoints"]),          # auto terminal detection
+                   dict()):                                          # all defaults
         try:
             pr = palantir.core.run_palantir(a, early, **kwargs); break
-        except TypeError:
-            continue
+        except Exception as e:                                       # ValueError/TypeError/etc.
+            last_err = e; continue
+    if pr is None and not any(k in a.obs for k in ("palantir_pseudotime",)):
+        log(f"  [palantir] all attempts failed ({type(last_err).__name__}: {str(last_err)[:80]})")
 
     def _from(obs_key, attr):
         v = a.obs.get(obs_key)

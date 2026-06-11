@@ -1,6 +1,7 @@
 """Chunked inference for batch-corrected normalized expression with OOM retry."""
 
 import logging
+import mmap
 import os
 import sys
 import psutil
@@ -179,7 +180,20 @@ def _chunked_inference(
                 output[start_idx:end_idx, output_col_indices] = result.values[:, input_col_mask]
                 del result
                 if hasattr(output, 'flush'):
-                    output.flush()  # msync: pages become clean and evictable under memory pressure
+                    output.flush()  # msync: write dirty pages to disk so they are clean
+                    # Drop the now-clean pages from this process's resident set.
+                    # Without this, the OS leaves written memmap pages resident and
+                    # RSS grows by the full layer size (~56 GB each). With two layers
+                    # (scvi + scanvi) that pushes RSS past the fixed ~250 GB per-GPU
+                    # cgroup cap on the ampere partition and the OOM killer fires.
+                    # MADV_DONTNEED is safe only *after* flush() — the data is on disk
+                    # and will be paged back in on read (e.g. during the final save).
+                    _mm = getattr(output, '_mmap', None)
+                    if _mm is not None:
+                        try:
+                            _mm.madvise(mmap.MADV_DONTNEED)
+                        except (OSError, AttributeError, ValueError):
+                            pass
             else:
                 chunks.append(result.values)
             del chunk_adata
