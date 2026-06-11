@@ -136,7 +136,17 @@ def main():
         per_gene_expr[g] = ge
 
         is_c3 = a.var_names.isin(c3_ens)
-        bg = d[~is_c3 & np.isfinite(d)]
+        fin = np.isfinite(d)
+        bg = d[~is_c3 & fin]
+        # C3+ stats: mean d and expression-matched background
+        c3_d_vals = d[is_c3 & fin]
+        c3_e_vals = expr[is_c3 & fin]
+        if len(c3_e_vals) > 0:
+            lo, hi = np.nanpercentile(c3_e_vals, [25, 75])
+            in_range = (~is_c3) & fin & (expr >= lo) & (expr <= hi)
+            c3_expr_matched_bg = float(np.nanmean(d[in_range])) if in_range.sum() > 0 else np.nan
+        else:
+            c3_expr_matched_bg = np.nan
         summ_rows.append({
             "group": g, "depth_label": depth_label,
             "n_child_donors": int(is_child.sum()),
@@ -147,9 +157,11 @@ def main():
             "depth_child_vs_adol_MWU_p": float(mwu_p),
             "background_mean_age_d": float(np.nanmean(bg)),
             "background_median_age_d": float(np.nanmedian(bg)),
-            "frac_genes_abs_d_gt_0.5": float(np.mean(np.abs(d[np.isfinite(d)]) > 0.5)),
+            "frac_genes_abs_d_gt_0.5": float(np.mean(np.abs(d[fin]) > 0.5)),
             "spearman_age_d_vs_expr": float(stats.spearmanr(
-                expr[np.isfinite(d)], d[np.isfinite(d)]).correlation),
+                expr[fin], d[fin]).correlation),
+            "c3_mean_age_d": float(np.nanmean(c3_d_vals)) if len(c3_d_vals) > 0 else np.nan,
+            "c3_expr_matched_bg_d": c3_expr_matched_bg,
         })
         print(f"{g}: child_depth={np.median(dc):.0f} adol_depth={np.median(da):.0f} "
               f"({depth_label}); bg_mean_d={np.nanmean(bg):+.3f}; "
@@ -159,9 +171,19 @@ def main():
     summ.to_csv(OUT_DIR / "x_v2_confound_summary.csv", index=False)
     pd.DataFrame(depth_rows).to_csv(OUT_DIR / "x_v2_donor_depth.csv", index=False)
 
+    # Per-gene CSV for V2 (used to verify floor-inflation mechanism for C3+)
+    v2g = "Velmeshev-V2"
+    v2_gene_df = pd.DataFrame({
+        "gene": per_gene_d[v2g].index,
+        "d_V2": per_gene_d[v2g].values,
+        "mean_expr_V2": per_gene_expr[v2g].values,
+        "is_c3": per_gene_d[v2g].index.isin(c3_ens),
+    })
+    v2_gene_df.to_csv(OUT_DIR / "x_v2_per_gene_d_expr.csv", index=False)
+
     # -------------------- figure --------------------
     dd = pd.DataFrame(depth_rows)
-    fig, axes = plt.subplots(1, 3, figsize=(18, 5.4))
+    fig, axes = plt.subplots(1, 4, figsize=(24, 5.4))
 
     # Panel A: per-donor depth vs age
     axA = axes[0]
@@ -212,6 +234,38 @@ def main():
                   fontsize=10)
     axC.legend(fontsize=8)
 
+    # Panel D: V2 per-gene d vs expression, C3+ highlighted
+    # Shows that C3+ genes (d≈−0.06) are near-neutral while expression-matched
+    # background is strongly negative (d≈−0.32): C3+ is resistant to depth suppression,
+    # not inflated by it — the positive module score runs counter to the depth artefact.
+    axD = axes[3]
+    v2g = "Velmeshev-V2"
+    dfD = pd.DataFrame({"d": per_gene_d[v2g], "e": per_gene_expr[v2g]}).dropna()
+    dfD = dfD[dfD["e"] > 0]
+    is_c3_D = dfD.index.isin(c3_ens)
+    axD.scatter(dfD.loc[~is_c3_D, "e"], dfD.loc[~is_c3_D, "d"],
+                s=2, c="grey", alpha=0.12, rasterized=True, label="_nolegend_")
+    axD.scatter(dfD.loc[is_c3_D, "e"], dfD.loc[is_c3_D, "d"],
+                s=14, c="#E74C3C", alpha=0.75, zorder=5,
+                label=f"C3+ genes (n={is_c3_D.sum()})")
+    # Background decile curve (non-C3+ only)
+    dfD_bg = dfD[~is_c3_D].copy()
+    dfD_bg["eq"] = pd.qcut(dfD_bg["e"], 10, labels=False, duplicates="drop")
+    bmD = dfD_bg.groupby("eq").agg(e=("e", "median"), d=("d", "mean"))
+    axD.plot(bmD["e"], bmD["d"], "ko-", lw=2, ms=5, zorder=6,
+             label="background (decile mean, non-C3+)")
+    axD.axhline(0, color="k", lw=0.8)
+    # Vertical band for C3+ IQR expression range
+    c3_e = dfD.loc[is_c3_D, "e"]
+    axD.axvspan(c3_e.quantile(0.25), c3_e.quantile(0.75), alpha=0.08,
+                color="#E74C3C", label="C3+ expr range (p25–p75)")
+    axD.set_xlabel("mean log1p-CPM (Velmeshev-V2)")
+    axD.set_ylabel("child→adol Cohen's d  (+ = higher in child)")
+    axD.set_title("D. V2: C3+ genes resistant to depth suppression\n"
+                  "C3+ (red) near d=0; expression-matched background ≈ −0.32",
+                  fontsize=10)
+    axD.legend(fontsize=7, loc="upper left")
+
     fig.suptitle("Why Velmeshev-V2 is technically confounded for the child→adolescent contrast",
                  fontweight="bold", fontsize=13)
     fig.tight_layout()
@@ -219,7 +273,8 @@ def main():
     plt.close(fig)
     print("\n--- summary ---")
     print(summ.round(3).to_string(index=False))
-    print(f"\nsaved x_v2_confound.png, x_v2_confound_summary.csv, x_v2_donor_depth.csv in {OUT_DIR}")
+    print(f"\nsaved x_v2_confound.png, x_v2_confound_summary.csv, x_v2_donor_depth.csv,")
+    print(f"      x_v2_per_gene_d_expr.csv in {OUT_DIR}")
 
 
 if __name__ == "__main__":

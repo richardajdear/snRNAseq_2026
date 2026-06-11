@@ -872,10 +872,11 @@ dive in C.1.
 
 ### C.1 Deep dive: why Velmeshev-V2 specifically is confounded
 
-(`x_v2_confound.py`, fig `x_v2_confound.png`, `x_v2_confound_summary.csv`.)
+(`x_v2_confound.py`, fig `x_v2_confound.png`, `x_v2_confound_summary.csv`,
+`x_v2_per_gene_d_expr.csv`.)
 V2's child→adol numbers (q0 d +2.56; gene-enrichment p = 3e-24) are inflated
 by a **depth × age confound that produces a non-biological, transcriptome-wide
-shift**. Three facts, one figure:
+shift**. Four panels, one figure:
 
 ![Why Velmeshev-V2 is technically confounded](x_v2_confound.png)
 
@@ -902,16 +903,50 @@ change by half a standard deviation between childhood and adolescence for
 biological reasons — this is the signature of a global technical offset
 (panel B: clean cohorts peak at 0, V2's whole distribution is shifted left).
 
-**(C) The shift is expression-dependent, pinpointing the mechanism.** Per-cell
+**(C) The shift is expression-dependent and runs in the *negative* direction
+for C3+ genes — it does not explain the positive signal.** Per-cell
 CPM + log1p does **not** make per-gene means depth-invariant: for a
 low-abundance gene a single count in a shallow cell maps to a large CPM
 (1e6 / N), so the log1p-CPM of rare genes is dominated by a depth-sensitive
 Poisson / zero-inflation floor. When childhood and adolescent donors differ in
 depth, that floor shifts differentially — most for low-expression genes. Panel
 C shows exactly this: in V2 the child→adol d dips strongly negative in the
-low-expression deciles and flattens toward high expression, while V3 and
-PsychAD stay flat. **C3+ is a large, low-to-moderate-expression synaptic gene
-set — squarely in the genes this artefact hits hardest.**
+low-expression deciles and flattens toward higher expression, while V3 and
+PsychAD stay flat.
+
+**C3+ genes are *resistant* to depth suppression, not inflated by it.**
+Panel D overlays the per-gene d vs mean expression for V2, with C3+ genes
+highlighted in red. The key empirical finding:
+
+| gene set | V2 per-gene mean d | meaning |
+|---|---:|---|
+| All non-C3+ genes (background) | −0.34 | depth artefact suppresses the transcriptome |
+| Non-C3+ genes at C3+ expression levels | −0.32 | suppression is similar at that expression range |
+| **C3+ genes** | **−0.06** | **C3+ is near-neutral — strongly elevated above background** |
+
+C3+ genes are consistently detected even in V2's shallow cells (they are
+well-expressed synaptic genes), so the dropout effect that drives most genes
+negative is minimal for them. Crucially, the depth artefact is **not** the
+source of the positive C3+ module score (d = +2.47 in §1.1): the per-gene
+mean d for C3+ is −0.06, which is in the *opposite* direction to the headline
+figure — the positive module score runs **counter to** the depth artefact.
+
+This resolves an apparent contradiction: the negative background (−0.34) and
+the C3+ elevation (above background by ~+0.28) co-exist because the background
+is driven by the many very-rare genes that disappear into dropout in shallow
+cells, while C3+ genes escape this at their expression level. However, the
+summary CSV (`x_v2_confound_summary.csv`) column `c3_expr_matched_bg_d = −0.32`
+shows that even at the expression levels of C3+ genes, other non-C3+ genes are
+strongly suppressed — confirming that the C3+ resistance is *specific to the
+gene set*, not an expression-level artefact.
+
+The reason to exclude V2 is not that the depth artefact creates the C3+ signal
+(it doesn't — it slightly suppresses it). Rather: **the statistical reference
+distribution is so corrupted** (background −0.34, 66 % of genes |d| > 0.5)
+that the gene-enrichment test (p = 3e-24, §4.2) cannot be trusted — the
+biased background makes C3+ membership appear more enriched than it truly is.
+The module-score effect size +2.47 is also unreliable with only 8 child and 9
+adolescent donors. Neither number should be quoted as a calibrated estimate.
 
 **Why V2 and not PsychAD, which also has a depth–age gap?** Two factors
 compound: the *ratio* imbalance (V2's 0.41 is the worst) and, crucially, the
@@ -1031,7 +1066,7 @@ All in `scripts/grn_dev_diagnostics/outputs/`.
 | Depth ↔ maturity scatter | `s1_depth_maturity_scatter.png` | Appendix C |
 | Depth×maturity \| layer×maturity | `s3_psychad_depth_x_layer_maturity.png` | Appendix C |
 | Depth & maturity by age stage | `s1_stage_shift.png` | Appendix C |
-| **Why Velmeshev-V2 is technically confounded (NEW)** | `x_v2_confound.png` | C.1 |
+| **Why Velmeshev-V2 is technically confounded** (panels A–D; D shows C3+ floor-inflation) | `x_v2_confound.png` | C.1 |
 | Cell-class confound (<1 y markers) | `m1_cell_class_problem.png` | A.1 |
 | Per-cell UMI distributions | `m3_depth_distributions.png` | Appendix C |
 | Per-layer d before/after depth | `m4_per_layer_d.png` | Appendix C |

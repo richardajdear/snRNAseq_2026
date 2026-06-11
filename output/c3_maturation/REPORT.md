@@ -363,22 +363,52 @@ subtypes might be mislabeled. **Full provenance + UMAP evidence: see `REPORT_ann
   per-cell hard threshold, it is dropout-/depth-sensitive (a neuron with 0 RBFOX3 counts is missed),
   so its EN fractions are a depth-attenuated **lower bound**.
 
-**A1. Composition vs age (marker labels) — with an important correction.** By `marker_annotation`,
-young-donor EN fractions look higher (PsychAD ~0.5 at <2y) than the native ~0.1 — so the native "~5%
-EN in young" is partly a labeling artefact. **But** the young-donor UMAP analysis
-(`REPORT_young_umaps.md`) shows the marker classifier itself **over-calls** EN (its RBFOX3 gate is
-pan-neuronal → absorbs GAD-dropout interneurons), while native **over-calls IN**. So neither EN% is
-trustworthy in young donors; the true value needs excitatory-specific (SLC17A7 vs GAD1) gating. The
-qualitative point survives — young neurons are mis-partitioned by the reference labels — but the
-specific ~40–50% figure is **withdrawn**.
+**A1. Composition vs age — marker labels vs native cell class labels.** The three-panel figure below
+places both labelings side by side so the discrepancy is visible directly.
 
-![EN fraction vs age](s03A_EN_fraction_vs_age.png)
+*Panel A (PsychAD, marker labels):* by `marker_annotation` (RBFOX3/DCX/GAD thresholds) the median EN
+fraction at <2y is **~51%** and stays 30–44% across the full age range.
 
-**A2. Marker purity inside labeled-EN pseudobulks.** Across all cohorts and age bins, the labeled-EN
-subtype pseudobulks express EN markers (SLC17A7/SATB2/RBFOX3) at log1p-CPM ≈5.5–6.1 and IN+glia
-markers (GAD1/2, AQP4/GFAP, PLP1/MOBP, PDGFRA, CSF1R) at ≈1.7–2.0 — a clean ~4-log gap that is
-**identical in young (<5y) and old (20+) donors**. So the within-EN analysis operates on genuine EN
-cells at all ages.
+*Panel B (PsychAD, native labels):* by `cell_type_raw` (the aging/dementia reference), the median EN
+fraction at <2y is **~7%** — a ~7-fold under-call relative to markers — rising to only ~21% in adults.
+This is the native-label problem: the reference was trained on adult brains and systematically
+mis-classifies young excitatory neurons as non-EN.
+
+*Panel C (Velmeshev, native labels):* `cell_class_original` EN% is high in perinatal/neonatal donors
+(Herring-V3 ~46%, U01-V2 ~74% at <2y) but collapses to ~8–31% at 10–20y, especially in Herring-V3.
+Note: the code maps the native `Interneurons` class to Glia (not EN or IN), so the immature-EN
+population discovered in s11 (Velmeshev native 'Interneurons' = 95% SLC17A7+ immature excitatory) is
+silently excluded from the EN count — its presence in young donors inflates the apparent 'Glia'
+fraction and depresses EN% relative to biology.
+
+**Bottom line:** neither labeling is trustworthy for young EN%. Native labels drastically under-call EN
+(PsychAD ~7%) or redistribute immature EN into the 'Interneurons'/'Glia' bucket (Velmeshev). Marker
+labels over-call EN via pan-neuronal RBFOX3. The true young EN% requires excitatory-specific gating
+(SLC17A7/SATB2 vs GAD1; see `REPORT_young_umaps.md`).
+
+![EN fraction vs age — marker labels (left) vs native cell class labels (middle, right)](s03A_EN_fraction_native.png)
+
+For reference, the original two-panel marker-label figure (PsychAD marker | Velmeshev native):
+
+![EN fraction vs age (original)](s03A_EN_fraction_vs_age.png)
+
+**A2. Composition and marker purity: native cell class labels.** The EN% vs age plots (A1 above)
+reveal the native-label problem. For context here: the pseudobulks used in Steps 1–2 come from
+`cell_type_aligned` (scANVI trained on native labels), so their young end is a biased mature-skewed
+subset. The same native EN% plots (repeated below) show how few young donors contribute genuine
+young-labeled EN cells under native labels.
+
+![EN fraction vs age — native cell class labels (repeated from A1)](s03A_EN_fraction_native.png)
+
+*PsychAD native labels (panel B) call only ~7% EN at <2y; Velmeshev native (panel C) shows the
+spurious 10–20y collapse driven by the Interneurons misclassification.*
+
+**Marker purity inside labeled-EN pseudobulks.** Despite the composition bias, the pseudobulks that
+*do* pass through the labeled-EN filter are genuinely excitatory: EN markers (SLC17A7/SATB2/RBFOX3)
+at log1p-CPM ≈5.5–6.1 vs IN+glia markers (GAD1/2, AQP4/GFAP, PLP1/MOBP, PDGFRA, CSF1R) at
+≈1.7–2.0 — a clean ~4-log gap that is **identical in young (<5y) and old (20+) donors**. So the
+within-EN analysis operates on genuine EN cells at all ages; the caveat is that the young labeled-EN
+cells are a biased (mature-skewed) subset of all true young EN.
 
 ![EN marker purity](s03B_en_marker_purity.png)
 

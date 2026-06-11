@@ -29,7 +29,7 @@ PSEUDOBULK = {
 }
 
 REF_DIR = ROOT_REPO / "reference"
-OUT_DIR = Path(__file__).parent / "outputs"
+OUT_DIR = ROOT_REPO / "output" / "grn_dev_diagnostics"
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 
 CHILD = (1.0, 9.0)
