@@ -2,13 +2,14 @@
 """Compare three trajectory inferences on a neuron manifold: PAGA->DPT,
 PAGA->Palantir, PAGA->CellRank2.
 
-Input per dataset: a neuron_manifold.h5ad produced by
-scripts/c3_maturation/s11_neuron_manifold.py, carrying:
+Input per dataset: a neuron_manifold.h5ad produced by the standalone builder
+code/trajectory/manifold.py (which runs directly on code/pipeline/run_pipeline.py's
+integrated.h5ad), carrying:
   obsm['X_pca']            PCA(30) on raw counts (the representation)
   obsp connectivities/distances + uns['neighbors']   (nn=50 graph)
   obsm['X_diffmap'], obsm['X_umap_pagainit']
   obs: native_fine, native_broad_fixed, cluster_vote, leiden_n, age, dpt_seed,
-       {EN,IN,Prog,Imm,Pan,Glia}_sig, expr_<GENE> (log1p CPM markers)
+       {EN,IN,Prog,Imm,Pan,Glia}_sig, C3_signed, C3_pos, expr_<GENE> (log1p CPM markers)
   uns['iroot']
 
 For each dataset the pipeline:
@@ -321,7 +322,9 @@ def make_plots(a, scores, name, outdir, cfg, gpcca, log):
               ("Palantir entropy", scores.get("palantir_entropy"), "magma"),
               ("Palantir EN-fate", scores.get("palantir_EN_fate"), "coolwarm"),
               ("CellRank EN-fate", scores.get("cellrank_EN_fate"), "coolwarm"),
-              ("CellRank macrostate", scores.get("cellrank_macrostate"), "cat")]
+              ("CellRank macrostate", scores.get("cellrank_macrostate"), "cat"),
+              ("C3+ projection", scores.get("C3_pos"), "viridis"),
+              ("C3 signed_logcpm", scores.get("C3_signed"), "viridis")]
     panels = [(t, v, c) for t, v, c in panels if v is not None]
     ncol = 4; nrow = int(np.ceil(len(panels) / ncol))
     fig, axes = plt.subplots(nrow, ncol, figsize=(6 * ncol, 5.4 * nrow))
@@ -349,7 +352,8 @@ def make_plots(a, scores, name, outdir, cfg, gpcca, log):
     # ---- pseudotime/fate vs age + correlation heatmap ----
     lab = a.obs[cfg["lineage"]["label_col"]].astype(str).values
     en_m = np.isin(lab, cfg["lineage"]["en_labels"])
-    cmp_keys = [k for k in ["dpt", "palantir_pt", "palantir_entropy", "palantir_EN_fate", "cellrank_EN_fate"]
+    cmp_keys = [k for k in ["dpt", "palantir_pt", "palantir_entropy", "palantir_EN_fate",
+                            "cellrank_EN_fate", "C3_pos", "C3_signed"]
                 if k in scores and scores[k] is not None and np.isfinite(np.asarray(scores[k], float)).any()]
     fig, axes = plt.subplots(1, 3, figsize=(21, 6))
     # (a) dpt vs age, (b) palantir_pt vs age on EN lineage
@@ -381,7 +385,46 @@ def make_plots(a, scores, name, outdir, cfg, gpcca, log):
     plt.colorbar(im, ax=ax, fraction=.046); ax.set_title("Spearman corr (all cells)", fontsize=11)
     fig.suptitle(f"{name}: cross-method agreement & age alignment", fontsize=14, y=1.02)
     fig.tight_layout(); fig.savefig(outdir / f"traj_corr_{name}.png", dpi=115, bbox_inches="tight"); plt.close(fig)
+
+    # ---- C3 projection: how C3 correlates with age and with pseudotime ----
+    if any(k in scores and scores[k] is not None for k in ("C3_pos", "C3_signed")):
+        _c3_figure(a, scores, name, outdir, age, en_m, log)
+
     return pd.DataFrame(R, index=cmp_keys2, columns=cmp_keys2)
+
+
+def _rho_scatter(ax, x, y, mask, color, xlabel, ylabel):
+    x = np.asarray(x, float); y = np.asarray(y, float)
+    ok = mask & np.isfinite(x) & np.isfinite(y)
+    ax.scatter(x[ok], y[ok], s=4, alpha=.25, c=color)
+    title = f"{ylabel} vs {xlabel}"
+    if ok.sum() > 50:
+        r, p = spearmanr(x[ok], y[ok])
+        title += f"  (rho={r:.2f}, p={p:.0e}, n={ok.sum()})"
+    ax.set_xlabel(xlabel); ax.set_ylabel(ylabel); ax.set_title(title, fontsize=10)
+
+
+def _c3_figure(a, scores, name, outdir, age, en_m, log):
+    """Scatter how the C3 score (C3+ pole and signed_logcpm) relates to age and to
+    each pseudotime, on the EN lineage (and C3+ vs age over all neurons)."""
+    dpt = scores.get("dpt"); ppt = scores.get("palantir_pt")
+    rows = [("C3_pos", "C3+"), ("C3_signed", "C3 signed")]
+    rows = [(k, lab) for k, lab in rows if scores.get(k) is not None]
+    if not rows:
+        return
+    all_m = np.ones(a.n_obs, bool)
+    fig, axes = plt.subplots(len(rows), 4, figsize=(24, 5.4 * len(rows)), squeeze=False)
+    for r, (k, lab) in enumerate(rows):
+        c3 = scores[k]
+        _rho_scatter(axes[r][0], age, c3, en_m, "#1f77b4", "age (years)", f"{lab} [EN-lineage]")
+        if dpt is not None:
+            _rho_scatter(axes[r][1], dpt, c3, en_m, "#9467bd", "DPT pseudotime", f"{lab} [EN-lineage]")
+        if ppt is not None:
+            _rho_scatter(axes[r][2], ppt, c3, en_m, "#2ca02c", "Palantir pseudotime", f"{lab} [EN-lineage]")
+        _rho_scatter(axes[r][3], age, c3, all_m, "#888888", "age (years)", f"{lab} [all neurons]")
+    fig.suptitle(f"{name}: C3 projection vs age and pseudotime", fontsize=14, y=1.0)
+    fig.tight_layout(); fig.savefig(outdir / f"traj_c3_{name}.png", dpi=115, bbox_inches="tight"); plt.close(fig)
+    log(f"  wrote traj_c3_{name}.png")
 
 
 # ----------------------------- driver ---------------------------------------
@@ -395,6 +438,10 @@ def process_dataset(name, manifold_path, cfg, log):
     log(f"  root cell idx={root} ({a.obs_names[root]}), label={a.obs[cfg['lineage']['label_col']].iloc[root]}")
 
     scores = {"_cluster_vote": a.obs[cfg["lineage"]["label_col"]].astype(str).values}
+    # per-cell C3 projection (carried in the manifold obs by code/trajectory/manifold.py)
+    for c3col in ("C3_pos", "C3_signed"):
+        if c3col in a.obs:
+            scores[c3col] = a.obs[c3col].values
     run_paga(a, cfg, log)
 
     # DPT
@@ -422,7 +469,7 @@ def process_dataset(name, manifold_path, cfg, log):
 
     # ---- save per-cell scores + correlations ----
     keep = ["dpt", "palantir_pt", "palantir_entropy", "palantir_EN_fate", "cellrank_EN_fate",
-            "cellrank_macrostate"]
+            "cellrank_macrostate", "C3_pos", "C3_signed"]
     df = pd.DataFrame({k: scores[k] for k in keep if k in scores}, index=a.obs_names)
     df["age"] = a.obs["age"].values
     df["cluster_vote"] = scores["_cluster_vote"]

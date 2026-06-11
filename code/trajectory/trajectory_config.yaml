@@ -4,9 +4,10 @@
 
 run_name: traj_compare
 
-# Manifolds produced by scripts/c3_maturation/s11_neuron_manifold.py
-# (each carries X_pca, the neighbor graph, X_diffmap, X_umap_pagainit, obs labels/age/
-#  signatures, expr_* markers, and uns['iroot']).
+# Manifolds produced by the standalone builder code/trajectory/manifold.py
+# (run directly on code/pipeline/run_pipeline.py's integrated.h5ad). Each carries
+# X_pca, the neighbor graph, X_diffmap, X_umap_pagainit, obs labels/age/signatures,
+# C3_signed, C3_pos, expr_* markers, and uns['iroot'].
 datasets:
   Velmeshev-V3:
     manifold: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/Vel_prepost_noage_tuning5/scvi_output/trajectory/neuron_manifold.h5ad
