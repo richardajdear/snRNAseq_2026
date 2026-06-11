@@ -256,6 +256,44 @@ proves it does).
 immature (SLC17A7+, DCX+) territory**, *not* the GAD1+ IN territory — confirming it is immature
 excitatory, and that the earlier "IN-heavy young Velmeshev" was a naming artefact.
 
+## Trajectory method comparison: PAGA→DPT vs Palantir vs CellRank2 (`code/trajectory/`)
+
+A config-driven pipeline (`code/trajectory/run_trajectory.py`) runs all three on each
+`neuron_manifold.h5ad` and cross-validates them: PAGA for topology, then **DPT**, **Palantir**, and
+**CellRank2** for pseudotime / branch-fate, with a UMAP grid, PAGA graph, pseudotime-vs-age scatters,
+and a Spearman heatmap. (CellRank's flagship GPCCA needs `petsc4py`, which is ABI-broken in the
+container, so the pipeline falls back to the **CFLARE** estimator — eigendecomposition via ARPACK, no
+PETSc — with terminal states set from the EN/IN signature poles.)
+
+### Velmeshev-V3
+
+![Velmeshev trajectory UMAPs](traj_umaps_velmeshev_v3.png)
+![Velmeshev cross-method comparison](traj_corr_velmeshev_v3.png)
+
+- **DPT is the cleanest age-aligned maturation pseudotime:** EN-lineage **ρ(DPT, age) = 0.82**
+  (n=55,484) — reproducing the s11 value. **Palantir pseudotime is positive but much noisier**
+  (EN-lineage ρ=0.35); the two pseudotimes agree only moderately (ρ=0.73). Palantir's waypoint
+  sampling evidently struggles on this islanded manifold where DPT (diffusion-based) does not.
+- **The two independent branch-fate estimates agree strongly:** `palantir_EN_fate` ↔
+  `cellrank_EN_fate` **ρ=0.88**, and visually the two EN-fate panels are nearly identical — so the
+  EN-vs-IN fate assignment is robust to the method, *independent* of the pseudotime choice.
+- **EN-fate declines with age** (cellrank −0.60, palantir −0.34 over all neurons): the young pool is
+  immature-EN-dominated, consistent with the developmental composition.
+
+### PsychAD
+
+![PsychAD cross-method comparison](traj_corr_psychad.png)
+
+- **No method recovers an age-aligned pseudotime** (EN-lineage ρ(DPT,age)=0.01, Palantir 0.03). This
+  is not a method failure — it is the **absence of a maturation axis**: PsychAD's neurons are
+  essentially all mature (≈1.5k immature cells, no SOX2/DCX), so there is nothing to order. Confirms
+  PsychAD is **mature-end replication only**.
+
+**Recommendation for the C3 dip test:** use **DPT pseudotime on the Velmeshev EN lineage** (ExN +
+immature) as the maturation axis (cleanest age alignment), and the (method-agreeing) **EN-fate
+probability** to define soft EN-lineage membership. Then project the depth-robust C3 score
+(`signed_logcpm`) along DPT and against age within pseudotime bins.
+
 ## Verdict & recommendation
 
 1. **No single marker cutoff defines young EN.** RBFOX3 over-counts (pan-neuronal), SLC17A7

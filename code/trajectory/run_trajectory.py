@@ -82,8 +82,14 @@ def load_config(path):
 
 # ----------------------------- helpers --------------------------------------
 def ensure_neighbors(a, cfg):
-    if "neighbors" in a.uns and "connectivities" in a.obsp:
-        return
+    # Rebuild a clean neighbor graph from the representation. The carried-over graph from
+    # s11 trips scanpy's PAGA backward-compat (KeyError 'diffmap_evals'), so rebuild it and
+    # drop any stale diffmap so DPT recomputes one with matching eigenvalues.
+    a.uns.pop("neighbors", None)
+    a.uns.pop("diffmap_evals", None)
+    for k in ("connectivities", "distances"):
+        a.obsp.pop(k, None)
+    a.obsm.pop("X_diffmap", None)
     sc.pp.neighbors(a, use_rep=cfg["neighbors"]["use_rep"],
                     n_neighbors=cfg["neighbors"]["n_neighbors"])
 
@@ -148,8 +154,7 @@ def run_paga(a, cfg, log):
 
 
 def run_dpt(a, cfg, root, log):
-    if "X_diffmap" not in a.obsm:
-        sc.tl.diffmap(a, n_comps=cfg["dpt"]["n_dcs"])
+    sc.tl.diffmap(a, n_comps=cfg["dpt"]["n_dcs"])   # fresh diffmap (sets diffmap_evals)
     a.uns["iroot"] = root
     sc.tl.dpt(a, n_dcs=cfg["dpt"]["n_dcs"])
     return dict(dpt=a.obs["dpt_pseudotime"].values.copy())
