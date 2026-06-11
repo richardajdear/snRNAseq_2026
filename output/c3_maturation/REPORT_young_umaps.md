@@ -294,6 +294,52 @@ immature) as the maturation axis (cleanest age alignment), and the (method-agree
 probability** to define soft EN-lineage membership. Then project the depth-robust C3 score
 (`signed_logcpm`) along DPT and against age within pseudotime bins.
 
+## All-cells (incl. prenatal) manifold + C3 projection — the key result
+
+The earlier manifold used an `age ≥ 0` mask that silently dropped **177,186 of 315,903** Velmeshev-V3
+cells — including the **prenatal** cells (ages down to −0.45 = mid-gestation) that anchor the
+maturation *root*. Rebuilding with **all** V3 cells (`--all-cells`) gives a proper developmental
+manifold: **236,775 neurons kept (75%)**, now with **108,158 immature + 5,534 progenitor** cells (vs
+23k immature before) plus visible SOX2⁺ progenitors. The DPT gradient is **not** a fragmentation
+artefact — adding the prenatal pool *strengthened* it (EN-lineage DPT~age ρ=+0.84 postnatally; +0.66
+across the full prenatal→adult span). The "highest-pseudotime cells aren't the oldest donors"
+observation is expected biology: neuronal maturation largely **saturates after early childhood**, so
+mature (high-pt) neurons are present at every postnatal age.
+
+![Velmeshev all-cells manifold](s11_neuron_manifold_velmeshev_v3.png)
+![Velmeshev trajectory UMAPs (all cells)](traj_umaps_velmeshev_v3_allcells.png)
+![Velmeshev C3 vs age & pseudotime (all cells)](traj_c3_velmeshev_v3_allcells.png)
+
+Projecting the **per-cell C3 score** (computed sparse-from-counts: `C3_signed` = Σ w·log1p(CPM) over
+6,641 AHBA-C3 genes; `C3_pos` = the C3⁺ pole) onto the EN lineage (ExN + immature, n=211,137):
+
+| relationship | C3⁺ (pos pole) | C3 signed_logcpm |
+|---|---|---|
+| **C3 ~ age** (EN-lineage, incl. prenatal) | ρ=+0.47 | ρ=+0.57 |
+| **C3 ~ DPT pseudotime** (EN-lineage) | **ρ=+0.58** | **ρ=+0.63** |
+| C3 ~ age (postnatal only, n=55.8k) | ρ=+0.54 | — |
+| C3 ~ DPT pseudotime (postnatal only) | **ρ=+0.68** | — |
+
+all p≈0. **C3 increases monotonically along the EN maturation trajectory** (and with age), visible as a
+concordant C3/DPT/age gradient on the UMAP. This is a **within-EN-lineage developmental signal** — not
+neuron-vs-glia composition — so at the per-cell trajectory level it *revives* a maturation reading of
+C3 that the earlier mature-only ExN analyses had ruled out.
+
+**Honest caveat / reconciliation.** This is not in conflict with the earlier deflationary result
+([[project_c3_maturation]], FINAL_REPORT §0.7: within *already-mature* native ExN, C3⁺ has no age
+trend). The rise here is carried by the **immature→mature differentiation** that the full trajectory
+now spans (immature neurons have low C3⁺, mature high) — i.e. C3 tracks **maturation *state***, rising
+steeply through perinatal differentiation and then plateauing. The genuinely new, hypothesis-relevant
+piece is that C3⁺ keeps climbing **postnatally** (C3⁺~age ρ=0.54; C3⁺~pseudotime ρ=0.68 within
+postnatal cells), consistent with a continued post-differentiation maturation component — the next
+step is to test whether that postnatal climb is concentrated in the adolescent window and in
+upper-layer ExN, conditioning on differentiation state (pseudotime) to separate it from the perinatal
+jump.
+
+_(Methods note: DPT is the pseudotime here; Palantir/CellRank cross-validation at n=236k is pending a
+re-run — Palantir's auto multiscale-space and CellRank's PETSc-free fate solver needed scaling fixes;
+on the 75k manifold all three agreed, § above.)_
+
 ## Verdict & recommendation
 
 1. **No single marker cutoff defines young EN.** RBFOX3 over-counts (pan-neuronal), SLC17A7
