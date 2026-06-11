@@ -1,0 +1,49 @@
+# Config for code/trajectory/run_trajectory.py
+# Compares PAGA->DPT, PAGA->Palantir, PAGA->CellRank2 on a neuron manifold.
+# Outputs are written to  <manifold_dir>/<run_name>/  (i.e. next to integrated.h5ad).
+
+run_name: traj_compare
+
+# Manifolds produced by scripts/c3_maturation/s11_neuron_manifold.py
+# (each carries X_pca, the neighbor graph, X_diffmap, X_umap_pagainit, obs labels/age/
+#  signatures, expr_* markers, and uns['iroot']).
+datasets:
+  Velmeshev-V3:
+    manifold: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/Vel_prepost_noage_tuning5/scvi_output/trajectory/neuron_manifold.h5ad
+  PsychAD:
+    manifold: /home/rajd2/rds/rds-cam-psych-transc-Pb9UGUlrwWc/Cam_snRNAseq/integrated/PsychAD_noage_tuning5/scvi_output/trajectory/neuron_manifold.h5ad
+
+# How to choose the trajectory root (start cell): the cell maximizing this signature sum.
+root:
+  signatures: [Prog_sig, Imm_sig]   # progenitor/immature pole
+  use_uns_iroot: true               # prefer manifold's stored iroot if present
+
+# EN vs IN lineage definitions (used to map terminal states + age-correlation read-outs).
+lineage:
+  en_labels: [ExN, Immature_neuron]
+  in_labels: [InN]
+  label_col: cluster_vote
+
+# Shared graph / PAGA.
+neighbors:
+  use_rep: X_pca
+  n_neighbors: 50      # reuse manifold graph if present; else recompute with this
+paga:
+  groups: leiden_n
+
+# --- algorithm parameters ---
+dpt:
+  n_dcs: 10
+
+palantir:
+  n_diffusion_components: 10
+  knn: 30
+  num_waypoints: 1500
+  terminal_states: signature   # 'signature' (mature-EN/IN poles) or 'auto' (Palantir detects)
+
+cellrank:
+  pseudotime_weight: 0.8        # weight on PseudotimeKernel (DPT-directed)
+  connectivity_weight: 0.2      # weight on ConnectivityKernel (undirected)
+  n_macrostates: 8
+  n_terminal_states: auto       # 'auto' or an integer
+  schur_components: 12
