@@ -16,14 +16,15 @@ IMMATURE EXCITATORY cells (they express SLC17A7/SATB2, not GAD); true inhibitory
 neurons are the granular SST/PV/VIP/CALB2/CCK/INT labels. fine_to_broad() now
 special-cases this so the native reference panel is not misleading.
 
-Per dataset, across a developmental age window, stratified-subsampled:
-  - identify neurons+progenitors by pan-neuronal cluster-vote on the scVI latent;
-  - recompute the neuron-only embedding (scVI latent, batch-corrected);
+Per dataset, all ages, stratified-subsampled to ~300k cells:
+  - representation = PCA(30) on RAW COUNTS (one batch per dataset; no scVI);
+  - identify neurons+progenitors by pan-neuronal cluster-vote (Leiden, nn=50);
+  - recompute the neuron-only embedding on that PCA;
   - DPT pseudotime rooted at the progenitor/immature pole;
   - UMAP parameter sweep + PAGA-init + ForceAtlas2 + diffmap to show islands->continuum.
 
-SUBMIT:
-  sbatch --time=03:30:00 --mem=200G scripts/run_script.sh scripts/c3_maturation/s11_neuron_manifold.py
+SUBMIT (himem: ~300k cells):
+  sbatch --time=05:00:00 --mem=400G --partition=icelake-himem scripts/run_script.sh scripts/c3_maturation/s11_neuron_manifold.py
 """
 from pathlib import Path
 import sys, re
@@ -40,8 +41,9 @@ import matplotlib.pyplot as plt
 sys.path.insert(0, str(Path(__file__).parent))
 import _lib_c3 as L
 
-AGE_MAX = 40.0          # developmental window (focus on maturation, limit aging noise)
-MAX_CELLS = 200_000     # stratified subsample before clustering (tractable)
+AGE_MAX = 1000.0        # all ages (stratified subsample keeps the young/immature end represented)
+MAX_CELLS = 300_000     # stratified subsample before clustering
+NN = 50                 # n_neighbors for the neuron-manifold graph (user: increase to 50)
 SEED = 0
 
 ENS = {
@@ -193,11 +195,18 @@ def process(name, cfg):
     sub.obs["native_fine"] = sub.obs[nat_fine].astype(str) if nat_fine else "?"
     sub.obs["native_broad_fixed"] = fine_to_broad(sub.obs["native_fine"].values, dataset=name)
 
-    scvi = sub.obsm["X_scVI"] if "X_scVI" in sub.obsm else sub.obsm["X_scANVI"]
+    # ---- representation: PCA on RAW COUNTS (single batch per dataset; no scVI) ----
+    b = ad.AnnData(X.copy(), obs=sub.obs[[]].copy(), var=sub.var.copy())
+    sc.pp.normalize_total(b, target_sum=1e4); sc.pp.log1p(b)
+    sc.pp.highly_variable_genes(b, n_top_genes=2000)
+    b = b[:, b.var.highly_variable].copy()
+    sc.pp.scale(b, max_value=10); sc.tl.pca(b, n_comps=30)
+    rep = b.obsm["X_pca"]; del b
+    print(f"  representation = PCA(30) on raw counts (HVG 2000); no scVI", flush=True)
 
     # ---- 1. cluster ALL (subsampled) cells, vote neuron vs glia ----
-    sub.obsm["R"] = scvi
-    sc.pp.neighbors(sub, use_rep="R", n_neighbors=15)
+    sub.obsm["R"] = rep
+    sc.pp.neighbors(sub, use_rep="R", n_neighbors=NN)
     try:
         sc.tl.leiden(sub, resolution=1.5, flavor="igraph", n_iterations=2, directed=False, key_added="leiden_all")
     except Exception:
@@ -207,20 +216,20 @@ def process(name, cfg):
     print(f"  Leiden(all)={len(np.unique(leiden_all))} clusters; "
           f"neuron+prog kept = {keep.sum():,}/{len(keep):,} ({keep.mean():.1%})", flush=True)
     print(f"  kept sub-identity: {dict(pd.Series(sublab_all[keep]).value_counts())}", flush=True)
-    ct = pd.crosstab(sub.obs['native_broad_fixed'], pd.Series(np.where(keep, 'NEURON', 'glia'), name='kept'),
+    ct = pd.crosstab(sub.obs['native_broad_fixed'].values, np.where(keep, 'NEURON', 'glia'),
                      normalize='index').round(3)
-    print("  native_broad_fixed x kept:"); print(ct.to_string())
+    print("  native_broad_fixed x kept (row-normalized):"); print(ct.to_string())
 
-    # ---- 2. neuron subset: recompute embedding on batch-corrected scVI latent ----
+    # ---- 2. neuron subset: recompute embedding on the PCA representation ----
     nsub = sub[keep].copy()
-    nrep = scvi[keep]
+    nrep = rep[keep]
     nexpr = {k: v[keep] for k, v in expr.items()}
     nsig = sig[keep].reset_index(drop=True)
     nlab = sublab_all[keep]
     nage = age[idx][keep]
     # re-cluster within neurons for sub-identity coloring + PAGA
     nsub.obsm["R"] = nrep
-    sc.pp.neighbors(nsub, use_rep="R", n_neighbors=30)
+    sc.pp.neighbors(nsub, use_rep="R", n_neighbors=NN)
     try:
         sc.tl.leiden(nsub, resolution=1.0, flavor="igraph", n_iterations=2, directed=False, key_added="leiden_n")
     except Exception:
@@ -236,10 +245,10 @@ def process(name, cfg):
 
     # ---- 3. embeddings: default + parameter sweep + PAGA-init + diffmap + FA2 ----
     embeds = {}
-    embeds["UMAP default\n(nn=15, min_dist=0.5)"] = umap_coords(nrep, 15, 0.5)
+    embeds["UMAP local\n(nn=15, min_dist=0.5)"] = umap_coords(nrep, 15, 0.5)
     embeds["UMAP global\n(nn=50, min_dist=0.5)"] = umap_coords(nrep, 50, 0.5)
-    embeds["UMAP spread\n(nn=30, min_dist=0.9, spread=2)"] = umap_coords(nrep, 30, 0.9, spread=2.0)
-    embeds["UMAP PAGA-init\n(nn=30, graph-aware)"] = umap_coords(nrep, 30, 0.5, init="paga", paga_groups=leiden_n)
+    embeds["UMAP spread\n(nn=50, min_dist=0.9, spread=2)"] = umap_coords(nrep, 50, 0.9, spread=2.0)
+    embeds["UMAP PAGA-init\n(nn=50, graph-aware)"] = umap_coords(nrep, NN, 0.5, init="paga", paga_groups=leiden_n)
     # diffmap (DC1 vs DC2) — intrinsically continuous
     embeds["DiffusionMap\n(DC1 vs DC2)"] = nsub.obsm["X_diffmap"][:, 1:3]
     # ForceAtlas2 (optional; needs fa2)
@@ -255,7 +264,7 @@ def process(name, cfg):
             print(f"  draw_graph unavailable ({e2})", flush=True)
 
     tag = name.replace("-", "_").lower()
-    main_um = embeds["UMAP PAGA-init\n(nn=30, graph-aware)"]   # trajectory-friendly default for main fig
+    main_um = embeds["UMAP PAGA-init\n(nn=50, graph-aware)"]   # trajectory-friendly default for main fig
 
     # ---- Figure A: neuron manifold (PAGA-init UMAP) — identity, age, DPT, markers ----
     panel_markers = ["SOX2", "DCX", "STMN2", "NEUROD6", "RBFOX3", "SLC17A7", "SATB2", "GAD1"]
@@ -276,8 +285,9 @@ def process(name, cfg):
     for i, g in enumerate(panel_markers):
         r, c = 2 + i // 4, i % 4
         ax = fig.add_subplot(gs[r, c]); scatter_val(ax, main_um, nexpr[g], g, cmap="magma", s=3)
-    fig.suptitle(f"{name}: neuron+progenitor manifold (n={keep.sum():,}, age<{AGE_MAX:.0f}y) — "
-                 f"PAGA-init UMAP on scVI latent. Is it a continuous maturation spread?", y=0.995, fontsize=15)
+    fig.suptitle(f"{name}: neuron+progenitor manifold (n={keep.sum():,}, all ages) — "
+                 f"PAGA-init UMAP (nn={NN}) on PCA-of-counts. Is it a continuous maturation spread?",
+                 y=0.995, fontsize=15)
     fig.savefig(L.OUT_DIR / f"s11_neuron_manifold_{tag}.png", dpi=110, bbox_inches="tight"); plt.close(fig)
 
     # ---- Figure B: embedding/parameter sweep (islands -> continuum), coloured by DPT ----
@@ -289,7 +299,7 @@ def process(name, cfg):
         scatter_val(ax, um, dpt, ttl, cmap="plasma", s=3)
     for ax in axes[len(items):]:
         ax.axis("off")
-    fig2.suptitle(f"{name}: same neuron subset, different embeddings (colour=DPT pseudotime). "
+    fig2.suptitle(f"{name}: same neuron subset (PCA-of-counts), different embeddings (colour=DPT). "
                   f"n_neighbors / min_dist / spread / PAGA-init / diffmap control islands-vs-continuum",
                   y=1.0, fontsize=13)
     fig2.tight_layout(); fig2.savefig(L.OUT_DIR / f"s11_embedding_sweep_{tag}.png", dpi=115, bbox_inches="tight"); plt.close(fig2)
@@ -303,7 +313,36 @@ def process(name, cfg):
         "EN_sig": nsig["EN_sig"].values, "IN_sig": nsig["IN_sig"].values,
         "Imm_sig": nsig["Imm_sig"].values, "Prog_sig": nsig["Prog_sig"].values,
     }, index=nsub.obs_names).to_parquet(L.OUT_DIR / f"s11_{tag}_neurons.parquet")
-    print(f"  saved s11_neuron_manifold_{tag}.png, s11_embedding_sweep_{tag}.png, s11_{tag}_neurons.parquet", flush=True)
+
+    # ---- save a COMPACT neuron-manifold .h5ad next to integrated.h5ad (for trajectory pipeline) ----
+    # placeholder X (no gene matrix); representation in obsm, neighbor graph in obsp.
+    obs_export = pd.DataFrame({
+        "native_fine": nsub.obs["native_fine"].values,
+        "native_broad_fixed": nsub.obs["native_broad_fixed"].values,
+        "cluster_vote": nlab, "leiden_n": np.asarray(leiden_n).astype(str),
+        "age": nage, "dpt_seed": dpt,
+        "EN_sig": nsig["EN_sig"].values, "IN_sig": nsig["IN_sig"].values,
+        "Imm_sig": nsig["Imm_sig"].values, "Prog_sig": nsig["Prog_sig"].values,
+        "Pan_sig": nsig["Pan_sig"].values, "Glia_sig": nsig["Glia_sig"].values,
+    }, index=nsub.obs_names)
+    for g in ENS:  # key marker expression (log1p CPM) for coloring/diagnostics
+        obs_export[f"expr_{g}"] = nexpr[g]
+    exp = ad.AnnData(X=sp.csr_matrix((len(nlab), 1), dtype="float32"), obs=obs_export)
+    exp.obsm["X_pca"] = np.asarray(nrep)
+    exp.obsm["X_diffmap"] = np.asarray(nsub.obsm["X_diffmap"])
+    exp.obsm["X_umap_pagainit"] = np.asarray(main_um)
+    # carry the neighbor graph (computed on X_pca, nn=NN) so PAGA/CellRank can reuse it
+    exp.obsp["connectivities"] = nsub.obsp["connectivities"]
+    exp.obsp["distances"] = nsub.obsp["distances"]
+    exp.uns["neighbors"] = nsub.uns["neighbors"]
+    exp.uns["iroot"] = int(nsub.uns["iroot"])
+    exp.uns["manifold_meta"] = {"dataset": name, "n_neighbors": NN, "representation": "PCA30_on_counts",
+                                "n_cells": int(len(nlab)), "age_max": AGE_MAX}
+    tdir = Path(cfg["path"]).parent / "trajectory"
+    tdir.mkdir(parents=True, exist_ok=True)
+    exp.write(tdir / "neuron_manifold.h5ad")
+    print(f"  saved s11_neuron_manifold_{tag}.png, s11_embedding_sweep_{tag}.png, "
+          f"s11_{tag}_neurons.parquet, {tdir}/neuron_manifold.h5ad", flush=True)
 
 
 def main():

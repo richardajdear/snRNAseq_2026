@@ -18,9 +18,10 @@ set -euo pipefail
 
 SCRIPT="${1:-}"
 if [[ -z "$SCRIPT" ]]; then
-    echo "Usage: $0 <path/to/script.py>" >&2
+    echo "Usage: $0 <path/to/script.py> [script args...]" >&2
     exit 1
 fi
+shift  # remaining args ("$@") are forwarded to the python script
 
 if [[ "$SCRIPT" != /* ]]; then
     SCRIPT="/home/rajd2/rds/hpc-work/snRNAseq_2026/${SCRIPT}"
@@ -45,7 +46,7 @@ stdbuf -oL -eL singularity exec \
     --env "PYTHONUNBUFFERED=1" \
     "$SIF" \
     micromamba run -n "$CONDA_ENV" \
-    "$PYTHON_BIN" -u "$SCRIPT"
+    "$PYTHON_BIN" -u "$SCRIPT" "$@"
 
 _ELAPSED=$(( $(date +%s) - _JOB_START ))
 _MAX_RSS_GB="N/A"

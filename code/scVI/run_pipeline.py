@@ -33,34 +33,38 @@ from .visualize import compute_umaps, plot_umap_grids, plot_pca_grids, plot_exci
 from pipeline.label_transfer.transfer import aligned_to_class
 
 
-def _write_adata_chunked(adata, path, chunk_rows=10_000, logger=None):
-    """Write adata to h5ad, writing np.memmap layers in row-chunks via h5py.
+def _write_adata_chunked(adata, path, chunk_rows=10_000, logger=None, large_layer_names=None):
+    """Write adata to h5ad, writing specified large layers in row-chunks via h5py.
 
-    adata.write_h5ad() calls numpy.asarray(layer) which loads an entire memmap
-    into RAM. This function detects memmap layers, writes everything else via
-    anndata, then appends the large layers incrementally using h5py directly.
-    Peak RAM per layer is chunk_rows × n_genes × 4 bytes (~600 MB at 10k rows).
+    anndata's IORegistry uses exact type matching and does not recognise
+    np.memmap as np.ndarray, so adata.write_h5ad() raises IORegistryError on
+    any memmap layer. This function deletes those layers before write_h5ad(),
+    then appends them incrementally via h5py (peak RAM ≈ chunk_rows × n_genes × 4 bytes).
+
+    large_layer_names: explicit list of layer names to write via h5py. Callers
+    pass this instead of relying on isinstance detection, which anndata may
+    defeat by converting the stored object type.
     """
     import h5py
 
-    memmap_layers = {k: v for k, v in adata.layers.items()
-                     if isinstance(v, np.memmap)}
-
-    if not memmap_layers:
+    # Resolve which layers actually need the chunked-h5py path
+    candidate_names = [k for k in (large_layer_names or []) if k in adata.layers]
+    if not candidate_names:
         adata.write_h5ad(str(path))
         return
 
-    for k in memmap_layers:
+    large_layers = {k: adata.layers[k] for k in candidate_names}
+    for k in candidate_names:
         del adata.layers[k]
     try:
         adata.write_h5ad(str(path))
     finally:
-        for k, v in memmap_layers.items():
+        for k, v in large_layers.items():
             adata.layers[k] = v
 
     with h5py.File(str(path), 'a') as h5f:
         layers_grp = h5f.require_group('layers')
-        for lname, arr in memmap_layers.items():
+        for lname, arr in large_layers.items():
             n_rows, n_cols = arr.shape
             ds = layers_grp.create_dataset(
                 lname, shape=(n_rows, n_cols), dtype='float32',
@@ -193,6 +197,7 @@ def run(config: PipelineConfig):
 
     adata = None
     adata_scvi = None
+    _large_layer_names: list = []  # layers written as memmaps; passed to _write_adata_chunked
 
     # --- PREP ---
     needs_data = any(s in steps for s in ["prep", "train_scvi", "train_scanvi", "infer"])
@@ -402,6 +407,7 @@ def run(config: PipelineConfig):
                     layer_name=config.output_layer_scvi,
                     temp_dir=_temp_dir,
                 )
+            _large_layer_names.append(config.output_layer_scvi)
             log_memory("After scVI inference", logger)
 
         # scANVI inference (optional)
@@ -439,7 +445,12 @@ def run(config: PipelineConfig):
                         f"cell_type_aligned: {adata.obs['cell_type_aligned'].nunique()} types"
                     )
                     _update_cell_class_from_aligned(adata, logger)
-                    save_checkpoint(adata, str(config.output_h5ad_path), logger)
+                    with Timer(f"Saving to {config.output_h5ad_path}", logger):
+                        _write_adata_chunked(
+                            adata, config.output_h5ad_path, chunk_rows=10_000,
+                            logger=logger, large_layer_names=_large_layer_names,
+                        )
+                    logger.info(f"Saved: {adata.shape}")
 
             with Timer("scANVI inference", logger):
                 get_normalized_expression(
@@ -452,6 +463,7 @@ def run(config: PipelineConfig):
                     layer_name=config.output_layer_scanvi,
                     temp_dir=_temp_dir,
                 )
+            _large_layer_names.append(config.output_layer_scanvi)
             log_memory("After scANVI inference", logger)
 
     # --- UMAP ---
@@ -470,7 +482,10 @@ def run(config: PipelineConfig):
     # --- SAVE ---
     if "save" in steps and adata is not None:
         with Timer(f"Saving to {config.output_h5ad_path}", logger):
-            _write_adata_chunked(adata, config.output_h5ad_path, chunk_rows=10_000, logger=logger)
+            _write_adata_chunked(
+                adata, config.output_h5ad_path, chunk_rows=10_000,
+                logger=logger, large_layer_names=_large_layer_names,
+            )
         logger.info(f"Saved: {adata.shape}")
         _export_pca_loadings_csv(adata, config, logger)
 
